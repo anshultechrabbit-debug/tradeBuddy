@@ -1,0 +1,33 @@
+# dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# build output
+dist/
+client/dist/
+server/dist/
+
+# environment (real secrets stay local)
+.env
+.env.local
+.env.production
+
+# prisma generated client
+server/node_modules/.prisma/
+server/src/generated/
+
+# local postgres data (if a project-local cluster is ever used)
+.postgres-data/
+
+# logs
+*.log
+npm-debug.log*
+
+# test / coverage
+coverage/
+server/coverage/
+
+# OS
+.DS_Store
+Thumbs.db
