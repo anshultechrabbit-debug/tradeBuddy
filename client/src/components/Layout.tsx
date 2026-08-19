@@ -1,41 +1,88 @@
 import type { ReactNode } from 'react';
+import { NavLink } from 'react-router-dom';
 import { useAppSelector } from '../store/hooks';
+
+const NAV_LINKS = [
+  { to: '/dashboard', label: 'Dashboard' },
+  { to: '/radar', label: 'Opportunity Radar' },
+  { to: '/portfolio', label: 'Portfolio' },
+  { to: '/watchlist', label: 'Watchlist' },
+  { to: '/market', label: 'Market' },
+  { to: '/strategy', label: 'Strategy' },
+  { to: '/alerts', label: 'Alerts' },
+  { to: '/journal', label: 'Trade Journal' },
+  { to: '/settings', label: 'Settings' },
+];
+
+const ADMIN_LINKS = [
+  { to: '/admin/users', label: 'Users' },
+  { to: '/admin/system-health', label: 'System Health' },
+  { to: '/admin/brokers', label: 'Broker Connections' },
+  { to: '/admin/compliance', label: 'Compliance' },
+  { to: '/admin/scan-universe', label: 'Scan Universe' },
+];
+
+function initials(name?: string | null, email?: string) {
+  const src = name?.trim() || email || '?';
+  const parts = src.split(/[\s@]+/).filter(Boolean);
+  const first = parts[0]?.[0] ?? '?';
+  const last = parts[1]?.[0] ?? '';
+  return (first + last).toUpperCase();
+}
 
 export function Layout({ children }: { children: ReactNode }) {
   const user = useAppSelector((s) => s.auth.user);
   const isAdmin = user?.role === 'ADMIN';
+
   return (
     <div className="layout">
-      <aside className="sidebar">
-        <div className="sidebar-brand">
-          <span className="brand-dot" /> TradeBuddy
+      <header className="topbar">
+        <div className="topbar-inner">
+          <NavLink to="/dashboard" className="topbar-brand">
+            <span className="brand-logo">⚡</span>
+            <span>TradeBuddy</span>
+          </NavLink>
+          <nav className="topbar-nav">
+            {NAV_LINKS.map((l) => (
+              <NavLink
+                key={l.to}
+                to={l.to}
+                end={l.to === '/dashboard'}
+                className={({ isActive }) => `topbar-link${isActive ? ' active' : ''}`}
+              >
+                {l.label}
+              </NavLink>
+            ))}
+          </nav>
+          <div className="topbar-right">
+            {isAdmin ? (
+              <NavLink
+                to="/admin/users"
+                className={({ isActive }) => `topbar-link${isActive ? ' active' : ''}`}
+              >
+                Admin
+              </NavLink>
+            ) : null}
+            <div className="topbar-user">
+              <span className="avatar">{initials(user?.fullName, user?.email)}</span>
+              <span className="user-email">{user?.email}</span>
+            </div>
+          </div>
         </div>
-        <nav className="sidebar-nav">
-          <a href="/dashboard" className="nav-link">Dashboard</a>
-          <a href="/radar" className="nav-link">Opportunity Radar</a>
-          <a href="/portfolio" className="nav-link">Portfolio</a>
-          <a href="/watchlist" className="nav-link">Watchlist</a>
-          <a href="/market" className="nav-link">Market</a>
-          <a href="/strategy" className="nav-link">Strategy</a>
-          <a href="/alerts" className="nav-link">Alerts</a>
-          <a href="/journal" className="nav-link">Trade Journal</a>
-          <a href="/settings" className="nav-link">Settings</a>
-          {isAdmin ? (
-            <>
-              <div className="nav-section">Admin</div>
-              <a href="/admin/users" className="nav-link">Users</a>
-              <a href="/admin/system-health" className="nav-link">System Health</a>
-              <a href="/admin/brokers" className="nav-link">Broker Connections</a>
-              <a href="/admin/compliance" className="nav-link">Compliance</a>
-              <a href="/admin/scan-universe" className="nav-link">Scan Universe</a>
-            </>
-          ) : null}
-        </nav>
-        <div className="sidebar-user">
-          <div className="user-email">{user?.email}</div>
-          <div className="user-role">{user?.role}</div>
-        </div>
-      </aside>
+        {isAdmin ? (
+          <div className="topbar-admin">
+            {ADMIN_LINKS.map((l) => (
+              <NavLink
+                key={l.to}
+                to={l.to}
+                className={({ isActive }) => `topbar-link${isActive ? ' active' : ''}`}
+              >
+                {l.label}
+              </NavLink>
+            ))}
+          </div>
+        ) : null}
+      </header>
       <main className="main">{children}</main>
     </div>
   );

@@ -65,6 +65,36 @@ export class JugaadAdapter {
     return Array.isArray(data) ? data : [];
   }
 
+  async getTopStocks() {
+    const data = await this.client.call('top_stocks', {});
+    return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  }
+
+  async getIntradayCandles(symbol, exchange = 'NSE', duration = '5m', days = 1) {
+    if (String(exchange).toUpperCase() !== 'NSE') return [];
+    const data = await this.client.call('intraday', { symbol, duration, days });
+    const rows = Array.isArray(data) ? data : [];
+    return rows
+      .map((c) => {
+        const ts = c.ts ? new Date(c.ts) : null;
+        if (!ts || Number.isNaN(ts.getTime())) return null;
+        return {
+          date: ts,
+          ts,
+          open: Number(c.open),
+          high: Number(c.high),
+          low: Number(c.low),
+          close: Number(c.close),
+          volume: Math.round(Number(c.volume) || 0),
+          symbol,
+          exchange,
+          timeframe: duration,
+          source: this.name,
+        };
+      })
+      .filter(Boolean);
+  }
+
   async getOptionChain(symbol, { expiry } = {}) {
     return this.client.call('option_chain', { symbol, expiry });
   }

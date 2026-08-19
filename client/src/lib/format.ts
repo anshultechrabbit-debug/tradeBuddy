@@ -20,6 +20,30 @@ export function formatPct(value: number | null | undefined, digits = 2): string 
   return `${value > 0 ? '+' : ''}${value.toFixed(digits)}%`;
 }
 
+export function formatCompact(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return '—';
+  const abs = Math.abs(value);
+  if (abs >= 1e7) return `${(value / 1e7).toFixed(2)}Cr`;
+  if (abs >= 1e5) return `${(value / 1e5).toFixed(2)}L`;
+  if (abs >= 1e3) return `${(value / 1e3).toFixed(1)}K`;
+  return `${value.toFixed(0)}`;
+}
+
+export function formatTimeAgo(value: string | number | Date | null | undefined): string {
+  if (!value) return '—';
+  const ms = new Date(value).getTime();
+  if (Number.isNaN(ms)) return '—';
+  const diff = Math.max(0, Date.now() - ms);
+  const s = Math.floor(diff / 1000);
+  if (s < 5) return 'just now';
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return new Date(value).toLocaleDateString('en-IN', { dateStyle: 'medium' });
+}
+
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) return '—';
   const d = new Date(value);

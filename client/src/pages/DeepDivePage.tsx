@@ -1,27 +1,71 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
-import type { DeepDive } from '../lib/types';
+import type { DeepDive, MarketQuote } from '../lib/types';
 import { Card, Badge, Spinner, EmptyState, ProgressBar, ErrorBox } from '../components/ui';
-import { formatCurrency, formatNumber, formatPct, signalBadgeClass, regimeBadgeClass } from '../lib/format';
+import { formatCurrency, formatNumber, formatPct, formatTimeAgo, signalBadgeClass, regimeBadgeClass } from '../lib/format';
 import { useFetch } from '../hooks/useFetch';
+import { CandleChart } from '../components/CandleChart';
 
 export function DeepDivePage() {
   const { symbol } = useParams<{ symbol: string }>();
   const { data, loading, error, load } = useFetch<DeepDive>(() =>
     apiClient.get(`/radar/symbols/${symbol}/detail`).then((r) => r.data)
   );
+  const [quote, setQuote] = useState<MarketQuote | null>(null);
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol]);
 
+  useEffect(() => {
+    if (!symbol) return;
+    let cancelled = false;
+    async function fetchQuote() {
+      try {
+        const q = await apiClient.get<MarketQuote>(`/market/quote/${symbol}`);
+        if (!cancelled) setQuote(q.data);
+      } catch {
+        // quote polling is best-effort; the header falls back to detail data
+      }
+    }
+    fetchQuote();
+    const timer = setInterval(() => {
+      apiClient.get<MarketQuote>(`/market/quote/${symbol}`).then((r) => !cancelled && setQuote(r.data));
+    }, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [symbol]);
+
+  const livePrice = quote?.lastPrice ?? data?.lastPrice;
+  const changePct = quote?.changePct;
+  const up = changePct != null && changePct >= 0;
+  const liveTone = changePct == null ? '' : up ? 'text-positive' : 'text-negative';
+  const updatedAt = quote?.sourceTimestamp ?? quote?.receivedAt ?? null;
+
   return (
     <div className="page">
       <header className="page-header">
-        <h1>Deep Dive · {symbol}</h1>
-        {data ? <Badge className={signalBadgeClass(data.signal)}>{data.signal}</Badge> : null}
+        <div>
+          <div className="symbol-header">
+            <h1 className="symbol-name">{symbol}</h1>
+            {data ? <Badge className={signalBadgeClass(data.signal)}>{data.signal}</Badge> : null}
+          </div>
+          {livePrice != null ? (
+            <p className="symbol-price">
+              <span className={liveTone}>{formatCurrency(livePrice)}</span>
+              {changePct != null ? <span className={liveTone}> · {formatPct(changePct)}</span> : null}
+            </p>
+          ) : null}
+        </div>
+        {updatedAt ? (
+          <span className="live-badge">
+            <span className="live-dot" /> Updated {formatTimeAgo(updatedAt)}
+          </span>
+        ) : null}
       </header>
 
       {error ? <ErrorBox message={error} onRetry={load} /> : null}
@@ -29,8 +73,10 @@ export function DeepDivePage() {
         <Spinner label="Analyzing…" />
       ) : data ? (
         <>
+          {symbol ? <CandleChart symbol={symbol} livePrice={livePrice} lastUpdated={updatedAt} /> : null}
+
           <div className="stat-grid">
-            <Stat label="Last Price" value={formatCurrency(data.lastPrice)} />
+            <Stat label="Last Price" value={formatCurrency(livePrice)} />
             <Stat label="Conviction" value={<span>{data.convictionScore}/100</span>} sub={<ProgressBar value={data.convictionScore} />} />
             <Stat label="Regime" value={<Badge className={regimeBadgeClass(data.regime)}>{data.regime}</Badge>} />
             <Stat label="RSI(14)" value={formatNumber(data.features.rsi14)} />

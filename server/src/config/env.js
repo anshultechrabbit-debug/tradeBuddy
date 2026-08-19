@@ -56,8 +56,8 @@ export const config = Object.freeze({
     retries: Number(process.env.MARKET_DATA_RETRIES || 1),
     rateLimitPerMinute: Number(process.env.MARKET_DATA_RATE_LIMIT_PER_MINUTE || 30),
     cacheTtlMs: Number(process.env.MARKET_DATA_CACHE_TTL_MS || 60 * 60 * 1000),
-    staleAfterMs: Number(process.env.MARKET_DATA_STALE_AFTER_MS || 24 * 60 * 60 * 1000),
-    liveTtlMs: Number(process.env.MARKET_DATA_LIVE_TTL_MS || 5 * 1000),
+    staleAfterMs: Number(process.env.MARKET_DATA_STALE_AFTER_MS || 72 * 60 * 60 * 1000),
+    liveTtlMs: Number(process.env.MARKET_DATA_LIVE_TTL_MS || 2 * 1000),
     pythonBin: process.env.PYTHON_BIN || 'python3.12',
   },
   llm: {

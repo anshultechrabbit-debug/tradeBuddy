@@ -1,95 +1,265 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { fetchIndices, fetchBreadth, fetchQuotes } from '../store/marketSlice';
-import { Card, Table, Badge, Spinner, EmptyState, ErrorBox } from '../components/ui';
-import { formatCurrency, formatPct, formatNumber } from '../lib/format';
+import { fetchIndices, fetchQuotes, fetchAllQuotes, fetchTopStocks, fetchLiveBySymbols } from '../store/marketSlice';
+import { Spinner, ErrorBox, EmptyState } from '../components/ui';
+import { formatCurrency, formatPct, formatNumber, formatCompact, formatTimeAgo } from '../lib/format';
+
+type Tab = 'nifty' | 'all';
+type SortKey = 'symbol' | 'name' | 'lastPrice' | 'change' | 'changePct' | 'volume';
+
+const INDEX_NAMES: Record<string, string> = {
+  NIFTY: 'NIFTY 50',
+  NIFTYBANK: 'NIFTY BANK',
+  SENSEX: 'SENSEX',
+  FINNIFTY: 'FINNIFTY',
+};
+
+function liveBadge(lastUpdated: number | null) {
+  if (!lastUpdated) return <span className="live-dot" />;
+  const seconds = Math.max(0, Math.round((Date.now() - lastUpdated) / 1000));
+  return (
+    <span className="live-badge">
+      <span className="live-dot" /> LIVE · {seconds}s ago
+    </span>
+  );
+}
+
+function TopMoverList({ title, items }: { title: string; items: { symbol: string; lastPrice: number | null; changePct: number | null }[] }) {
+  if (!items.length) {
+    return (
+      <div className="topmover-card">
+        <div className="topmover-title">{title}</div>
+        <div className="muted small">No data right now</div>
+      </div>
+    );
+  }
+  return (
+    <div className="topmover-card">
+      <div className="topmover-title">{title}</div>
+      {items.slice(0, 6).map((s) => (
+        <Link key={s.symbol} to={`/radar/${s.symbol}`} className="topmover-row">
+          <span className="strong">{s.symbol}</span>
+          <span className="topmover-metrics">
+            <span>{s.lastPrice != null ? formatCurrency(s.lastPrice) : '—'}</span>
+            <span className={s.changePct != null && s.changePct >= 0 ? 'text-positive' : 'text-negative'}>
+              {formatPct(s.changePct)}
+            </span>
+          </span>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function SortHeader({ label, k, sort, onSort }: { label: string; k: SortKey; sort: { key: SortKey; dir: 1 | -1 }; onSort: (k: SortKey) => void }) {
+  return (
+    <th className="sortable">
+      <button type="button" className="sort-btn" onClick={() => onSort(k)}>
+        {label}
+        <span className="sort-arrow">{sort.key === k ? (sort.dir === 1 ? '▲' : '▼') : '·'}</span>
+      </button>
+    </th>
+  );
+}
 
 export function MarketPage() {
   const dispatch = useAppDispatch();
-  const { indices, breadth, quotes, loading, error } = useAppSelector((s) => s.market);
+  const { indices, quotes, allQuotes, liveDetail, top, error, lastUpdated } = useAppSelector((s) => s.market);
+  const [tab, setTab] = useState<Tab>('nifty');
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'changePct', dir: -1 });
+  const visibleKeyRef = useRef<string | null>(null);
+  const visibleSymbolsRef = useRef<string[]>([]);
 
   useEffect(() => {
     dispatch(fetchIndices());
-    dispatch(fetchBreadth());
-    dispatch(fetchQuotes(150));
+    dispatch(fetchQuotes(60));
+    dispatch(fetchAllQuotes());
+    dispatch(fetchTopStocks());
+
+    const indicesTimer = setInterval(() => dispatch(fetchIndices()), 2000);
+    const quotesTimer = setInterval(() => dispatch(fetchQuotes(60)), 2000);
+    const topTimer = setInterval(() => dispatch(fetchTopStocks()), 2000);
+    const liveTimer = setInterval(() => {
+      if (visibleSymbolsRef.current.length) dispatch(fetchLiveBySymbols(visibleSymbolsRef.current));
+    }, 2000);
+    return () => {
+      clearInterval(indicesTimer);
+      clearInterval(quotesTimer);
+      clearInterval(topTimer);
+      clearInterval(liveTimer);
+    };
   }, [dispatch]);
+
+  const merged = useMemo(() => {
+    if (!allQuotes.length) return quotes;
+    const live = new Map(quotes.map((q) => [q.symbol, q]));
+    return allQuotes.map((q) => live.get(q.symbol) ?? liveDetail[q.symbol] ?? q);
+  }, [quotes, allQuotes, liveDetail]);
+
+  const visible = useMemo(() => {
+    const q = query.trim().toUpperCase();
+    const base = q ? merged : tab === 'nifty' ? quotes.slice(0, 50) : merged;
+    const filtered = q
+      ? base.filter((r) => r.symbol.toUpperCase().includes(q) || (r.name ?? '').toUpperCase().includes(q))
+      : base;
+    const sorted = [...filtered].sort((a, b) => {
+      const { key, dir } = sort;
+      let av: number | string;
+      let bv: number | string;
+      if (key === 'symbol') {
+        av = a.symbol;
+        bv = b.symbol;
+      } else if (key === 'name') {
+        av = (a.name ?? '').toLowerCase();
+        bv = (b.name ?? '').toLowerCase();
+      } else {
+        av = a[key] ?? Number.NEGATIVE_INFINITY;
+        bv = b[key] ?? Number.NEGATIVE_INFINITY;
+      }
+      if (av === bv) return 0;
+      const cmp = av < bv ? -1 : 1;
+      return cmp * dir;
+    });
+    return sorted;
+  }, [quotes, merged, allQuotes, tab, query, sort]);
+
+  useEffect(() => {
+    const symbols = [...new Set(visible.slice(0, 100).map((q) => q.symbol))];
+    const key = symbols.join('|');
+    if (key !== visibleKeyRef.current) {
+      visibleKeyRef.current = key;
+      visibleSymbolsRef.current = symbols;
+      dispatch(fetchLiveBySymbols(symbols));
+    }
+  }, [visible, dispatch]);
+
+  const movers = useMemo(() => {
+    const byPct = (dir: 1 | -1) =>
+      quotes
+        .filter((q) => q.lastPrice != null && q.changePct != null)
+        .sort((a, b) => ((a.changePct ?? 0) - (b.changePct ?? 0)) * dir)
+        .slice(0, 6)
+        .map((q) => ({ symbol: q.symbol, lastPrice: q.lastPrice, changePct: q.changePct }));
+    const gainers = top?.gainers?.length ? top.gainers.map((g) => ({ symbol: g.symbol, lastPrice: g.lastPrice, changePct: g.changePct })) : byPct(-1);
+    const losers = top?.losers?.length ? top.losers.map((g) => ({ symbol: g.symbol, lastPrice: g.lastPrice, changePct: g.changePct })) : byPct(1);
+    const active = top?.activeByVolume?.length
+      ? top.activeByVolume.map((g) => ({ symbol: g.symbol, lastPrice: g.lastPrice, changePct: g.changePct }))
+      : quotes
+          .filter((q) => q.volume != null)
+          .sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0))
+          .slice(0, 6)
+          .map((q) => ({ symbol: q.symbol, lastPrice: q.lastPrice, changePct: q.changePct }));
+    return { gainers, losers, active };
+  }, [quotes, top]);
+
+  function onSort(k: SortKey) {
+    setSort((s) => (s.key === k ? { key: k, dir: s.dir === 1 ? -1 : 1 } : { key: k, dir: -1 }));
+  }
 
   return (
     <div className="page">
       <header className="page-header">
-        <h1>Market</h1>
-        <p className="muted">Live quotes &amp; indices from external sources (nselib / jugaad / nse-archives)</p>
+        <div>
+          <h1>Markets</h1>
+          <p className="muted">Live NSE quotes — updates every few seconds from the NSE API</p>
+        </div>
+        {liveBadge(lastUpdated)}
       </header>
 
       {error ? <ErrorBox message={error} /> : null}
 
-      <Card title="Market Indices">
+      <div className="ticker-strip">
         {indices.length === 0 ? (
           <Spinner />
         ) : (
-          <div className="index-list">
-            {indices.map((idx) => (
-              <div key={idx.symbol} className="index-row">
-                <div>
-                  <div className="strong">{idx.symbol}</div>
-                  <div className="muted small">{idx.instrumentType}</div>
+          indices.map((idx) => {
+            const up = idx.changePct >= 0;
+            return (
+              <div key={idx.symbol} className="ticker-card">
+                <div className="ticker-name">{INDEX_NAMES[idx.symbol] ?? idx.symbol}</div>
+                <div className={up ? 'ticker-value text-positive' : 'ticker-value text-negative'}>{formatNumber(idx.level)}</div>
+                <div className={up ? 'text-positive small' : 'text-negative small'}>
+                  {formatPct(idx.changePct)} <span className="muted">·</span> {formatCurrency(idx.change)}
                 </div>
-                <div className="ta-right">
-                  <div className="strong">{formatNumber(idx.level)}</div>
-                  <div className={idx.changePct >= 0 ? 'text-positive small' : 'text-negative small'}>{formatPct(idx.changePct)}</div>
-                </div>
+                {idx.source ? <div className="muted ticker-updated">Updated {formatTimeAgo(idx.source)}</div> : null}
               </div>
-            ))}
-          </div>
+            );
+          })
         )}
-      </Card>
+      </div>
 
-      <Card title="Market Breadth">
-        {breadth ? (
-          <div className="breadth-box">
-            <div className="breadth-stats">
-              <span className="text-positive">Advancing {breadth.advancing}</span>
-              <span className="text-negative">Declining {breadth.declining}</span>
-              <span>Unchanged {breadth.unchanged}</span>
-            </div>
-            <div className="breadth-bar">
-              <div className="breadth-adv" style={{ width: `${(breadth.advancing / Math.max(1, breadth.total)) * 100}%` }} />
-              <div className="breadth-dec" style={{ width: `${(breadth.declining / Math.max(1, breadth.total)) * 100}%` }} />
-            </div>
-            <div className="muted small">Above SMA50: {formatPct(breadth.breadthPctAboveSma50)} · Above SMA20: {formatPct(breadth.breadthPctAboveSma20)}</div>
-          </div>
-        ) : (
-          <EmptyState title="No breadth data" />
-        )}
-      </Card>
+      <div className="topmover-grid">
+        <TopMoverList title="Top Gainers" items={movers.gainers} />
+        <TopMoverList title="Top Losers" items={movers.losers} />
+        <TopMoverList title="Most Active" items={movers.active} />
+      </div>
 
-      <Card title={`Market Quotes (${quotes.length})`}>
-        {loading && quotes.length === 0 ? (
-          <Spinner />
-        ) : quotes.length > 0 ? (
-          <Table headers={['Symbol', 'Name', 'Sector', 'LTP', 'Change', 'Change %', 'Volume', 'Source']}>
-            {quotes.map((q) => (
-              <tr key={q.symbol}>
-                <td className="strong">
-                  <Link to={`/radar/${q.symbol}`}>{q.symbol}</Link>
-                </td>
-                <td className="muted small">{q.name ?? '—'}</td>
-                <td className="muted small">{q.sector ?? '—'}</td>
-                <td>{q.lastPrice != null ? formatCurrency(q.lastPrice) : '—'}</td>
-                <td className={q.change != null && q.change >= 0 ? 'text-positive' : 'text-negative'}>{q.change != null ? formatCurrency(q.change) : '—'}</td>
-                <td className={q.changePct != null && q.changePct >= 0 ? 'text-positive' : 'text-negative'}>{q.changePct != null ? formatPct(q.changePct) : '—'}</td>
-                <td className="muted small">{q.volume != null ? formatNumber(q.volume) : '—'}</td>
-                <td>
-                  <Badge className="badge badge-muted">{q.source ?? q.dataSource ?? '—'}</Badge>
-                </td>
-              </tr>
-            ))}
-          </Table>
-        ) : (
-          <EmptyState title="No quotes yet" hint="Run a scan or refresh after the first backfill completes" />
-        )}
-      </Card>
+      <div className="market-toolbar">
+        <div className="tabs">
+          <button type="button" className={tab === 'nifty' ? 'tab tab-active' : 'tab'} onClick={() => setTab('nifty')}>
+            NIFTY 50 <span className="muted">Live</span>
+          </button>
+          <button type="button" className={tab === 'all' ? 'tab tab-active' : 'tab'} onClick={() => setTab('all')}>
+            All Stocks <span className="muted">{allQuotes.length ? `(${allQuotes.length})` : ''}</span>
+          </button>
+        </div>
+        <div className="search-box">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search symbol or company…"
+            autoComplete="off"
+          />
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="table-wrap">
+          {visible.length === 0 ? (
+            <EmptyState title="No quotes yet" hint="Polling the NSE live API — check back in a moment" />
+          ) : (
+            <table className="table">
+              <thead>
+                <tr>
+                  <SortHeader label="Symbol" k="symbol" sort={sort} onSort={onSort} />
+                  <SortHeader label="Company" k="name" sort={sort} onSort={onSort} />
+                  <SortHeader label="LTP" k="lastPrice" sort={sort} onSort={onSort} />
+                  <SortHeader label="Change" k="change" sort={sort} onSort={onSort} />
+                  <SortHeader label="Chg %" k="changePct" sort={sort} onSort={onSort} />
+                  <SortHeader label="Volume" k="volume" sort={sort} onSort={onSort} />
+                </tr>
+              </thead>
+              <tbody>
+                {visible.slice(0, 100).map((q) => {
+                  const up = q.changePct != null && q.changePct >= 0;
+                  const tone = q.changePct == null ? '' : up ? 'text-positive' : 'text-negative';
+                  return (
+                    <tr key={q.symbol}>
+                      <td className="strong">
+                        <Link to={`/radar/${q.symbol}`}>{q.symbol}</Link>
+                      </td>
+                      <td className="muted">{q.name ?? '—'}</td>
+                      <td className="strong">{q.lastPrice != null ? formatCurrency(q.lastPrice) : '—'}</td>
+                      <td className={tone}>{q.change != null ? formatCurrency(q.change) : '—'}</td>
+                      <td className={tone}>{q.changePct != null ? formatPct(q.changePct) : '—'}</td>
+                      <td className="muted">{q.volume != null ? formatCompact(q.volume) : '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {visible.length > 100 ? (
+        <div className="muted small ta-right">Showing top 100 of {visible.length} results · search to narrow down</div>
+      ) : null}
     </div>
   );
 }
+
+export default MarketPage;

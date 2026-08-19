@@ -49,6 +49,39 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
     };
     this._liveCache = new Map();
     this._liveTtlMs = config.externalMarketData.liveTtlMs;
+    this._indexCache = { at: 0, data: null };
+    this._candleCache = new Map();
+    this._candleTtlMs = 15 * 60 * 1000;
+    this._breadthCache = { at: 0, data: null };
+    this._breadthTtlMs = 5 * 60 * 1000;
+    this._breadthInFlight = null;
+    this._intradayCache = new Map();
+    this._intradayTtlMs = 10 * 1000;
+    this._warmUp();
+  }
+
+  /**
+   * Pre-warms the expensive caches (indices, breadth, top-60 candles) in the
+   * background so the first user request (deep dive / scan / market) is fast
+   * instead of blocking on a cold breadth computation.
+   */
+  async _warmUp() {
+    const jobs = [this.getIndexData(), this.getMarketBreadth()];
+    try {
+      const universe = await prisma.scanUniverse.findMany({
+        where: { enabled: true, excluded: false, instrumentType: 'EQUITY' },
+        orderBy: { priority: 'asc' },
+        take: 60,
+        select: { symbol: true, exchange: true },
+      });
+      for (const u of universe) {
+        jobs.push(this.getCandles(u.symbol, '1d', 60, u.exchange));
+      }
+    } catch (err) {
+      logInfra('warn', 'market-data-external', `warm-up universe fetch failed: ${err.message}`);
+    }
+    await Promise.allSettled(jobs);
+    logInfra('info', 'market-data-external', 'warm-up complete: indices + breadth + top candles cached');
   }
 
   _liveFromCache(symbol) {
@@ -163,8 +196,12 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
     const start = performance.now();
     const symbolU = String(symbol).toUpperCase();
 
+    // 0) Serve the shared in-memory live snapshot if fresh (< liveTtlMs).
     const cachedLive = this._liveFromCache(symbolU);
-    if (cachedLive) return { ...cachedLive, exchange, dataSource: this.dataSource };
+    if (cachedLive) {
+      await this._audit('getQuote', 'success', 'live cache', 1, start);
+      return { ...cachedLive, exchange, dataSource: this.dataSource };
+    }
 
     // 1) LIVE NSE quote via jugaad (works during market hours).
     try {
@@ -328,6 +365,14 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
 
   async getCandles(symbol, timeframe = '1d', limit = 100, exchange = 'NSE') {
     const start = performance.now();
+    const cacheKey = `${exchange}:${symbol}:${timeframe}`;
+
+    const cachedMem = this._candleFromCache(cacheKey);
+    if (cachedMem) {
+      await this._audit('getCandles', 'success', 'memory cache', cachedMem.length, start);
+      return cachedMem.slice(-limit).map((c) => this._toCandle(c));
+    }
+
     const cached = await this._cachedCandles(symbol, exchange, timeframe, 140);
     const staleAfterMs = config.externalMarketData.staleAfterMs;
     const lastTs = cached.length ? cached[cached.length - 1].ts.getTime() : 0;
@@ -335,6 +380,7 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
 
     if (candleFresh) {
       const sliced = cached.slice(-limit);
+      this._setCandleCache(cacheKey, cached);
       await this._audit('getCandles', 'success', 'cache', sliced.length, start);
       return sliced.map((c) => this._toCandle(c));
     }
@@ -352,6 +398,7 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
           await this._storeCandles(instrument, candles, source.name);
           await this._audit('getCandles', 'success', `${source.name} historical`, candles.length, start);
           const fresh = await this._cachedCandles(symbol, exchange, timeframe, limit);
+          this._setCandleCache(cacheKey, fresh);
           return fresh.map((c) => this._toCandle(c));
         }
       } catch (err) {
@@ -362,6 +409,7 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
 
     // External unavailable → serve cached (possibly stale) data or empty.
     if (cached.length) {
+      this._setCandleCache(cacheKey, cached);
       await this._audit('getCandles', 'stale', 'served stale cache', cached.length, start);
       return cached.slice(-limit).map((c) => ({ ...this._toCandle(c), stale: true }));
     }
@@ -386,12 +434,94 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
     };
   }
 
+  _candleFromCache(key) {
+    const entry = this._candleCache.get(key);
+    if (entry && Date.now() - entry.at < this._candleTtlMs) return entry.candles;
+    return null;
+  }
+
+  _setCandleCache(key, candles) {
+    if (Array.isArray(candles) && candles.length) {
+      this._candleCache.set(key, { at: Date.now(), candles });
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Intraday candles (live resampled from NSE chart feed, memory-cached only)
+  // -------------------------------------------------------------------------
+
+  async getIntradayCandles(symbol, duration = '5m', days = 1, exchange = 'NSE') {
+    if (String(exchange).toUpperCase() !== 'NSE') return [];
+    const start = performance.now();
+    const key = `intraday:${symbol}:${duration}`;
+    const entry = this._intradayCache.get(key);
+    if (entry && Date.now() - entry.at < this._intradayTtlMs) {
+      await this._audit('getIntradayCandles', 'success', 'memory cache', entry.candles.length, start);
+      return entry.candles.map((c) => ({ ...c }));
+    }
+    try {
+      const candles = await this.fallback.getIntradayCandles(symbol, exchange, duration, days);
+      if (Array.isArray(candles) && candles.length) {
+        this._intradayCache.set(key, { at: Date.now(), candles });
+        this._recordSuccess('candle');
+        await this._audit('getIntradayCandles', 'success', `${this.fallback.name} intraday`, candles.length, start);
+        return candles;
+      }
+    } catch (err) {
+      this._recordError(err, `getIntradayCandles:${this.fallback.name}`);
+      logInfra('info', 'market-data-external', `getIntradayCandles(${symbol}) failed: ${err.message}`);
+    }
+    if (entry) return entry.candles.map((c) => ({ ...c, stale: true }));
+    return [];
+  }
+
   // -------------------------------------------------------------------------
   // Index data & breadth (computed from cached/external candles)
   // -------------------------------------------------------------------------
 
   async getIndexData() {
-    // Prefer live index snapshots from the primary source.
+    // 1) LIVE NSE index snapshots via jugaad (all_indices, one request), cached ~5s.
+    const now = Date.now();
+    if (this._indexCache.data && now - this._indexCache.at < this._liveTtlMs) {
+      return this._indexCache.data;
+    }
+    const INDEX_MAP = {
+      'NIFTY 50': 'NIFTY',
+      'NIFTY BANK': 'NIFTYBANK',
+      'SENSEX': 'SENSEX',
+      'NIFTY FIN SERVICE': 'FINNIFTY',
+    };
+    try {
+      const live = await this.fallback.getIndexData();
+      if (Array.isArray(live) && live.length) {
+        const mapped = live
+          .filter((item) => INDEX_MAP[item.symbol])
+          .map((item) => ({
+            symbol: INDEX_MAP[item.symbol],
+            exchange: 'NSE',
+            instrumentType: 'INDEX',
+            level: round2(item.level),
+            prevClose: item.prevClose == null ? null : round2(item.prevClose),
+            change: item.change == null ? null : round2(item.change),
+            changePct: item.changePct == null ? null : round2(item.changePct),
+            advances: item.advances ?? null,
+            declines: item.declines ?? null,
+            dataSource: this.dataSource,
+            source: item.sourceTimestamp ?? null,
+          }))
+          .filter((item) => item.level != null);
+        if (mapped.length) {
+          this._indexCache = { at: now, data: mapped };
+          this._recordSuccess('quote');
+          return mapped;
+        }
+      }
+    } catch (err) {
+      this._recordError(err, 'getIndexData:jugaad');
+      logInfra('info', 'market-data-external', `getIndexData live failed: ${err.message}`);
+    }
+
+    // 2) Fallback: nselib EOD snapshot.
     try {
       const live = await this.primary.getIndexData();
       if (Array.isArray(live) && live.length) {
@@ -413,7 +543,7 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
       this._recordError(err, 'getIndexData:primary');
     }
 
-    // Fallback: compute from cached/external candles.
+    // 3) Last resort: compute from cached/external candles.
     const symbols = [...INDEX_SYMBOLS];
     const out = [];
     for (const sym of symbols) {
@@ -435,7 +565,36 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
     return out;
   }
 
+  async getTopStocks() {
+    try {
+      const data = await this.fallback.getTopStocks();
+      return {
+        gainers: (data.gainers ?? []).slice(0, 10),
+        losers: (data.losers ?? []).slice(0, 10),
+        activeByValue: (data.activeByValue ?? []).slice(0, 10),
+        activeByVolume: (data.activeByVolume ?? []).slice(0, 10),
+        timestamp: data.timestamp ?? null,
+        dataSource: this.dataSource,
+      };
+    } catch (err) {
+      this._recordError(err, 'getTopStocks');
+      return { gainers: [], losers: [], activeByValue: [], activeByVolume: [], timestamp: null, dataSource: this.dataSource };
+    }
+  }
+
   async getMarketBreadth() {
+    const now = Date.now();
+    if (this._breadthCache.data && now - this._breadthCache.at < this._breadthTtlMs) {
+      return this._breadthCache.data;
+    }
+    if (this._breadthInFlight) return this._breadthInFlight;
+    this._breadthInFlight = this._computeBreadth().finally(() => {
+      this._breadthInFlight = null;
+    });
+    return this._breadthInFlight;
+  }
+
+  async _computeBreadth() {
     const universe = await prisma.scanUniverse.findMany({
       where: { enabled: true, instrumentType: 'EQUITY', excluded: false },
       include: { instrument: true },
@@ -469,7 +628,7 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
     }
 
     const total = advancing + declining + unchanged;
-    return {
+    const result = {
       advancing,
       declining,
       unchanged,
@@ -480,6 +639,8 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
       averageChangePct: total ? round2(sumChangePct / total) : 0,
       dataSource: this.dataSource,
     };
+    this._breadthCache = { at: Date.now(), data: result };
+    return result;
   }
 
   async getVolatility(symbol, exchange = 'NSE') {

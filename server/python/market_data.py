@@ -32,9 +32,11 @@ import json
 import os
 import sys
 import traceback
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 CACHE_DIR = os.environ.get("MARKET_DATA_CACHE_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".cache", "market-data"))
+
+IST_OFFSET = timedelta(hours=5, minutes=30)
 
 
 def cache_load(key):
@@ -427,10 +429,20 @@ def jugaad_quote(symbol):
     from jugaad_data.nse import NSELive
 
     n = NSELive()
-    return _jugaad_quote_from(n.stock_quote(symbol), symbol)
+    q = _jugaad_quote_from(n.stock_quote(symbol), symbol)
+    # NSE's public cache occasionally serves an old snapshot; if the quote's
+    # lastUpdateTime is much older than now, re-request once to stay fresh.
+    if q and q.get("sourceTimestamp"):
+        try:
+            ts = datetime.strptime(str(q["sourceTimestamp"]).strip()[:19], "%Y-%m-%dT%H:%M:%S")
+            if datetime.now() - ts > timedelta(seconds=20):
+                q = _jugaad_quote_from(n.stock_quote(symbol), symbol)
+        except Exception:
+            pass
+    return q
 
 
-def jugaad_live_quotes(symbols):
+def jugaad_live_quotes(symbols, delay=0.1):
     """Batch live quotes for many symbols in ONE Python process (one NSE session).
 
     Loops NSELive.stock_quote with a small inter-request delay so NSE is not
@@ -449,7 +461,8 @@ def jugaad_live_quotes(symbols):
                 out[sym] = q
         except Exception:
             pass
-        _time.sleep(0.15)
+        if delay > 0:
+            _time.sleep(delay)
     return out
 
 
@@ -472,16 +485,123 @@ def jugaad_indices():
     out = []
     for item in (data or {}).get("data") or []:
         meta = item.get("meta") or {}
+        level = num(item.get("last")) or num(item.get("close")) or num(item.get("index"))
+        if level is None:
+            continue
         out.append(
             {
-                "symbol": meta.get("symbol"),
-                "level": num(item.get("index") or item.get("close")),
-                "change": num(meta.get("change")),
-                "changePct": num(meta.get("pChange")),
+                "symbol": meta.get("symbol") or item.get("indexSymbol") or item.get("index"),
+                "level": level,
+                "open": num(item.get("open") or meta.get("open")),
+                "high": num(item.get("high") or meta.get("high")),
+                "low": num(item.get("low") or meta.get("low")),
+                "prevClose": num(item.get("previousClose") or meta.get("previousClose")),
+                "change": num(item.get("variation") or meta.get("change")),
+                "changePct": num(item.get("percentChange") or meta.get("pChange")),
+                "advances": num(item.get("advances")),
+                "declines": num(item.get("declines")),
                 "sourceTimestamp": datetime.now().isoformat(),
             }
         )
     return out
+
+
+def _jugaad_top_row(r):
+    last = num(r.get("lastPrice"))
+    prev = num(r.get("previousClose"))
+    chg = num(r.get("change"))
+    chg_pct = num(r.get("pchange") or r.get("percentChange"))
+    if chg is None and last is not None and prev:
+        chg = last - prev
+    if chg_pct is None and last is not None and prev:
+        chg_pct = ((last - prev) / prev) * 100
+    return {
+        "symbol": r.get("symbol"),
+        "lastPrice": last,
+        "previousClose": prev,
+        "open": num(r.get("openPrice")),
+        "high": num(r.get("highPrice")),
+        "low": num(r.get("lowPrice")),
+        "change": chg,
+        "changePct": chg_pct,
+        "volume": num(r.get("totalTradedVolume")) or 0,
+        "value": num(r.get("totalTradedValue")) or 0,
+    }
+
+
+def jugaad_top_stocks():
+    """Live NSE top gainers/losers/most-active from NSELive.top_stocks()."""
+    from jugaad_data.nse import NSELive
+
+    n = NSELive()
+    data = n.top_stocks() or {}
+    return {
+        "gainers": [_jugaad_top_row(r) for r in data.get("topGainers") or []],
+        "losers": [_jugaad_top_row(r) for r in data.get("topLoosers") or []],
+        "activeByValue": [_jugaad_top_row(r) for r in data.get("mostActiveValue") or []],
+        "activeByVolume": [_jugaad_top_row(r) for r in data.get("mostActiveVolume") or []],
+        "timestamp": data.get("timestamp") or datetime.now().isoformat(),
+    }
+
+
+INTRADAY_PERIODS = {1: "1D", 3: "3D", 5: "5D", 7: "7D", 30: "1M", 90: "3M", 180: "6M", 365: "1Y"}
+INTRADAY_DURATIONS = ("1m", "5m", "15m", "60m")
+
+
+def jugaad_intraday(symbol, duration="1m", days=1):
+    """Live intraday candles resampled from NSE's sampled chart feed.
+
+    NSELive.symbol_chart_data returns ~1-minute points
+    [ts_ms, price, flag, change, changePct] with no OHLC. We bucket the
+    points by the requested duration to synthesize real OHLC candles
+    (open/high/low/close). Volume is the number of samples in the bucket.
+    """
+    if duration not in INTRADAY_DURATIONS:
+        raise ValueError(f"unsupported intraday duration: {duration}")
+    from jugaad_data.nse import NSELive
+
+    period = INTRADAY_PERIODS.get(int(days), f"{int(days)}D")
+    n = NSELive()
+    data = n.symbol_chart_data(symbol, days=period)
+    rows = (data or {}).get("grapthData") or []
+    if not rows:
+        return []
+
+    bucket_ms = int(duration[:-1]) * 60 * 1000
+    buckets = {}
+    for row in rows:
+        try:
+            ts_ms = int(row[0])
+            price = num(row[1])
+        except (IndexError, TypeError, ValueError):
+            continue
+        if price is None or price <= 0:
+            continue
+        key = (ts_ms // bucket_ms) * bucket_ms
+        b = buckets.setdefault(key, {"ts": key, "open": price, "high": price, "low": price, "close": price, "count": 0})
+        b["high"] = max(b["high"], price)
+        b["low"] = min(b["low"], price)
+        b["close"] = price
+        b["count"] += 1
+
+    candles = []
+    for key in sorted(buckets):
+        b = buckets[key]
+        # NSE's chart feed encodes IST wall-clock as if it were UTC. Convert to
+        # the correct UTC instant so IST browsers display the right local time.
+        ts_utc = datetime.fromtimestamp(b["ts"] / 1000, tz=timezone.utc) - IST_OFFSET
+        candles.append(
+            {
+                "ts": ts_utc.isoformat(),
+                "open": b["open"],
+                "high": b["high"],
+                "low": b["low"],
+                "close": b["close"],
+                "volume": b["count"],
+                "symbol": symbol,
+            }
+        )
+    return candles
 
 
 def jugaad_option_chain(symbol, expiry=None):
@@ -724,7 +844,7 @@ def main():
     parser.add_argument("source", choices=["nselib", "jugaad", "nse_archives"])
     parser.add_argument("command", choices=[
         "quote", "candles", "indices", "option_chain", "fno",
-        "instruments", "bulk_bhav", "live_quotes", "nifty_list", "health",
+        "instruments", "bulk_bhav", "live_quotes", "nifty_list", "top_stocks", "intraday", "health",
     ])
     parser.add_argument("--symbol", default=None)
     parser.add_argument("--symbols", default=None)
@@ -737,6 +857,8 @@ def main():
     parser.add_argument("--strike", default=None)
     parser.add_argument("--instrument", default=None)
     parser.add_argument("--kind", default="equity")
+    parser.add_argument("--delay", type=float, default=0.1)
+    parser.add_argument("--duration", default="5m")
     args = parser.parse_args()
 
     try:
@@ -770,11 +892,15 @@ def main():
                 emit({"ok": True, "data": jugaad_quote(args.symbol)})
             elif cmd == "live_quotes":
                 syms = [s.strip().upper() for s in (args.symbols or "").split(",") if s.strip()]
-                emit({"ok": True, "data": jugaad_live_quotes(syms)})
+                emit({"ok": True, "data": jugaad_live_quotes(syms, args.delay)})
+            elif cmd == "top_stocks":
+                emit({"ok": True, "data": jugaad_top_stocks()})
             elif cmd == "candles":
                 emit({"ok": True, "data": jugaad_candles(args.symbol or args.index, args.days, bool(args.index))})
             elif cmd == "indices":
                 emit({"ok": True, "data": jugaad_indices()})
+            elif cmd == "intraday":
+                emit({"ok": True, "data": jugaad_intraday(args.symbol, args.duration, args.days)})
             elif cmd == "option_chain":
                 emit({"ok": True, "data": jugaad_option_chain(args.symbol, args.expiry)})
             else:

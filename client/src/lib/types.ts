@@ -105,6 +105,7 @@ export interface IndexQuote {
   change: number;
   changePct: number;
   dataSource: string;
+  source?: string | null;
 }
 
 export interface MarketQuote {
@@ -123,6 +124,46 @@ export interface MarketQuote {
   volume: number | null;
   source: string | null;
   dataSource: string | null;
+  sourceTimestamp?: string | null;
+  receivedAt?: string | null;
+  stale?: boolean;
+}
+
+export interface TopStock {
+  symbol: string;
+  lastPrice: number | null;
+  previousClose: number | null;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  change: number | null;
+  changePct: number | null;
+  volume: number | null;
+  value: number | null;
+}
+
+export interface TopMovers {
+  gainers: TopStock[];
+  losers: TopStock[];
+  activeByValue: TopStock[];
+  activeByVolume: TopStock[];
+  timestamp: string | null;
+  dataSource: string;
+}
+
+export interface Candle {
+  symbol: string;
+  exchange: string;
+  timeframe: string;
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  source: string | null;
+  provider: string | null;
+  stale?: boolean;
 }
 
 export interface Opportunity {
