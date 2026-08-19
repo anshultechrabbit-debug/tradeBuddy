@@ -425,21 +425,49 @@ def _jugaad_quote_from(data, symbol):
     }
 
 
-def jugaad_quote(symbol):
+def _quote_age_seconds(q):
+    """Seconds since the quote's NSE snapshot timestamp (None if unknown)."""
+    ts = q.get("sourceTimestamp")
+    if not ts:
+        return None
+    try:
+        snap = datetime.strptime(str(ts).strip()[:19], "%Y-%m-%dT%H:%M:%S")
+        return (datetime.now() - snap).total_seconds()
+    except Exception:
+        return None
+
+
+def _fresh_quote(symbol, attempts=3, max_age=15):
+    """Fetch a quote, retrying with a fresh NSE session until the snapshot is
+    fresh (<= max_age seconds old). NSE's public load balancer serves cached
+    snapshots that can be ~30-40s old; resampling usually lands on a fresh one.
+    Returns the freshest snapshot found if none meets max_age.
+    """
     from jugaad_data.nse import NSELive
 
-    n = NSELive()
-    q = _jugaad_quote_from(n.stock_quote(symbol), symbol)
-    # NSE's public cache occasionally serves an old snapshot; if the quote's
-    # lastUpdateTime is much older than now, re-request once to stay fresh.
-    if q and q.get("sourceTimestamp"):
+    best = None
+    best_age = float("inf")
+    for _ in range(attempts):
         try:
-            ts = datetime.strptime(str(q["sourceTimestamp"]).strip()[:19], "%Y-%m-%dT%H:%M:%S")
-            if datetime.now() - ts > timedelta(seconds=20):
-                q = _jugaad_quote_from(n.stock_quote(symbol), symbol)
+            n = NSELive()
+            q = _jugaad_quote_from(n.stock_quote(symbol), symbol)
         except Exception:
-            pass
-    return q
+            q = None
+        if q is None:
+            continue
+        age = _quote_age_seconds(q)
+        if age is not None and age <= max_age:
+            return q
+        if age is not None and age < best_age:
+            best_age = age
+            best = q
+        elif best is None:
+            best = q
+    return best
+
+
+def jugaad_quote(symbol):
+    return _fresh_quote(symbol)
 
 
 def jugaad_live_quotes(symbols, delay=0.1):
@@ -452,11 +480,10 @@ def jugaad_live_quotes(symbols, delay=0.1):
 
     from jugaad_data.nse import NSELive
 
-    n = NSELive()
     out = {}
     for sym in symbols:
         try:
-            q = _jugaad_quote_from(n.stock_quote(sym), sym)
+            q = _fresh_quote(sym, attempts=2, max_age=15)
             if q:
                 out[sym] = q
         except Exception:
