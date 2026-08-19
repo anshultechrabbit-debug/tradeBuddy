@@ -1,0 +1,282 @@
+[
+    {
+        "question": "Which stock should I buy today?",
+        "answer": "Analyze the latest market data, momentum, trend, volume, and technical indicators before considering a trade. Do not make a decision from the question alone."
+    },
+    {
+        "question": "Which stock should I sell today?",
+        "answer": "Review the latest price action, trend, momentum, support and resistance levels, and risk before considering a sell."
+    },
+    {
+        "question": "Which NIFTY 50 stock has the strongest momentum today?",
+        "answer": "Identify the NIFTY 50 stock with the strongest combination of price momentum, volume, and technical indicators in the provided data."
+    },
+    {
+        "question": "Which NIFTY 50 stock has the weakest momentum today?",
+        "answer": "Identify the stock showing the weakest price momentum and confirm the signal using volume and technical indicators."
+    },
+    {
+        "question": "What is the current price of RELIANCE?",
+        "answer": "Use the latest RELIANCE market-data record and return its most recent traded or closing price."
+    },
+    {
+        "question": "What is the current price of TCS?",
+        "answer": "Use the latest TCS market-data record and return its most recent traded or closing price."
+    },
+    {
+        "question": "What is the current price of INFY?",
+        "answer": "Use the latest INFY market-data record and return its most recent traded or closing price."
+    },
+    {
+        "question": "What is the current price of HDFCBANK?",
+        "answer": "Use the latest HDFCBANK market-data record and return its most recent traded or closing price."
+    },
+    {
+        "question": "What is the current price of ICICIBANK?",
+        "answer": "Use the latest ICICIBANK market-data record and return its most recent traded or closing price."
+    },
+    {
+        "question": "How much did RELIANCE move today?",
+        "answer": "Calculate the percentage change between the current or latest price and the previous closing price for RELIANCE."
+    },
+    {
+        "question": "How much did TCS move today?",
+        "answer": "Calculate the percentage change between the current or latest price and the previous closing price for TCS."
+    },
+    {
+        "question": "Which stocks are the top gainers today?",
+        "answer": "Rank the available stocks by their percentage price change and return the stocks with the largest positive changes."
+    },
+    {
+        "question": "Which stocks are the top losers today?",
+        "answer": "Rank the available stocks by their percentage price change and return the stocks with the largest negative changes."
+    },
+    {
+        "question": "Which NIFTY 50 stocks are trading above their 50-day moving average?",
+        "answer": "Compare each stock's latest price with its 50-day moving average and return the stocks whose latest price is above the average."
+    },
+    {
+        "question": "Which NIFTY 50 stocks are trading below their 50-day moving average?",
+        "answer": "Compare each stock's latest price with its 50-day moving average and return the stocks whose latest price is below the average."
+    },
+    {
+        "question": "Which stocks are above their 200-day moving average?",
+        "answer": "Compare the latest price of each stock with its 200-day moving average and identify stocks trading above it."
+    },
+    {
+        "question": "Which stocks are below their 200-day moving average?",
+        "answer": "Compare the latest price of each stock with its 200-day moving average and identify stocks trading below it."
+    },
+    {
+        "question": "What is the RSI of RELIANCE?",
+        "answer": "Return the latest RSI value calculated from the RELIANCE price history and explain whether it indicates neutral, overbought, or oversold conditions."
+    },
+    {
+        "question": "What is the RSI of INFY?",
+        "answer": "Return the latest RSI value calculated from the INFY price history and explain its interpretation."
+    },
+    {
+        "question": "Which stocks are overbought?",
+        "answer": "Identify stocks whose RSI is above the configured overbought threshold and return their RSI values."
+    },
+    {
+        "question": "Which stocks are oversold?",
+        "answer": "Identify stocks whose RSI is below the configured oversold threshold and return their RSI values."
+    },
+    {
+        "question": "Is RELIANCE overbought?",
+        "answer": "Check the latest RELIANCE RSI against the configured overbought threshold and explain the result."
+    },
+    {
+        "question": "Is INFY oversold?",
+        "answer": "Check the latest INFY RSI against the configured oversold threshold and explain the result."
+    },
+    {
+        "question": "Which stocks have a bullish MACD crossover?",
+        "answer": "Identify stocks where the MACD has crossed above its signal line and confirm the signal with recent price momentum."
+    },
+    {
+        "question": "Which stocks have a bearish MACD crossover?",
+        "answer": "Identify stocks where the MACD has crossed below its signal line and confirm the signal with recent price momentum."
+    },
+    {
+        "question": "Is RELIANCE showing a bullish trend?",
+        "answer": "Evaluate RELIANCE using its moving averages, recent returns, price structure, volume, and momentum indicators."
+    },
+    {
+        "question": "Is INFY showing a bearish trend?",
+        "answer": "Evaluate INFY using its moving averages, recent returns, price structure, volume, and momentum indicators."
+    },
+    {
+        "question": "Which stocks are breaking resistance?",
+        "answer": "Identify stocks whose latest price has moved above a significant resistance level, preferably with supporting volume."
+    },
+    {
+        "question": "Which stocks are breaking support?",
+        "answer": "Identify stocks whose latest price has moved below a significant support level, preferably with supporting volume."
+    },
+    {
+        "question": "What is the support level for RELIANCE?",
+        "answer": "Estimate the relevant support level from the available historical price data using recent lows, price structure, or configured technical indicators."
+    },
+    {
+        "question": "What is the resistance level for RELIANCE?",
+        "answer": "Estimate the relevant resistance level from the available historical price data using recent highs, price structure, or configured technical indicators."
+    },
+    {
+        "question": "Compare RELIANCE and TCS.",
+        "answer": "Compare RELIANCE and TCS using recent returns, volatility, momentum, trend, volume, and technical indicators available in the dataset."
+    },
+    {
+        "question": "Compare INFY and TCS.",
+        "answer": "Compare INFY and TCS using recent performance, momentum, volatility, trend, and technical indicators."
+    },
+    {
+        "question": "Which is stronger, HDFCBANK or ICICIBANK?",
+        "answer": "Compare their recent returns, momentum, trend, volume, and technical indicators and identify which currently has the stronger setup."
+    },
+    {
+        "question": "Which is more volatile, RELIANCE or TATASTEEL?",
+        "answer": "Compare the historical or recent volatility measures of RELIANCE and TATASTEEL and identify the more volatile stock."
+    },
+    {
+        "question": "How is NIFTY 50 performing today?",
+        "answer": "Use the latest NIFTY 50 data to report its current or latest value, percentage change, trend, and relevant market indicators."
+    },
+    {
+        "question": "What are the top NIFTY 50 gainers?",
+        "answer": "Rank NIFTY 50 constituents by their latest percentage change and return the strongest gainers."
+    },
+    {
+        "question": "What are the top NIFTY 50 losers?",
+        "answer": "Rank NIFTY 50 constituents by their latest percentage change and return the weakest performers."
+    },
+    {
+        "question": "How many NIFTY 50 stocks are up today?",
+        "answer": "Count the NIFTY 50 constituents whose latest price change is positive."
+    },
+    {
+        "question": "How many NIFTY 50 stocks are down today?",
+        "answer": "Count the NIFTY 50 constituents whose latest price change is negative."
+    },
+    {
+        "question": "Which NIFTY sectors are performing best?",
+        "answer": "Group the available stocks by sector and compare their aggregate or representative returns to identify the strongest sectors."
+    },
+    {
+        "question": "Why did RELIANCE fall today?",
+        "answer": "Analyze the available price, volume, technical, market, and news-related data to identify possible factors behind the decline. Do not claim a cause that is not supported by the data."
+    },
+    {
+        "question": "Why did INFY rise today?",
+        "answer": "Analyze the available price, volume, technical, market, and news-related data to identify possible factors behind the rise. Do not claim a cause that is not supported by the data."
+    },
+    {
+        "question": "Why is TCS falling?",
+        "answer": "Examine recent price action, volume, market conditions, technical indicators, and available contextual data to identify possible reasons for the decline."
+    },
+    {
+        "question": "Why is HDFCBANK rising?",
+        "answer": "Examine recent price action, volume, market conditions, and technical indicators to identify possible reasons for the rise."
+    },
+    {
+        "question": "What was RELIANCE's return over the last 5 trading days?",
+        "answer": "Calculate the percentage return between the latest RELIANCE price and its price five trading sessions earlier."
+    },
+    {
+        "question": "What was INFY's return over the last month?",
+        "answer": "Calculate the percentage return between the latest INFY price and its price at the beginning of the requested monthly period."
+    },
+    {
+        "question": "Has TCS outperformed NIFTY 50 this month?",
+        "answer": "Compare TCS's monthly return with NIFTY 50's monthly return and report which performed better."
+    },
+    {
+        "question": "What was the highest price of RELIANCE this month?",
+        "answer": "Find the maximum recorded high price for RELIANCE within the requested monthly period."
+    },
+    {
+        "question": "What was the lowest price of RELIANCE this month?",
+        "answer": "Find the minimum recorded low price for RELIANCE within the requested monthly period."
+    },
+    {
+        "question": "What is the average volume of TCS?",
+        "answer": "Calculate the average trading volume of TCS over the requested historical period."
+    },
+    {
+        "question": "Which stocks have unusually high volume today?",
+        "answer": "Compare today's volume with each stock's historical average volume and identify stocks with unusually high relative volume."
+    },
+    {
+        "question": "Which stocks have low volatility?",
+        "answer": "Calculate the relevant volatility measure for each stock and rank the stocks with the lowest volatility."
+    },
+    {
+        "question": "Which stocks have high volatility?",
+        "answer": "Calculate the relevant volatility measure for each stock and rank the stocks with the highest volatility."
+    },
+    {
+        "question": "Is NIFTY 50 bullish?",
+        "answer": "Evaluate NIFTY 50 using its trend, moving averages, momentum, breadth, volume, and other available indicators."
+    },
+    {
+        "question": "Is NIFTY 50 bearish?",
+        "answer": "Evaluate NIFTY 50 using its trend, moving averages, momentum, breadth, volume, and other available indicators."
+    },
+    {
+        "question": "What stocks are showing a possible reversal?",
+        "answer": "Look for changes in momentum, RSI extremes, MACD crossovers, price reversals, and volume confirmation to identify potential reversal setups."
+    },
+    {
+        "question": "Which stocks have strong bullish momentum?",
+        "answer": "Rank stocks using recent returns, moving-average structure, momentum indicators, and volume confirmation."
+    },
+    {
+        "question": "Which stocks have strong bearish momentum?",
+        "answer": "Rank stocks using recent negative returns, moving-average structure, momentum indicators, and volume confirmation."
+    },
+    {
+        "question": "How is my portfolio performing?",
+        "answer": "Calculate the portfolio's current value, profit or loss, percentage return, and contribution from each holding using the supplied portfolio and market data."
+    },
+    {
+        "question": "Which stock in my portfolio is performing best?",
+        "answer": "Calculate the return of each portfolio holding and identify the holding with the highest return."
+    },
+    {
+        "question": "Which stock in my portfolio is performing worst?",
+        "answer": "Calculate the return of each portfolio holding and identify the holding with the lowest return."
+    },
+    {
+        "question": "What is my portfolio's total return?",
+        "answer": "Calculate total portfolio return from the supplied purchase values, current market values, and applicable cash flows."
+    },
+    {
+        "question": "Which holding contributes the most risk to my portfolio?",
+        "answer": "Estimate each holding's contribution to portfolio risk using its volatility, position size, and available correlation information."
+    },
+    {
+        "question": "Is my portfolio diversified?",
+        "answer": "Evaluate portfolio concentration across stocks, sectors, and position sizes and identify significant concentration risks."
+    },
+    {
+        "question": "Should I buy RELIANCE?",
+        "answer": "Do not make the decision from the stock name alone. Evaluate the latest trend, momentum, valuation information if available, technical indicators, risk, and market conditions."
+    },
+    {
+        "question": "Should I sell INFY?",
+        "answer": "Evaluate the latest INFY trend, momentum, support levels, technical indicators, portfolio position, and risk before considering a sell."
+    },
+    {
+        "question": "What is the safest stock to trade today?",
+        "answer": "There is no guaranteed safe stock. Compare volatility, liquidity, trend quality, and downside risk in the available data."
+    },
+    {
+        "question": "Which stock has the best risk-reward setup?",
+        "answer": "Compare potential upside, downside to relevant support, volatility, momentum, and probability of the setup using the available data."
+    },
+    {
+        "question": "What stocks should I avoid today?",
+        "answer": "Identify stocks with weak liquidity, excessive volatility, bearish momentum, or unclear setups according to the available data."
+    }
+]
