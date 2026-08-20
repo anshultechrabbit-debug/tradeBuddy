@@ -3,6 +3,7 @@ import { buildMessages } from './promptBuilder.js';
 import { buildContext } from './contextBuilder.js';
 import { topOpportunities } from '../../services/radarService.js';
 import { getMarketDataProvider } from '../../providers/marketData/index.js';
+import { analyzeStock, formatAnalysis } from '../../services/stockAnalysisService.js';
 
 // Words never treated as stock symbols.
 const STOP_WORDS = new Set([
@@ -35,7 +36,20 @@ async function callTools(question, ctx) {
   const symbols = findSymbols(question);
   if (symbols.length) {
     const provider = getMarketDataProvider();
+    const analysisIntent = /\b(ANALYZE|ANALYSIS|RECOMMEND|SHOULD I (BUY|SELL|HOLD|INVEST)|FUNDAMENTAL|VALUATION|TARGET|STOP.?LOSS|ENTRY)\b/.test(uq);
     for (const sym of symbols) {
+      if (analysisIntent) {
+        try {
+          const analysis = await analyzeStock(sym);
+          if (analysis.ok) {
+            extra.push(`STRUCTURED ANALYSIS ${sym}:`);
+            extra.push(formatAnalysis(analysis));
+            continue;
+          }
+        } catch {
+          // fall through to quote/candles below
+        }
+      }
       try {
         const q = await provider.getQuote(sym, 'NSE');
         if (q) extra.push(`LIVE QUOTE ${sym}: last Rs ${q.lastPrice}, change ${q.changePct}%`);

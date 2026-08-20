@@ -1,12 +1,19 @@
-import { useEffect } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { fetchSummary } from '../store/portfolioSlice';
 import { fetchLatestScan } from '../store/radarSlice';
 import { fetchIndices, fetchBreadth } from '../store/marketSlice';
 import { fetchWatchlist } from '../store/watchlistSlice';
+import { analyzeMany } from '../store/aiSlice';
 import { Card, StatCard, Badge, ProgressBar, Spinner, EmptyState } from '../components/ui';
-import { formatCurrency, formatPct, formatNumber, signalBadgeClass, regimeBadgeClass } from '../lib/format';
+import { formatCurrency, formatPct, formatNumber, formatTimeAgo, signalBadgeClass, regimeBadgeClass } from '../lib/format';
+
+function aiSignalClass(signal: string): string {
+  if (signal.includes('BUY')) return 'badge badge-buy';
+  if (signal.includes('AVOID')) return 'badge badge-avoid';
+  return 'badge badge-watch';
+}
 
 export function DashboardPage() {
   const dispatch = useAppDispatch();
@@ -14,7 +21,9 @@ export function DashboardPage() {
   const { scanResult, scanning } = useAppSelector((s) => s.radar);
   const { indices, breadth } = useAppSelector((s) => s.market);
   const { watchlist } = useAppSelector((s) => s.watchlist);
+  const { picks, analyzing, lastUpdated } = useAppSelector((s) => s.ai);
   const user = useAppSelector((s) => s.auth.user);
+  const refreshingRef = useRef(false);
 
   useEffect(() => {
     dispatch(fetchSummary());
@@ -32,6 +41,34 @@ export function DashboardPage() {
   }, [dispatch]);
 
   const top = scanResult?.opportunities.slice(0, 5) ?? [];
+  const aiTop = picks[0] ?? null;
+
+  const runAiPicks = useCallback(() => {
+    if (refreshingRef.current || analyzing) return;
+    refreshingRef.current = true;
+    const symbols: string[] = [];
+    const push = (s: string) => {
+      const u = s.trim().toUpperCase();
+      if (u && !symbols.includes(u)) symbols.push(u);
+    };
+    watchlist?.items.slice(0, 4).forEach((i) => push(i.symbol));
+    scanResult?.opportunities.slice(0, 4).forEach((o) => push(o.symbol));
+    if (!symbols.length) ['RELIANCE', 'TATAPOWER', 'HDFCBANK', 'INFY'].forEach(push);
+    dispatch(analyzeMany(symbols.slice(0, 6))).finally(() => {
+      refreshingRef.current = false;
+    });
+  }, [watchlist, scanResult, analyzing, dispatch]);
+
+  // Auto-load suggestions once data is ready, then refresh every 3 minutes so
+  // news + market moves keep the recommendation current.
+  useEffect(() => {
+    if (picks.length === 0 && !analyzing) runAiPicks();
+  }, [runAiPicks, picks.length, analyzing]);
+
+  useEffect(() => {
+    const timer = setInterval(runAiPicks, 2 * 1000);
+    return () => clearInterval(timer);
+  }, [runAiPicks]);
 
   return (
     <div className="page">
@@ -51,6 +88,58 @@ export function DashboardPage() {
         />
         <StatCard label="Diversification Score" value={summary ? `${summary.diversificationScore}/100` : '—'} sub={summary ? `${summary.holdingsCount} holdings` : undefined} />
       </div>
+
+      <Card
+        title={
+          <span className="ai-dash-title">
+            AI Suggestions
+            {lastUpdated ? (
+              <span className="ai-dash-live">
+                <span className="sg-live-dot" /> updated {formatTimeAgo(lastUpdated)}
+              </span>
+            ) : null}
+          </span>
+        }
+        action={
+          analyzing ? (
+            <Spinner />
+          ) : (
+            <>
+              <Link to="/ai-picks" className="btn btn-outline btn-sm">
+                AI Picks
+              </Link>
+              <button type="button" className="btn btn-primary btn-sm" onClick={runAiPicks} style={{ marginLeft: 8 }}>
+                Get Suggestions
+              </button>
+            </>
+          )
+        }
+      >
+        {aiTop ? (
+          <Link to="/ai-picks" className="ai-top-card">
+            <div className="ai-top-head">
+              <span className="sg-top-badge">TOP PICK</span>
+              <span className="strong">{aiTop.symbol}</span>
+              <Badge className={aiSignalClass(aiTop.finalSignal)}>{aiTop.finalSignal}</Badge>
+            </div>
+            <div className="ai-dash-score">
+              {aiTop.overallScore}
+              <span className="small muted">/100</span>
+            </div>
+            <div className="small muted">
+              {formatCurrency(aiTop.quote?.lastPrice)} · {aiTop.confidence} confidence
+            </div>
+            <div className="ai-dash-entry small">
+              Entry {formatCurrency(aiTop.entry.zoneLow)}–{formatCurrency(aiTop.entry.zoneHigh)} · SL {formatCurrency(aiTop.entry.stopLoss)}
+            </div>
+            <div className="ai-dash-oneliner small">{aiTop.oneLiner}</div>
+          </Link>
+        ) : analyzing ? (
+          <Spinner label="Running 7-factor AI analysis…" />
+        ) : (
+          <EmptyState title="No AI suggestions yet" hint="Click 'Get Suggestions' to score your watchlist + top opportunities with live data & news" />
+        )}
+      </Card>
 
       <div className="grid-2">
         <Card title="Market Indices">

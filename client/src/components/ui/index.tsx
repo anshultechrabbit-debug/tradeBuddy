@@ -32,7 +32,7 @@ export function ErrorBox({ message, onRetry }: { message: string | null | undefi
   );
 }
 
-export function Card({ title, action, children, className = '' }: { title?: string; action?: ReactNode; children: ReactNode; className?: string }) {
+export function Card({ title, action, children, className = '' }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
     <div className={`card ${className}`}>
       {title || action ? (

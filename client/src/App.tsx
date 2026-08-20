@@ -4,6 +4,7 @@ import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { RadarPage } from './pages/RadarPage';
 import { DeepDivePage } from './pages/DeepDivePage';
+import { AiPicksPage } from './pages/AiPicksPage';
 import { PortfolioPage } from './pages/PortfolioPage';
 import { WatchlistPage } from './pages/WatchlistPage';
 import { MarketPage } from './pages/MarketPage';
@@ -26,6 +27,7 @@ export default function App() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/radar" element={<RadarPage />} />
           <Route path="/radar/:symbol" element={<DeepDivePage />} />
+          <Route path="/ai-picks" element={<AiPicksPage />} />
           <Route path="/portfolio" element={<PortfolioPage />} />
           <Route path="/watchlist" element={<WatchlistPage />} />
           <Route path="/market" element={<MarketPage />} />

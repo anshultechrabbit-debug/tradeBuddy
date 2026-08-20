@@ -78,6 +78,10 @@ export class NselibAdapter {
     return this.client.call('instruments', { kind });
   }
 
+  async getFundamentals(symbol) {
+    return this.client.call('fundamentals', { symbol });
+  }
+
   async health() {
     return this.client.health();
   }

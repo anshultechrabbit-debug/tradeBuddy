@@ -368,17 +368,18 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
     const cacheKey = `${exchange}:${symbol}:${timeframe}`;
 
     const cachedMem = this._candleFromCache(cacheKey);
-    if (cachedMem) {
+    if (cachedMem && cachedMem.length >= Math.min(limit, 310) - 20) {
       await this._audit('getCandles', 'success', 'memory cache', cachedMem.length, start);
       return cachedMem.slice(-limit).map((c) => this._toCandle(c));
     }
 
-    const cached = await this._cachedCandles(symbol, exchange, timeframe, 140);
+    const cached = await this._cachedCandles(symbol, exchange, timeframe, Math.max(140, limit + 30));
     const staleAfterMs = config.externalMarketData.staleAfterMs;
     const lastTs = cached.length ? cached[cached.length - 1].ts.getTime() : 0;
     const candleFresh = cached.length >= 30 && Date.now() - lastTs < staleAfterMs;
+    const needDeep = limit > 140 && cached.length < Math.max(140, limit + 30) - 20;
 
-    if (candleFresh) {
+    if (candleFresh && !needDeep) {
       const sliced = cached.slice(-limit);
       this._setCandleCache(cacheKey, cached);
       await this._audit('getCandles', 'success', 'cache', sliced.length, start);
@@ -386,12 +387,19 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
     }
 
     const isIndex = INDEX_SYMBOLS.has(symbol);
-    const fetchSources = [this.primary, this.backfill];
+    const fetchSources = needDeep
+      ? [this.primary, this.fallback]
+      : [this.primary, this.fallback, this.backfill];
 
-    // Try historical fetch from primary, then backfill.
+    // Try historical fetch from primary, then fallback, then backfill.
     for (const source of fetchSources) {
       try {
-        const candles = await source.getHistoricalCandles(symbol, exchange, 140, isIndex);
+        const candles = await source.getHistoricalCandles(
+          symbol,
+          exchange,
+          Math.max(140, Math.min(320, limit + 30)),
+          isIndex,
+        );
         if (candles && candles.length) {
           this._recordSuccess('candle');
           const instrument = await this._instrument(symbol, exchange);
@@ -661,6 +669,21 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
   // -------------------------------------------------------------------------
   // F&O & option chain (where supported)
   // -------------------------------------------------------------------------
+
+  async getFundamentals(symbol, exchange = 'NSE') {
+    const sources = [this.primary, this.fallback];
+    for (const source of sources) {
+      if (typeof source.getFundamentals !== 'function') continue;
+      try {
+        const data = await source.getFundamentals(symbol);
+        if (data && data.pe != null) return { ...data, symbol, exchange, dataSource: this.dataSource };
+      } catch (err) {
+        this._recordError(err, `getFundamentals:${source.name}`);
+        logInfra('info', 'market-data-external', `getFundamentals(${symbol}) ${source.name} failed: ${err.message}`);
+      }
+    }
+    return null;
+  }
 
   async getOptionChain(symbol, { expiry, strike, optionType } = {}) {
     const sources = [this.primary, this.fallback];

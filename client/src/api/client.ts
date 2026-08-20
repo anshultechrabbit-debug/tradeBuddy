@@ -37,6 +37,21 @@ apiClient.interceptors.response.use(
 );
 
 export function apiErrorMessage(error: unknown): string {
-  const e = error as { response?: { data?: { error?: { message?: string; code?: string } } } };
-  return e.response?.data?.error?.message ?? e.response?.data?.error?.code ?? 'Something went wrong.';
+  const e = error as {
+    response?: {
+      data?: {
+        error?: {
+          message?: string;
+          code?: string;
+          details?: { field?: string; message?: string }[];
+        };
+      };
+    };
+  };
+  const err = e.response?.data?.error;
+  if (!err) return 'Something went wrong.';
+  if (err.details && err.details.length > 0) {
+    return err.details.map((d) => `${d.field ?? ''} ${d.message ?? ''}`.trim()).filter(Boolean).join(', ');
+  }
+  return err.message ?? err.code ?? 'Something went wrong.';
 }

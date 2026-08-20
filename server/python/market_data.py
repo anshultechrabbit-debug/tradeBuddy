@@ -370,6 +370,44 @@ def nselib_instruments(kind):
     return out
 
 
+def nselib_fundamentals(symbol):
+    """Best-effort P/E snapshot for a symbol from the latest NSE PE file.
+
+    NSE publishes a per-symbol P/E CSV on nsearchives for every trade date.
+    We walk back up to 12 days to find the latest snapshot containing the
+    symbol. Growth/margin/balance-sheet data is not available from this
+    source; callers must treat missing fields as "data not available".
+    """
+    from nselib import capital_market
+
+    for i in range(12):
+        d = date.today() - timedelta(days=i)
+        if d.weekday() >= 5:
+            continue
+        try:
+            df = capital_market.pe_ratio(d.strftime("%d-%m-%Y"))
+        except Exception:
+            continue
+        if df is None or getattr(df, "empty", True):
+            continue
+        sym_c = col(df, "SYMBOL", "symbol")
+        if sym_c is None:
+            continue
+        pe_c = col(df, "SYMBOLP/E", "P/E", "PE")
+        adj_c = col(df, "ADJUSTEDP/E")
+        match = df[df[sym_c].astype(str).str.strip().str.upper() == symbol.upper()]
+        if match.empty:
+            continue
+        row = match.iloc[-1]
+        return {
+            "symbol": symbol,
+            "tradeDate": d.isoformat(),
+            "pe": num(row.get(pe_c)) if pe_c else None,
+            "adjustedPe": num(row.get(adj_c)) if adj_c else None,
+        }
+    return None
+
+
 # ---------------------------------------------------------------------------
 # jugaad-data (fallback)
 # ---------------------------------------------------------------------------
@@ -871,7 +909,7 @@ def main():
     parser.add_argument("source", choices=["nselib", "jugaad", "nse_archives"])
     parser.add_argument("command", choices=[
         "quote", "candles", "indices", "option_chain", "fno",
-        "instruments", "bulk_bhav", "live_quotes", "nifty_list", "top_stocks", "intraday", "health",
+        "instruments", "fundamentals", "bulk_bhav", "live_quotes", "nifty_list", "top_stocks", "intraday", "health",
     ])
     parser.add_argument("--symbol", default=None)
     parser.add_argument("--symbols", default=None)
@@ -909,6 +947,8 @@ def main():
                 emit({"ok": True, "data": nselib_fno(args.symbol, args.instrument, args.option_type, args.strike, args.days)})
             elif cmd == "instruments":
                 emit({"ok": True, "data": nselib_instruments(args.kind)})
+            elif cmd == "fundamentals":
+                emit({"ok": True, "data": nselib_fundamentals(args.symbol)})
             elif cmd == "nifty_list":
                 emit({"ok": True, "data": nselib_nifty_list()})
             else:

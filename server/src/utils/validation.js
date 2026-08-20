@@ -4,12 +4,9 @@ import { ValidationError } from './errors.js';
 export function validate(req, _res, next) {
   const result = validationResult(req);
   if (!result.isEmpty()) {
-    return next(
-      new ValidationError(
-        'Validation failed',
-        result.array().map((e) => ({ field: e.path, message: e.msg })),
-      ),
-    );
+    const details = result.array().map((e) => ({ field: e.path, message: e.msg }));
+    const summary = details.map((d) => `${d.field}: ${d.message}`).join('; ');
+    return next(new ValidationError(details.length ? `Validation failed: ${summary}` : 'Validation failed', details));
   }
   return next();
 }

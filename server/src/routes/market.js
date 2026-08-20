@@ -3,10 +3,28 @@ import { param, query } from 'express-validator';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../utils/validation.js';
 import { getMarketDataProvider } from '../providers/marketData/index.js';
+import { searchInstruments } from '../services/adminService.js';
 
 const router = Router();
 
 router.use(authenticate);
+
+router.get(
+  '/search',
+  query('q').optional().isString(),
+  query('limit').optional().isInt({ min: 1, max: 100 }),
+  validate,
+  async (req, res, next) => {
+    try {
+      const q = String(req.query.q ?? '').trim();
+      if (!q) return res.json({ instruments: [] });
+      const instruments = await searchInstruments({ q, limit: Number(req.query.limit) || 10 });
+      res.json({ instruments });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 router.get('/quote/:symbol', param('symbol').isString().notEmpty(), validate, async (req, res, next) => {
   try {

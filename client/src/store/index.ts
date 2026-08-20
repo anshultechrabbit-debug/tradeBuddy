@@ -8,6 +8,7 @@ import journalReducer from './journalSlice';
 import settingsReducer from './settingsSlice';
 import adminReducer from './adminSlice';
 import marketReducer from './marketSlice';
+import aiReducer from './aiSlice';
 
 export const store = configureStore({
   reducer: {
@@ -20,6 +21,7 @@ export const store = configureStore({
     settings: settingsReducer,
     admin: adminReducer,
     market: marketReducer,
+    ai: aiReducer,
   },
 });
 

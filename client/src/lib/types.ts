@@ -315,6 +315,83 @@ export interface Recommendation {
   timestamp: string;
 }
 
+export interface AiNews {
+  positive: number;
+  neutral: number;
+  negative: number;
+  overall: string;
+  sentimentScore: number;
+  available: boolean;
+  articles: { title: string; link: string; publishedAt: string; sentiment: string; keyword: string }[];
+  positiveCatalysts: string[];
+  negativeCatalysts: string[];
+}
+
+export interface AiTechnical {
+  price: number;
+  sma20: number | null;
+  sma50: number | null;
+  sma200: number | null;
+  ema20: number | null;
+  rsi: number | null;
+  macdValue: number | null;
+  macdSignal: number | null;
+  roc20: number | null;
+  atr: number | null;
+  volRatio: number | null;
+  avgVolume20: number | null;
+  primarySupport: number | null;
+  primaryResistance: number | null;
+  high52w: number | null;
+  low52w: number | null;
+  drawdownFromHigh: number | null;
+  candleCount: number;
+  trend: string;
+}
+
+export interface AiAnalysis {
+  ok: boolean;
+  symbol: string;
+  companyName: string;
+  quote: {
+    symbol: string;
+    lastPrice: number;
+    changePct: number | null;
+    volume: number | null;
+    dataSource: string | null;
+  };
+  finalSignal: string;
+  overallScore: number;
+  confidence: string;
+  flags: string[];
+  factorScores: { news: number; technical: number; fundamentals: number; valuation: number; market: number; risk: number };
+  reasons: { news: string; technical: string; fundamentals: string; valuation: string; market: string; risk: string };
+  news: AiNews;
+  technical: AiTechnical;
+  fundamentals: { pe: number | null; adjustedPe: number | null; tradeDate: string | null; note: string };
+  valuation: { score: number; pe: number | null; flag: string | null; note: string };
+  market: { regime: string; relativeStrength: number | null; note: string };
+  risk: { score: number; volatilityPct: number | null; drawdownPct: number | null; volRatio: number | null; note: string };
+  entry: { zoneLow: number; zoneHigh: number; stopLoss: number; note: string; reason: string; overbought: boolean };
+  positiveFactors: string[];
+  negativeFactors: string[];
+  oneLiner: string;
+  dataTimestamp: string;
+  disclaimer: string;
+}
+
+export interface AiAnalyzeResponse {
+  ok: boolean;
+  symbol: string;
+  analysis: AiAnalysis;
+  formatted: string;
+}
+
+export interface AiAnalyzeManyResponse {
+  results: { symbol: string; analysis: AiAnalysis; formatted: string }[];
+  errors: { symbol: string; error: string }[];
+}
+
 export interface Alert {
   id: number;
   userId: number;
