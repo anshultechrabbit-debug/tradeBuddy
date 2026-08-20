@@ -1268,6 +1268,162 @@ input:disabled {
   border-radius: 999px;
 }
 
+/* Radar — StockGro-style discover */
+.rd-mood {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(0, 163, 77, 0.06), rgba(0, 163, 77, 0.015));
+  box-shadow: var(--shadow-sm);
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+
+.rd-mood-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.rd-mood-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.rd-mood-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 0 rgba(0, 163, 77, 0.5);
+  animation: sg-pulse 1.8s infinite;
+}
+
+.rd-index-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.rd-index-chip {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+}
+
+.rd-movers-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 800px) {
+  .rd-movers-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.rd-mover-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.rd-mover-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 4px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.rd-mover-row:last-child {
+  border-bottom: none;
+}
+
+.rd-mover-row:hover {
+  color: var(--primary);
+}
+
+.rd-trend-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 14px;
+}
+
+.rd-trend-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--text);
+  text-decoration: none;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.05);
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+
+.rd-trend-card:hover {
+  border-color: var(--primary);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 22px rgba(16, 24, 40, 0.1);
+}
+
+.rd-trend-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rd-trend-price {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.rd-trend-why {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.rd-trend-cta {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.rd-trend-cta.buy {
+  color: var(--green);
+}
+
+.rd-trend-cta.avoid {
+  color: var(--red);
+}
+
+.rd-trend-cta.watch {
+  color: #b45309;
+}
+
 .sg-suggest-control {
   display: flex;
   align-items: center;

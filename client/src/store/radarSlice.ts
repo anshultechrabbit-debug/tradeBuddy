@@ -22,7 +22,7 @@ const initialState: RadarState = {
   error: null,
 };
 
-export const runScan = createAsyncThunk<ScanResult, number>('radar/scan', async (limit = 15) => {
+export const runScan = createAsyncThunk<ScanResult, number | undefined>('radar/scan', async (limit = 0) => {
   const { data } = await apiClient.post<ScanResult>('/radar/scan', { limit });
   return data;
 });

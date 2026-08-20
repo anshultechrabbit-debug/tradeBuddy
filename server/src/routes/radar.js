@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { body, param, query } from 'express-validator';
 import { authenticate } from '../middleware/auth.js';
 import { validate, pagination, paginatedResult } from '../utils/validation.js';
-import { runScan, listSignals, listOpportunities, getDeepDive, topOpportunities, getLatestScan } from '../services/radarService.js';
+import { runScan, listSignals, listOpportunities, getDeepDive, topOpportunities, getLatestScan, getLatestScanFromDb } from '../services/radarService.js';
 
 const router = Router();
 
@@ -10,11 +10,11 @@ router.use(authenticate);
 
 router.post(
   '/scan',
-  body('limit').optional().isInt({ min: 1, max: 100 }),
+  body('limit').optional().isInt({ min: 0, max: 1000 }),
   validate,
   async (req, res, next) => {
     try {
-      res.json(await runScan({ userId: req.user.id, limit: req.body.limit ?? 15 }));
+      res.json(await runScan({ userId: req.user.id, limit: req.body.limit ?? 0 }));
     } catch (err) {
       next(err);
     }
@@ -43,7 +43,7 @@ router.get('/opportunities', pagination, async (req, res, next) => {
 
 router.get('/latest', async (req, res, next) => {
   try {
-    const latest = getLatestScan();
+    const latest = getLatestScan() ?? (await getLatestScanFromDb());
     if (!latest) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'No scan has run yet' } });
     res.json(latest);
   } catch (err) {

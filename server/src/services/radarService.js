@@ -131,7 +131,7 @@ async function computeScan({ userId = null, limit = 15 }) {
 
   scanned.sort((a, b) => b.convictionScore - a.convictionScore);
 
-  const top = scanned.slice(0, limit);
+  const top = limit > 0 ? scanned.slice(0, limit) : scanned;
 
   return { scanId, userId, provider, regime, breadth, breadthPct, scanned, top, failures };
 }
@@ -210,7 +210,7 @@ export async function runScan({ userId = null, limit = 15, persist = true } = {}
 }
 
 /** Live scan: compute fresh scores WITHOUT persisting, cache for /radar/latest. */
-export async function runLiveScan(limit = 15) {
+export async function runLiveScan(limit = 0) {
   const { scanId, provider, regime, breadth, top } = await computeScan({ userId: null, limit });
   const result = shapeScanResult({ scanId, regime, breadth, top, provider });
   lastScanResult = result;
@@ -222,6 +222,41 @@ export function getLatestScan() {
   return lastScanResult;
 }
 
+/**
+ * Falls back to the most recent persisted scan group when the in-memory
+ * snapshot was lost (e.g. server restart). Keeps the radar page populated.
+ */
+export async function getLatestScanFromDb(limit = 0) {
+  const latestRow = await prisma.radarOpportunity.findFirst({
+    orderBy: { createdAt: 'desc' },
+    select: { scanId: true, regime: true, createdAt: true },
+  });
+  if (!latestRow) return null;
+  const where = { scanId: latestRow.scanId };
+  const opps = await prisma.radarOpportunity.findMany({
+    where,
+    orderBy: { convictionScore: 'desc' },
+    ...(limit > 0 ? { take: limit } : {}),
+  });
+  return {
+    scanId: latestRow.scanId,
+    regime: latestRow.regime,
+    breadth: null,
+    lastScannedAt: latestRow.createdAt.toISOString(),
+    fromDb: true,
+    opportunities: opps.map((o) => ({
+      symbol: o.symbol,
+      exchange: o.exchange,
+      price: o.price == null ? null : round2(Number(o.price)),
+      signal: o.signal,
+      regime: o.regime,
+      convictionScore: o.convictionScore,
+      explanation: o.explanation,
+      dataSource: o.dataSource,
+    })),
+  };
+}
+
 function isMarketOpen() {
   const ist = new Date(Date.now() + 5.5 * 3600 * 1000);
   const day = ist.getUTCDay();
@@ -230,14 +265,14 @@ function isMarketOpen() {
   return t >= 9 * 60 + 15 && t <= 15 * 60 + 30;
 }
 
-/** Starts the live-radar loop: recomputes scores during market hours. */
+/** Starts the live-radar loop: recomputes scores continuously (all symbols, no limits). */
 export function startRadarScheduler(intervalMs = 60000) {
   if (schedulerTimer) return schedulerTimer;
   const run = async () => {
-    if (schedulerRunning || !isMarketOpen()) return;
+    if (schedulerRunning) return;
     schedulerRunning = true;
     try {
-      await runLiveScan(15);
+      await runLiveScan(0);
       logInfra('debug', 'radar', 'Live scan refreshed');
     } catch (err) {
       logInfra('error', 'radar', `Live scan failed: ${err.message}`);

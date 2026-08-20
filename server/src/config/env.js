@@ -34,7 +34,7 @@ export const config = Object.freeze({
   brokerProvider: process.env.BROKER_PROVIDER || 'mock',
   marketDataProvider: process.env.MARKET_DATA_PROVIDER || 'development',
   marketDataMode: process.env.MARKET_DATA_MODE || 'external',
-  maxScanSymbols: Number(process.env.MAX_SCAN_SYMBOLS || 150),
+  maxScanSymbols: Number(process.env.MAX_SCAN_SYMBOLS || 5000),
   notificationProvider: process.env.NOTIFICATION_PROVIDER || 'development',
   encryptionKey: required('ENCRYPTION_KEY', { testFallback: 'a'.repeat(64) }),
   jwtSecret: required('JWT_SECRET', { testFallback: 'test-jwt-secret' }),
