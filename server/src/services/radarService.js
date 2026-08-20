@@ -48,7 +48,15 @@ async function getIndexAboveSma50(provider) {
  * opportunities, regime and breadth. Deterministic: same universe + candles
  * yields identical scores.
  */
-export async function runScan({ userId = null, limit = 15 } = {}) {
+let lastScanResult = null;
+let schedulerTimer = null;
+let schedulerRunning = false;
+
+/**
+ * Pure computation of a radar scan (no persistence). Returns the ranked
+ * opportunities plus the raw per-symbol results for optional persistence.
+ */
+async function computeScan({ userId = null, limit = 15 }) {
   const provider = getMarketDataProvider();
   const scanId = `scan-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
@@ -125,7 +133,37 @@ export async function runScan({ userId = null, limit = 15 } = {}) {
 
   const top = scanned.slice(0, limit);
 
-  if (userId != null) {
+  return { scanId, userId, provider, regime, breadth, breadthPct, scanned, top, failures };
+}
+
+function shapeScanResult({ scanId, regime, breadth, top, provider }) {
+  return {
+    scanId,
+    regime,
+    breadth,
+    lastScannedAt: new Date().toISOString(),
+    opportunities: top.map((s) => ({
+      symbol: s.symbol,
+      exchange: s.exchange,
+      price: round2(s.price),
+      signal: s.signal,
+      regime: s.regime,
+      convictionScore: s.convictionScore,
+      explanation: s.reason,
+      dataSource: provider.dataSource,
+    })),
+  };
+}
+
+/**
+ * Full scan (on demand). Persists signals + opportunities + audit, and also
+ * refreshes the in-memory "latest" result used by the live polling endpoint.
+ */
+export async function runScan({ userId = null, limit = 15, persist = true } = {}) {
+  const { scanId, provider, regime, breadth, breadthPct, scanned, top, failures } =
+    await computeScan({ userId, limit });
+
+  if (persist && userId != null) {
     const signalsData = scanned.map((s) => ({
       userId,
       instrumentId: s.instrumentId,
@@ -139,48 +177,78 @@ export async function runScan({ userId = null, limit = 15 } = {}) {
       dataSource: provider.dataSource,
     }));
     await prisma.scanSignal.createMany({ data: signalsData });
-  }
 
-  const oppData = top.map((s) => ({
-    scanId,
-    userId,
-    instrumentId: s.instrumentId,
-    symbol: s.symbol,
-    exchange: s.exchange,
-    price: s.price,
-    signal: s.signal,
-    regime: s.regime,
-    convictionScore: s.convictionScore,
-    explanation: s.reason,
-    dataSource: provider.dataSource,
-  }));
-  if (oppData.length) {
-    await prisma.radarOpportunity.createMany({ data: oppData });
-  }
-
-  logInfra('info', 'radar', `Scan ${scanId}: ${scanned.length} symbols scanned, ${top.length} opportunities, ${failures.length} skipped`);
-  await audit(userId, 'RADAR_SCAN', 'radar', scanId, {
-    scanned: scanned.length,
-    opportunities: top.length,
-    regime,
-    breadthPctAboveSma50: breadthPct,
-  });
-
-  return {
-    scanId,
-    regime,
-    breadth,
-    opportunities: top.map((s) => ({
+    const oppData = top.map((s) => ({
+      scanId,
+      userId,
+      instrumentId: s.instrumentId,
       symbol: s.symbol,
       exchange: s.exchange,
-      price: round2(s.price),
+      price: s.price,
       signal: s.signal,
       regime: s.regime,
       convictionScore: s.convictionScore,
       explanation: s.reason,
       dataSource: provider.dataSource,
-    })),
+    }));
+    if (oppData.length) {
+      await prisma.radarOpportunity.createMany({ data: oppData });
+    }
+
+    logInfra('info', 'radar', `Scan ${scanId}: ${scanned.length} symbols scanned, ${top.length} opportunities, ${failures.length} skipped`);
+    await audit(userId, 'RADAR_SCAN', 'radar', scanId, {
+      scanned: scanned.length,
+      opportunities: top.length,
+      regime,
+      breadthPctAboveSma50: breadthPct,
+    });
+  }
+
+  const result = shapeScanResult({ scanId, regime, breadth, top, provider });
+  lastScanResult = result;
+  return result;
+}
+
+/** Live scan: compute fresh scores WITHOUT persisting, cache for /radar/latest. */
+export async function runLiveScan(limit = 15) {
+  const { scanId, provider, regime, breadth, top } = await computeScan({ userId: null, limit });
+  const result = shapeScanResult({ scanId, regime, breadth, top, provider });
+  lastScanResult = result;
+  return result;
+}
+
+/** Returns the latest computed scan (live or manual), or null before the first scan. */
+export function getLatestScan() {
+  return lastScanResult;
+}
+
+function isMarketOpen() {
+  const ist = new Date(Date.now() + 5.5 * 3600 * 1000);
+  const day = ist.getUTCDay();
+  if (day === 0 || day === 6) return false;
+  const t = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+  return t >= 9 * 60 + 15 && t <= 15 * 60 + 30;
+}
+
+/** Starts the live-radar loop: recomputes scores during market hours. */
+export function startRadarScheduler(intervalMs = 60000) {
+  if (schedulerTimer) return schedulerTimer;
+  const run = async () => {
+    if (schedulerRunning || !isMarketOpen()) return;
+    schedulerRunning = true;
+    try {
+      await runLiveScan(15);
+      logInfra('debug', 'radar', 'Live scan refreshed');
+    } catch (err) {
+      logInfra('error', 'radar', `Live scan failed: ${err.message}`);
+    } finally {
+      schedulerRunning = false;
+    }
   };
+  run();
+  schedulerTimer = setInterval(run, intervalMs);
+  if (typeof schedulerTimer.unref === 'function') schedulerTimer.unref();
+  return schedulerTimer;
 }
 
 export async function listSignals({ userId, page = 1, limit = 20 }) {

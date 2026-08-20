@@ -54,6 +54,13 @@ export function computeFeatures(candles, context = {}) {
   const ret20 = closes.length > 21 ? last / closes[closes.length - 21] - 1 : 0;
   const relativeStrength = ret20 * 100 - (indexReturn20 ?? 0);
 
+  // Intraday move since the last recorded daily close — makes momentum react
+  // to the live price during market hours instead of only at each day's close.
+  const intradayMovePct =
+    livePrice != null && Number.isFinite(Number(livePrice)) && Number(livePrice) > 0 && closes.length > 1
+      ? (Number(livePrice) / closes[closes.length - 2] - 1) * 100
+      : 0;
+
   const scoreTrend =
     sma50 == null
       ? 50
@@ -62,7 +69,7 @@ export function computeFeatures(candles, context = {}) {
   const scoreMomentum =
     rsi14 == null
       ? 50
-      : clamp(50 + 100 * (0.5 * (rsi14 - 50) / 25 + 0.5 * roc10 / 10), 0, 100);
+      : clamp(50 + 100 * (0.4 * (rsi14 - 50) / 25 + 0.4 * roc10 / 10 + 0.2 * intradayMovePct / 3), 0, 100);
 
   const scoreVolume = clamp(50 + 100 * ((volumeRatio - 1) / 1.5), 0, 100);
 
@@ -92,6 +99,7 @@ export function computeFeatures(candles, context = {}) {
     breakoutPct: round2(breakoutPct),
     ret20: round2(ret20 * 100),
     relativeStrength: round2(relativeStrength),
+    intradayMovePct: round2(intradayMovePct),
     subscores: {
       trend: round2(scoreTrend),
       momentum: round2(scoreMomentum),

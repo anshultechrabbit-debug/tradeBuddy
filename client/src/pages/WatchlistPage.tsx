@@ -18,6 +18,8 @@ export function WatchlistPage() {
 
   useEffect(() => {
     dispatch(fetchWatchlist());
+    const timer = setInterval(() => dispatch(fetchWatchlist()), 2000);
+    return () => clearInterval(timer);
   }, [dispatch]);
 
   useEffect(() => {

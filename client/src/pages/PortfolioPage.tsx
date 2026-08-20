@@ -12,6 +12,11 @@ export function PortfolioPage() {
     dispatch(fetchSummary());
     dispatch(fetchHoldings());
     dispatch(fetchSectors());
+    const timer = setInterval(() => {
+      dispatch(fetchSummary());
+      dispatch(fetchHoldings());
+    }, 2000);
+    return () => clearInterval(timer);
   }, [dispatch]);
 
   function handleSync() {

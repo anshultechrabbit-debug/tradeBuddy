@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { fetchSummary } from '../store/portfolioSlice';
-import { runScan } from '../store/radarSlice';
+import { fetchLatestScan } from '../store/radarSlice';
 import { fetchIndices, fetchBreadth } from '../store/marketSlice';
 import { fetchWatchlist } from '../store/watchlistSlice';
 import { Card, StatCard, Badge, ProgressBar, Spinner, EmptyState } from '../components/ui';
@@ -21,7 +21,14 @@ export function DashboardPage() {
     dispatch(fetchIndices());
     dispatch(fetchBreadth());
     dispatch(fetchWatchlist());
-    dispatch(runScan(5));
+    dispatch(fetchLatestScan());
+    const timer = setInterval(() => {
+      dispatch(fetchSummary());
+      dispatch(fetchIndices());
+      dispatch(fetchWatchlist());
+      dispatch(fetchLatestScan());
+    }, 2000);
+    return () => clearInterval(timer);
   }, [dispatch]);
 
   const top = scanResult?.opportunities.slice(0, 5) ?? [];

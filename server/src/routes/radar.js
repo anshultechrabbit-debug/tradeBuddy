@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { body, param, query } from 'express-validator';
 import { authenticate } from '../middleware/auth.js';
 import { validate, pagination, paginatedResult } from '../utils/validation.js';
-import { runScan, listSignals, listOpportunities, getDeepDive, topOpportunities } from '../services/radarService.js';
+import { runScan, listSignals, listOpportunities, getDeepDive, topOpportunities, getLatestScan } from '../services/radarService.js';
 
 const router = Router();
 
@@ -36,6 +36,16 @@ router.get('/opportunities', pagination, async (req, res, next) => {
     const { page, limit } = req.pagination;
     const result = await listOpportunities({ page, limit });
     res.json(paginatedResult({ rows: result.rows, total: result.total, page, limit }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/latest', async (req, res, next) => {
+  try {
+    const latest = getLatestScan();
+    if (!latest) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'No scan has run yet' } });
+    res.json(latest);
   } catch (err) {
     next(err);
   }

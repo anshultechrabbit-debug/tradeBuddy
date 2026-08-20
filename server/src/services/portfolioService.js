@@ -2,6 +2,34 @@ import { prisma } from '../config/prisma.js';
 import { round2, clamp } from '../utils/helpers.js';
 import { NotFoundError, BadRequestError } from '../utils/errors.js';
 import { sync } from './brokerService.js';
+import { getMarketDataProvider } from '../providers/marketData/index.js';
+
+/**
+ * Overlays live prices onto holdings so portfolio P&L tracks the market in
+ * realtime instead of relying on the broker-sync snapshot. Quotes come from the
+ * provider's live cache (2s TTL), so this is cheap to call on every request.
+ */
+async function overlayLivePrices(holdings) {
+  if (!holdings.length) return holdings;
+  const provider = getMarketDataProvider();
+  const symbols = holdings.map((h) => h.symbol);
+  const quotes = await provider.getQuotes({ symbols, exchange: 'NSE' });
+  const priceMap = new Map();
+  for (let i = 0; i < symbols.length; i += 1) {
+    const q = quotes[i];
+    if (q && Number(q.lastPrice) > 0) priceMap.set(symbols[i], Number(q.lastPrice));
+  }
+  return holdings.map((h) => {
+    const live = priceMap.get(h.symbol);
+    if (live == null) return h;
+    const quantity = Number(h.quantity) || 0;
+    const currentValue = round2(quantity * live);
+    const costValue = Number(h.costValue) || 0;
+    const pnl = round2(currentValue - costValue);
+    const pnlPct = costValue > 0 ? round2((pnl / costValue) * 100) : 0;
+    return { ...h, livePrice: live, currentPrice: live, currentValue, pnl, pnlPct };
+  });
+}
 
 export async function syncPortfolio(userId, broker, opts = {}) {
   const result = await sync(userId, broker, opts);
@@ -98,11 +126,13 @@ export async function getPortfolioSummary(userId) {
     where: { userId },
     include: { instrument: { select: { sector: true, name: true } } },
   });
-  const withSector = holdings.map((h) => ({
-    ...h,
-    sector: h.instrument?.sector ?? null,
-    instrumentName: h.instrument?.name ?? null,
-  }));
+  const withSector = await overlayLivePrices(
+    holdings.map((h) => ({
+      ...h,
+      sector: h.instrument?.sector ?? null,
+      instrumentName: h.instrument?.name ?? null,
+    })),
+  );
 
   const invested = round2(withSector.reduce((a, h) => a + Number(h.costValue ?? 0), 0));
   const current = round2(withSector.reduce((a, h) => a + Number(h.currentValue ?? 0), 0));
@@ -130,12 +160,19 @@ export async function getHoldings(userId) {
     include: { instrument: { select: { sector: true, name: true } } },
     orderBy: { currentValue: 'desc' },
   });
-  return rows.map((h) => ({
+  const overlaid = await overlayLivePrices(
+    rows.map((h) => ({
+      ...h,
+      sector: h.instrument?.sector ?? null,
+      instrumentName: h.instrument?.name ?? null,
+    })),
+  );
+  return overlaid.map((h) => ({
     id: h.id,
     symbol: h.symbol,
     exchange: h.exchange,
-    sector: h.instrument?.sector ?? null,
-    instrumentName: h.instrument?.name ?? null,
+    sector: h.sector,
+    instrumentName: h.instrumentName,
     quantity: h.quantity,
     averagePrice: Number(h.averagePrice),
     currentPrice: Number(h.currentPrice),
@@ -143,6 +180,7 @@ export async function getHoldings(userId) {
     currentValue: Number(h.currentValue),
     pnl: Number(h.pnl),
     pnlPct: Number(h.pnlPct),
+    livePrice: h.livePrice ?? null,
     source: h.source,
     syncedAt: h.syncedAt,
   }));

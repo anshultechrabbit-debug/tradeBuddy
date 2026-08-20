@@ -5,6 +5,7 @@ import type { Paginated, SavedOpportunity, ScanResult, Signal } from '../lib/typ
 export interface RadarState {
   scanning: boolean;
   scanResult: ScanResult | null;
+  lastScannedAt: string | null;
   opportunities: Paginated<SavedOpportunity> | null;
   signals: Paginated<Signal> | null;
   loading: boolean;
@@ -14,6 +15,7 @@ export interface RadarState {
 const initialState: RadarState = {
   scanning: false,
   scanResult: null,
+  lastScannedAt: null,
   opportunities: null,
   signals: null,
   loading: false,
@@ -22,6 +24,11 @@ const initialState: RadarState = {
 
 export const runScan = createAsyncThunk<ScanResult, number>('radar/scan', async (limit = 15) => {
   const { data } = await apiClient.post<ScanResult>('/radar/scan', { limit });
+  return data;
+});
+
+export const fetchLatestScan = createAsyncThunk<ScanResult & { lastScannedAt: string }>('radar/latest', async () => {
+  const { data } = await apiClient.get('/radar/latest');
   return data;
 });
 
@@ -56,6 +63,14 @@ const radarSlice = createSlice({
       .addCase(runScan.rejected, (state, action) => {
         state.scanning = false;
         state.error = action.error.message ?? 'Scan failed';
+      })
+      .addCase(fetchLatestScan.fulfilled, (state, action) => {
+        state.scanResult = action.payload;
+        state.lastScannedAt = action.payload.lastScannedAt ?? null;
+        state.scanning = false;
+      })
+      .addCase(fetchLatestScan.rejected, (_state) => {
+        // no scan yet (404) or transient failure — keep whatever we have
       })
       .addCase(fetchOpportunities.pending, (state) => {
         state.loading = true;

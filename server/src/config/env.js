@@ -64,6 +64,9 @@ export const config = Object.freeze({
     provider: process.env.LLM_PROVIDER || '',
     apiKey: process.env.LLM_API_KEY || '',
   },
+  radar: {
+    liveIntervalMs: Number(process.env.RADAR_LIVE_INTERVAL_MS || 15000),
+  },
   email: {
     provider: process.env.EMAIL_PROVIDER || '',
     apiKey: process.env.EMAIL_API_KEY || '',

@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { runScan, fetchOpportunities, fetchSignals } from '../store/radarSlice';
+import { runScan, fetchOpportunities, fetchSignals, fetchLatestScan } from '../store/radarSlice';
 import { Card, Badge, Spinner, EmptyState, ProgressBar, PaginationBar, ErrorBox, Table } from '../components/ui';
-import { formatCurrency, formatDateTime, signalBadgeClass, regimeBadgeClass } from '../lib/format';
+import { formatCurrency, formatDateTime, formatTimeAgo, signalBadgeClass, regimeBadgeClass } from '../lib/format';
 import { Link } from 'react-router-dom';
 
 export function RadarPage() {
   const dispatch = useAppDispatch();
-  const { scanResult, scanning, opportunities, signals, loading, error } = useAppSelector((s) => s.radar);
+  const { scanResult, scanning, lastScannedAt, opportunities, signals, loading, error } = useAppSelector((s) => s.radar);
   const [oppPage, setOppPage] = useState(1);
   const [sigPage, setSigPage] = useState(1);
 
@@ -18,6 +18,13 @@ export function RadarPage() {
   useEffect(() => {
     dispatch(fetchSignals({ page: sigPage, limit: 10 }));
   }, [dispatch, sigPage]);
+
+  // Live radar: poll the cached latest scan like the market page polls quotes.
+  useEffect(() => {
+    dispatch(fetchLatestScan());
+    const timer = setInterval(() => dispatch(fetchLatestScan()), 2000);
+    return () => clearInterval(timer);
+  }, [dispatch]);
 
   function handleScan() {
     dispatch(runScan(15));
@@ -43,7 +50,16 @@ export function RadarPage() {
         </div>
       ) : null}
 
-      <Card title="Latest Scan" action={scanResult ? <span className="muted small">Scan #{scanResult.scanId}</span> : undefined}>
+      <Card
+        title="Latest Scan"
+        action={
+          scanResult ? (
+            <span className="muted small">
+              {lastScannedAt ? <>Updated {formatTimeAgo(lastScannedAt)}</> : null} · Scan #{scanResult.scanId}
+            </span>
+          ) : undefined
+        }
+      >
         {scanning ? (
           <Spinner label="Scanning universe…" />
         ) : scanResult ? (
