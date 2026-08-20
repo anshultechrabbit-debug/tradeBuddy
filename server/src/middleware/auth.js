@@ -5,6 +5,7 @@ import { UnauthorizedError, ForbiddenError } from '../utils/errors.js';
 function extractToken(req) {
   const header = req.headers.authorization;
   if (header && header.startsWith('Bearer ')) return header.slice(7);
+  if (req.query && req.query.token) return String(req.query.token);
   return null;
 }
 

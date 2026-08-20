@@ -6,6 +6,10 @@ const VISIBILITY = ['default', 'high_priority', 'all'];
 const CHANNELS = ['in_app', 'push', 'email'];
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+function normalizeChannels(channels) {
+  return Array.isArray(channels) ? channels.map((c) => String(c).trim().toLowerCase()) : channels;
+}
+
 function validatePrefs(input) {
   if (input.riskProfile != null && !RISK_PROFILES.includes(input.riskProfile)) {
     throw new BadRequestError(`risk_profile must be one of: ${RISK_PROFILES.join(', ')}`);
@@ -14,10 +18,11 @@ function validatePrefs(input) {
     throw new BadRequestError(`universe_visibility must be one of: ${VISIBILITY.join(', ')}`);
   }
   if (input.notificationChannels != null) {
-    if (!Array.isArray(input.notificationChannels) || !input.notificationChannels.length) {
+    const channels = normalizeChannels(input.notificationChannels);
+    if (!Array.isArray(channels) || !channels.length) {
       throw new BadRequestError('notification_channels must be a non-empty array');
     }
-    for (const c of input.notificationChannels) {
+    for (const c of channels) {
       if (!CHANNELS.includes(c)) throw new BadRequestError(`Invalid channel: ${c}`);
     }
   }
@@ -40,10 +45,14 @@ export async function getPrefs(userId) {
 }
 
 export async function updatePrefs(userId, input) {
-  validatePrefs(input);
+  const normalized = { ...input };
+  if (input.notificationChannels != null) {
+    normalized.notificationChannels = normalizeChannels(input.notificationChannels);
+  }
+  validatePrefs(normalized);
   return prisma.userScannerPref.upsert({
     where: { userId },
-    create: { userId, ...input },
-    update: input,
+    create: { userId, ...normalized },
+    update: normalized,
   });
 }

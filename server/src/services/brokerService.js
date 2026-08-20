@@ -146,6 +146,10 @@ export async function disconnect(userId, broker, { ip } = {}) {
 export async function sync(userId, broker, { ip } = {}) {
   assertSupportedBroker(broker);
   const conn = await getConnection(userId, broker);
+  if (conn.status === 'EXPIRED' || (conn.expiryAt && conn.expiryAt < new Date())) {
+    await markConnectionStatus(userId, broker, 'EXPIRED', ip);
+    throw new BadRequestError('Broker connection has expired', 'BROKER_TOKEN_EXPIRED');
+  }
   if (conn.status !== 'CONNECTED') {
     throw new BadRequestError(`Broker connection is ${conn.status}`, 'BROKER_NOT_CONNECTED');
   }
@@ -274,7 +278,10 @@ export async function sync(userId, broker, { ip } = {}) {
 
 export async function adminListConnections() {
   return prisma.brokerConnection.findMany({
-    include: { user: { select: { email: true, fullName: true } } },
+    include: {
+      user: { select: { email: true, fullName: true } },
+      tokens: { select: { tokenType: true, createdAt: true, expiresAt: true } },
+    },
     orderBy: { updatedAt: 'desc' },
   });
 }

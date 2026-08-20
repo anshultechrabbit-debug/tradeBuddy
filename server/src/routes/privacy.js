@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { body } from 'express-validator';
+import { body, param } from 'express-validator';
 import { validate } from '../utils/validation.js';
-import { createDsr, listDsrs } from '../services/consentService.js';
+import { createDsr, listDsrs, getDsrExport } from '../services/consentService.js';
 import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
@@ -15,6 +15,30 @@ router.get('/requests', async (req, res, next) => {
     next(err);
   }
 });
+
+router.get(
+  '/requests/:id/export',
+  param('id').isInt(),
+  validate,
+  async (req, res, next) => {
+    try {
+      const dsr = await listDsrs({ userId: req.user.id });
+      const match = dsr.find((d) => d.id === Number(req.params.id));
+      if (!match || (match.type !== 'ACCESS' && match.type !== 'PORTABILITY')) {
+        return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'No export available for this request' } });
+      }
+      const payload = await getDsrExport(match.id);
+      if (!payload) {
+        return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Request not fulfilled yet' } });
+      }
+      res.setHeader('Content-Disposition', `attachment; filename="tradebuddy-export-${match.id}.json"`);
+      res.setHeader('Content-Type', 'application/json');
+      res.json(payload);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 router.post(
   '/requests',

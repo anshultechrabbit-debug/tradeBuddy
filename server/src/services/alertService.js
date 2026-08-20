@@ -5,9 +5,15 @@ import { audit } from '../utils/helpers.js';
 import { BadRequestError, NotFoundError } from '../utils/errors.js';
 import { getPortfolioSummary } from './portfolioService.js';
 import { getDeepDive } from './radarService.js';
+import { publishAlerts } from './eventHub.js';
 
 export const ALERT_TYPES = ['price_above', 'price_below', 'conviction_above', 'pnl_above', 'pnl_below'];
 const CHANNELS = ['in_app', 'push', 'email'];
+
+function normalizeChannels(channels) {
+  if (!channels) return channels;
+  return channels.map((c) => String(c).trim().toLowerCase());
+}
 
 function inQuietHours(prefs, now = new Date()) {
   if (!prefs?.quietHoursEnabled) return false;
@@ -32,8 +38,9 @@ export function validateAlertInput({ name, alertType, threshold, symbol, channel
   if (alertType.startsWith('price_') && !symbol) {
     throw new BadRequestError('symbol is required for price alerts');
   }
-  if (channels) {
-    for (const c of channels) {
+  const normalized = normalizeChannels(channels);
+  if (normalized) {
+    for (const c of normalized) {
       if (!CHANNELS.includes(c)) throw new BadRequestError(`Invalid channel: ${c}`);
     }
   }
@@ -41,7 +48,7 @@ export function validateAlertInput({ name, alertType, threshold, symbol, channel
 
 export async function createAlert(userId, input) {
   validateAlertInput(input);
-  const channels = input.channels ?? ['in_app'];
+  const channels = normalizeChannels(input.channels) ?? ['in_app'];
   const alert = await prisma.alert.create({
     data: {
       userId,
@@ -65,7 +72,7 @@ export async function updateAlert(userId, alertId, input) {
   if (input.alertType != null) data.alertType = input.alertType;
   if (input.threshold != null) data.threshold = input.threshold;
   if (input.symbol !== undefined) data.symbol = input.symbol ?? null;
-  if (input.channels != null) data.channels = input.channels;
+  if (input.channels != null) data.channels = normalizeChannels(input.channels);
   if (input.active != null) data.active = Boolean(input.active);
   const alert = await prisma.alert.update({ where: { id: alertId }, data });
   await audit(userId, 'ALERT_UPDATE', 'alert', alertId, null, null);
@@ -184,6 +191,7 @@ export async function evaluateAlerts(userId, { ip } = {}) {
   }
 
   if (triggered.length) {
+    publishAlerts(triggered);
     await audit(userId, 'ALERTS_EVALUATED', 'alert', null, { triggered: triggered.length, quietHours: quiet }, ip);
   }
   return triggered;

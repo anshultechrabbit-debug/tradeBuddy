@@ -50,8 +50,8 @@ export const deleteAlert = createAsyncThunk('alerts/delete', async (id: number) 
   return id;
 });
 
-export const fetchEvents = createAsyncThunk('alerts/events', async () => {
-  const { data } = await apiClient.get<Paginated<AlertEvent>>('/alerts/events', { params: { limit: 20 } });
+export const fetchEvents = createAsyncThunk<Paginated<AlertEvent>, number | undefined>('alerts/events', async (page = 1) => {
+  const { data } = await apiClient.get<Paginated<AlertEvent>>('/alerts/events', { params: { page, limit: 20 } });
   return data;
 });
 

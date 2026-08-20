@@ -26,12 +26,32 @@ export function AlertsPage() {
   const [channels, setChannels] = useState<string[]>(['IN_APP']);
   const [actionError, setActionError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [eventPage, setEventPage] = useState(1);
 
   useEffect(() => {
     dispatch(fetchAlerts());
-    dispatch(fetchEvents());
+    dispatch(fetchEvents(eventPage));
     dispatch(fetchNotifications());
-  }, [dispatch]);
+  }, [dispatch, eventPage]);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    const source = new EventSource(`/api/stream?channel=alerts&token=${encodeURIComponent(token)}`);
+    source.addEventListener('message', (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'alerts') {
+          dispatch(fetchEvents(eventPage));
+          dispatch(fetchNotifications());
+          dispatch(fetchAlerts());
+        }
+      } catch {
+        // ignore non-JSON frames
+      }
+    });
+    return () => source.close();
+  }, [dispatch, eventPage]);
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
@@ -178,7 +198,7 @@ export function AlertsPage() {
                   </tr>
                 ))}
               </Table>
-              <PaginationBar page={1} totalPages={events.meta.totalPages} onPage={() => {}} />
+              <PaginationBar page={eventPage} totalPages={events.meta.totalPages} onPage={setEventPage} />
             </>
           ) : (
             <EmptyState title="No triggered events" />

@@ -42,6 +42,29 @@ export function AdminHealthPage() {
           </div>
         </Card>
 
+        <Card title="Market Data Providers">
+          <div className="analysis-list">
+            <div>
+              <span className="muted">Status:</span> <Badge className={up(health.marketData.status)}>{health.marketData.status}</Badge>
+              <span className="muted small"> mode {health.marketData.mode}</span>
+            </div>
+            {health.marketData.external ? (
+              <>
+                <div><span className="muted">External:</span> <strong>{health.marketData.external.status}</strong></div>
+                <div><span className="muted">Primary:</span> <strong>{health.marketData.external.primary ?? 'n/a'}</strong></div>
+                <div><span className="muted">Fallback:</span> <strong>{health.marketData.external.fallback ?? 'n/a'}</strong></div>
+                <div><span className="muted">Backfill:</span> <strong>{health.marketData.external.backfill ?? 'n/a'}</strong></div>
+                {health.marketData.external.lastMarketDataTimestamp ? (
+                  <div><span className="muted">Last data:</span> <strong>{health.marketData.external.lastMarketDataTimestamp}</strong></div>
+                ) : null}
+                {health.marketData.external.staleSymbols != null ? (
+                  <div><span className="muted">Stale symbols:</span> <strong>{health.marketData.external.staleSymbols}</strong></div>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        </Card>
+
         <Card title="Recent Errors">
           {health.errors.recent.length > 0 ? (
             <div className="notification-list">

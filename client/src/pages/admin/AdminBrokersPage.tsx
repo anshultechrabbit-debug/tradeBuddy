@@ -43,7 +43,7 @@ export function AdminBrokersPage() {
         {!connections ? (
           <Spinner />
         ) : connections.length > 0 ? (
-          <Table headers={['User', 'Broker', 'Status', 'Last Sync', 'Expires', 'Created', 'Set status']}>
+          <Table headers={['User', 'Broker', 'Status', 'Tokens', 'Last Sync', 'Expires', 'Created', 'Set status']}>
             {connections.map((c) => (
               <tr key={c.id}>
                 <td className="strong">
@@ -53,6 +53,20 @@ export function AdminBrokersPage() {
                 <td>{c.broker}</td>
                 <td>
                   <Badge className={statusClass(c.status)}>{c.status}</Badge>
+                </td>
+                <td>
+                  {c.tokens && c.tokens.length > 0 ? (
+                    <div className="muted small">
+                      {c.tokens.map((t) => (
+                        <div key={t.tokenType}>
+                          {t.tokenType}
+                          {t.expiresAt ? ` · exp ${formatDateTime(t.expiresAt)}` : ''}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="muted">none</span>
+                  )}
                 </td>
                 <td className="muted small">{formatDateTime(c.lastSyncAt)}</td>
                 <td className="muted small">{formatDateTime(c.expiryAt)}</td>

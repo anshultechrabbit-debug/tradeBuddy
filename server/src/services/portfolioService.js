@@ -215,6 +215,10 @@ export async function getFunds(userId, broker) {
   if (!conn || conn.status !== 'CONNECTED') {
     throw new BadRequestError('No connected broker', 'BROKER_NOT_CONNECTED');
   }
+  const { isConsentActive } = await import('./consentService.js');
+  if (!(await isConsentActive(userId, broker, 'funds'))) {
+    throw new BadRequestError('Consent not granted for funds', 'CONSENT_REQUIRED');
+  }
   const { getBrokerProvider } = await import('../providers/broker/index.js');
   const funds = await getBrokerProvider().getFunds({ seedKey: String(userId) });
   return funds;

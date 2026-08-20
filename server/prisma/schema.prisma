@@ -130,14 +130,16 @@ model ConsentLedger {
 }
 
 model DataSubjectRequest {
-  id          Int       @id @default(autoincrement())
-  userId      Int       @map("user_id")
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type        String
-  status      String    @default("PENDING")
-  notes       String?
-  submittedAt DateTime  @default(now()) @map("submitted_at")
-  resolvedAt  DateTime? @map("resolved_at")
+  id               Int       @id @default(autoincrement())
+  userId           Int       @map("user_id")
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type             String
+  status           String    @default("PENDING")
+  notes            String?
+  responsePayload  Json?     @map("response_payload")
+  resolutionNotes  String?   @map("resolution_notes")
+  submittedAt      DateTime  @default(now()) @map("submitted_at")
+  resolvedAt       DateTime? @map("resolved_at")
 
   @@map("data_subject_requests")
 }

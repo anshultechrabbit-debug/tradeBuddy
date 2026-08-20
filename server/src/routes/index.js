@@ -13,6 +13,7 @@ import settingsRoutes from './settings.js';
 import marketRoutes from './market.js';
 import privacyRoutes from './privacy.js';
 import aiRoutes from './ai.js';
+import streamRoutes from './stream.js';
 import adminUsersRoutes from './admin/users.js';
 import adminHealthRoutes from './admin/health.js';
 import adminBrokersRoutes from './admin/brokers.js';
@@ -42,6 +43,7 @@ router.use('/settings', settingsRoutes);
 router.use('/market', marketRoutes);
 router.use('/privacy', privacyRoutes);
 router.use('/ai', aiRoutes);
+router.use('/stream', streamRoutes);
 
 router.use('/admin', authenticate, requireRole('ADMIN'));
 router.use('/admin/users', adminUsersRoutes);

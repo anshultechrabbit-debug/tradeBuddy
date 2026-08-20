@@ -87,6 +87,21 @@ export function RadarPage() {
     };
   }, [dispatch]);
 
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    const source = new EventSource(`/api/stream?channel=radar&token=${encodeURIComponent(token)}`);
+    source.addEventListener('message', (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'radar') dispatch(fetchLatestScan());
+      } catch {
+        // ignore non-JSON frames
+      }
+    });
+    return () => source.close();
+  }, [dispatch]);
+
   function handleScan() {
     dispatch(runScan());
   }

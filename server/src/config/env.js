@@ -61,8 +61,10 @@ export const config = Object.freeze({
     pythonBin: process.env.PYTHON_BIN || 'python3.12',
   },
   llm: {
-    provider: process.env.LLM_PROVIDER || '',
-    apiKey: process.env.LLM_API_KEY || '',
+    provider: process.env.AI_PROVIDER || process.env.LLM_PROVIDER || 'groq',
+    apiKey: process.env.AI_API_KEY || process.env.LLM_API_KEY || '',
+    model: process.env.AI_MODEL || process.env.LLM_MODEL || 'llama-3.3-70b-versatile',
+    baseUrl: process.env.AI_BASE_URL || 'https://api.groq.com/openai/v1',
   },
   radar: {
     liveIntervalMs: Number(process.env.RADAR_LIVE_INTERVAL_MS || 15000),

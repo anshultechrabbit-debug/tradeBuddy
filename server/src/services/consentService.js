@@ -109,6 +109,107 @@ export async function listAllConsents() {
 
 export const DSR_TYPES = ['ACCESS', 'ERASURE', 'PORTABILITY', 'RECTIFICATION'];
 
+/** Collects every piece of personal data held for a user (ACCESS/PORTABILITY). */
+async function buildUserExport(userId) {
+  const [
+    user,
+    watchlist,
+    consents,
+    holdings,
+    positions,
+    snapshots,
+    alerts,
+    alertEvents,
+    notifications,
+    orders,
+    journal,
+    prefs,
+    connections,
+    signals,
+    opportunities,
+  ] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, fullName: true, phone: true, status: true, subscriptionStatus: true, createdAt: true, lastLoginAt: true },
+    }),
+    prisma.watchlist.findUnique({ where: { userId }, include: { items: true } }),
+    prisma.consentLedger.findMany({ where: { userId } }),
+    prisma.portfolioHolding.findMany({ where: { userId } }),
+    prisma.portfolioPosition.findMany({ where: { userId } }),
+    prisma.portfolioSnapshot.findMany({ where: { userId } }),
+    prisma.alert.findMany({ where: { userId } }),
+    prisma.alertEvent.findMany({ where: { userId } }),
+    prisma.notification.findMany({ where: { userId } }),
+    prisma.order.findMany({ where: { userId } }),
+    prisma.tradeJournal.findMany({ where: { userId } }),
+    prisma.userScannerPref.findUnique({ where: { userId } }),
+    prisma.brokerConnection.findMany({ where: { userId }, include: { tokens: { select: { tokenType: true, createdAt: true, expiresAt: true } } } }),
+    prisma.scanSignal.findMany({ where: { userId } }),
+    prisma.radarOpportunity.findMany({ where: { userId } }),
+  ]);
+  return {
+    generatedAt: new Date().toISOString(),
+    subject: { id: user?.id, email: user?.email, fullName: user?.fullName, createdAt: user?.createdAt },
+    data: {
+      profile: user,
+      watchlist,
+      consents,
+      portfolio: { holdings, positions, snapshots },
+      alerts: { alerts, alertEvents },
+      notifications,
+      orders,
+      tradeJournal: journal,
+      scannerPreferences: prefs,
+      brokerConnections: connections,
+      radar: { scanSignals: signals, opportunities },
+    },
+  };
+}
+
+/** Erases all personal data for a user while preserving the DSR proof record. */
+async function eraseUserData(userId) {
+  await prisma.$transaction([
+    prisma.tradeJournal.deleteMany({ where: { userId } }),
+    prisma.order.deleteMany({ where: { userId } }),
+    prisma.watchlist.deleteMany({ where: { userId } }),
+    prisma.portfolioHolding.deleteMany({ where: { userId } }),
+    prisma.portfolioPosition.deleteMany({ where: { userId } }),
+    prisma.portfolioSnapshot.deleteMany({ where: { userId } }),
+    prisma.alertEvent.deleteMany({ where: { userId } }),
+    prisma.alert.deleteMany({ where: { userId } }),
+    prisma.notification.deleteMany({ where: { userId } }),
+    prisma.consentLedger.deleteMany({ where: { userId } }),
+    prisma.brokerConnection.deleteMany({ where: { userId } }),
+    prisma.scanSignal.deleteMany({ where: { userId } }),
+    prisma.radarOpportunity.deleteMany({ where: { userId } }),
+    prisma.userRole.deleteMany({ where: { userId } }),
+    prisma.userScannerPref.deleteMany({ where: { userId } }),
+    prisma.dataSubjectRequest.deleteMany({ where: { userId, type: { not: 'ERASURE' } } }),
+    prisma.user.update({
+      where: { id: userId },
+      data: {
+        email: `erased-${userId}@invalid.tradebuddy.local`,
+        fullName: 'Erased User',
+        phone: null,
+        passwordHash: '!erased!',
+        status: 'ERASED',
+        tokenVersion: { increment: 1 },
+      },
+    }),
+  ]);
+}
+
+async function markDsrFulfilled(dsrId, { payload, notes }) {
+  await prisma.$executeRaw`
+    UPDATE "data_subject_requests"
+    SET "response_payload" = ${payload ? JSON.stringify(payload) : null}::jsonb,
+        "resolution_notes" = ${notes},
+        "status" = 'COMPLETED',
+        "resolved_at" = ${new Date()}
+    WHERE "id" = ${dsrId}
+  `;
+}
+
 export async function createDsr(userId, { type, notes }, { ip } = {}) {
   if (!DSR_TYPES.includes(type)) throw new BadRequestError(`Invalid request type: ${type}`);
   const dsr = await prisma.dataSubjectRequest.create({
@@ -126,16 +227,46 @@ export async function listDsrs({ userId, admin = false } = {}) {
   });
 }
 
+/** Reads the stored export payload for a fulfilled ACCESS/PORTABILITY request. */
+export async function getDsrExport(dsrId) {
+  const rows = await prisma.$queryRaw`
+    SELECT "response_payload" FROM "data_subject_requests" WHERE "id" = ${dsrId}
+  `;
+  return rows?.[0]?.response_payload ?? null;
+}
+
 export async function resolveDsr(adminId, dsrId, { status }) {
   if (!['COMPLETED', 'REJECTED'].includes(status)) {
     throw new BadRequestError('Status must be COMPLETED or REJECTED');
   }
   const existing = await prisma.dataSubjectRequest.findUnique({ where: { id: dsrId } });
   if (!existing) throw new NotFoundError('Request not found');
-  const updated = await prisma.dataSubjectRequest.update({
-    where: { id: dsrId },
-    data: { status, resolvedAt: new Date() },
-  });
+  if (existing.status !== 'PENDING') {
+    throw new BadRequestError('Request has already been resolved');
+  }
+
+  if (status === 'COMPLETED') {
+    if (existing.type === 'ACCESS' || existing.type === 'PORTABILITY') {
+      const payload = await buildUserExport(existing.userId);
+      await markDsrFulfilled(dsrId, {
+        payload,
+        notes: `${existing.type} fulfilled — structured export of all personal data.`,
+      });
+    } else if (existing.type === 'ERASURE') {
+      await eraseUserData(existing.userId);
+      await markDsrFulfilled(dsrId, { payload: null, notes: 'All personal data erased; account anonymised.' });
+    } else {
+      await markDsrFulfilled(dsrId, { payload: null, notes: 'RECTIFICATION acknowledged — corrected data not supplied.' });
+    }
+  } else {
+    await prisma.$executeRaw`
+      UPDATE "data_subject_requests"
+      SET "status" = 'REJECTED', "resolved_at" = ${new Date()}
+      WHERE "id" = ${dsrId}
+    `;
+  }
+
+  const updated = await prisma.dataSubjectRequest.findUnique({ where: { id: dsrId } });
   await audit(adminId, 'DSR_RESOLVE', 'data_subject_request', dsrId, { status }, null);
   return updated;
 }

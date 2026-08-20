@@ -36,6 +36,7 @@ export interface BrokerConnection {
   createdAt: string;
   config?: { kind: string; configured: boolean; redirectUri: string | null };
   user?: { email: string; fullName: string | null };
+  tokens?: { tokenType: string; createdAt: string; expiresAt: string | null }[];
 }
 
 export interface Consent {
@@ -455,7 +456,23 @@ export interface Settings {
 export interface SystemHealth {
   application: { status: string; environment: string; uptimeSeconds: number; version: string };
   database: { status: string; error?: string };
-  marketData: { provider: string; dataSource: string; environment: string; status: string; recentAudits: unknown[] };
+  marketData: {
+    provider: string;
+    dataSource: string;
+    environment: string;
+    status: string;
+    mode: string;
+    external: {
+      status: string;
+      primary?: string;
+      fallback?: string;
+      backfill?: string;
+      lastMarketDataTimestamp?: string | null;
+      staleSymbols?: number;
+      [key: string]: unknown;
+    } | null;
+    recentAudits: unknown[];
+  };
   brokerProvider: { provider: string; environment: string; status: string; connections: number };
   notificationProvider: { provider: string; environment: string };
   errors: { recent: unknown[]; counts: unknown[] };

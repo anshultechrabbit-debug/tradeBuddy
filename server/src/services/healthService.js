@@ -24,6 +24,14 @@ export async function getSystemHealth() {
   const brokerProvider = getBrokerProvider();
   const notificationProvider = getNotificationProvider();
 
+  let externalHealth = null;
+  try {
+    externalHealth = typeof marketProvider.health === 'function' ? await marketProvider.health() : null;
+  } catch (err) {
+    externalHealth = { status: 'ERROR', message: err.message };
+  }
+  const marketStatus = externalHealth?.status === 'UP' ? 'UP' : externalHealth?.status === 'DEGRADED' ? 'DEGRADED' : 'DOWN';
+
   const [recentAudits, recentErrors, errorCounts, userCount, connectionCount] = await Promise.all([
     prisma.marketDataAudit.findMany({ orderBy: { createdAt: 'desc' }, take: 5 }),
     prisma.infraLog.findMany({
@@ -56,9 +64,9 @@ export async function getSystemHealth() {
       provider: marketProvider.name,
       dataSource: marketProvider.dataSource,
       environment: marketProvider.environment,
-      status: 'UP',
+      status: marketStatus,
       mode: config.marketDataMode,
-      external: typeof marketProvider.health === 'function' ? await marketProvider.health() : null,
+      external: externalHealth,
       recentAudits: recentAudits.map((a) => ({
         id: a.id,
         operation: a.operation,

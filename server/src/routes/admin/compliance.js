@@ -6,6 +6,7 @@ import {
   listDsrs,
   resolveDsr,
   createDsr,
+  getDsrExport,
 } from '../../services/consentService.js';
 
 const router = Router();
@@ -49,6 +50,25 @@ router.patch(
   async (req, res, next) => {
     try {
       res.json({ request: await resolveDsr(req.user.id, Number(req.params.id), req.body) });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  '/requests/:id/export',
+  param('id').isInt(),
+  validate,
+  async (req, res, next) => {
+    try {
+      const payload = await getDsrExport(Number(req.params.id));
+      if (!payload) {
+        return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'No export available for this request' } });
+      }
+      res.setHeader('Content-Disposition', `attachment; filename="tradebuddy-export-${req.params.id}.json"`);
+      res.setHeader('Content-Type', 'application/json');
+      res.json(payload);
     } catch (err) {
       next(err);
     }

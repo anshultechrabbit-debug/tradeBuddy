@@ -12,6 +12,7 @@ import {
 } from './radar/engine.js';
 import { sma } from './radar/indicators.js';
 import { round2, logInfra, audit } from '../utils/helpers.js';
+import { publishRadar } from './eventHub.js';
 
 export function mapLimit(items, limit, fn) {
   const results = [];
@@ -206,6 +207,7 @@ export async function runScan({ userId = null, limit = 15, persist = true } = {}
 
   const result = shapeScanResult({ scanId, regime, breadth, top, provider });
   lastScanResult = result;
+  publishRadar(result);
   return result;
 }
 
@@ -214,6 +216,7 @@ export async function runLiveScan(limit = 0) {
   const { scanId, provider, regime, breadth, top } = await computeScan({ userId: null, limit });
   const result = shapeScanResult({ scanId, regime, breadth, top, provider });
   lastScanResult = result;
+  publishRadar(result);
   return result;
 }
 
