@@ -69,27 +69,33 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
   }
 
   /**
-   * Pre-warms the expensive caches (indices, breadth, top-60 candles) in the
-   * background so the first user request (deep dive / scan / market) is fast
-   * instead of blocking on a cold breadth computation.
+   * Pre-warms the expensive caches (indices, breadth, top-60 candles) sequentially
+   * in the background to avoid memory/paging file spikes on dev machines.
    */
   async _warmUp() {
-    const jobs = [this.getIndexData(), this.getMarketBreadth()];
     try {
+      logInfra('info', 'market-data-external', 'starting sequential warm-up...');
+      
+      // 1. Fetch indices and market breadth sequentially first
+      await this.getIndexData().catch(() => null);
+      await this.getMarketBreadth().catch(() => null);
+
+      // 2. Fetch candles for universe sequentially
       const universe = await prisma.scanUniverse.findMany({
         where: { enabled: true, excluded: false, instrumentType: 'EQUITY' },
         orderBy: { priority: 'asc' },
         take: 60,
         select: { symbol: true, exchange: true },
       });
+
       for (const u of universe) {
-        jobs.push(this.getCandles(u.symbol, '1d', 60, u.exchange));
+        await this.getCandles(u.symbol, '1d', 60, u.exchange).catch(() => null);
       }
+
+      logInfra('info', 'market-data-external', 'warm-up complete: indices + breadth + top candles cached');
     } catch (err) {
-      logInfra('warn', 'market-data-external', `warm-up universe fetch failed: ${err.message}`);
+      logInfra('warn', 'market-data-external', `warm-up failed: ${err.message}`);
     }
-    await Promise.allSettled(jobs);
-    logInfra('info', 'market-data-external', 'warm-up complete: indices + breadth + top candles cached');
   }
 
   // -------------------------------------------------------------------------
