@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { fetchSummary } from '../store/portfolioSlice';
 import { fetchLatestScan } from '../store/radarSlice';
-import { fetchIndices, fetchBreadth } from '../store/marketSlice';
+import { fetchIndices, fetchBreadth, fetchTopStocks } from '../store/marketSlice';
 import { fetchWatchlist } from '../store/watchlistSlice';
 import { analyzeMany } from '../store/aiSlice';
 import { Card, StatCard, Badge, ProgressBar, Spinner, EmptyState } from '../components/ui';
@@ -19,7 +19,7 @@ export function DashboardPage() {
   const dispatch = useAppDispatch();
   const { summary } = useAppSelector((s) => s.portfolio);
   const { scanResult, scanning } = useAppSelector((s) => s.radar);
-  const { indices, breadth } = useAppSelector((s) => s.market);
+  const { indices, breadth, top: topMovers } = useAppSelector((s) => s.market);
   const { watchlist } = useAppSelector((s) => s.watchlist);
   const { picks, analyzing, lastUpdated } = useAppSelector((s) => s.ai);
   const user = useAppSelector((s) => s.auth.user);
@@ -31,11 +31,13 @@ export function DashboardPage() {
     dispatch(fetchBreadth());
     dispatch(fetchWatchlist());
     dispatch(fetchLatestScan());
+    dispatch(fetchTopStocks());
     const timer = setInterval(() => {
       dispatch(fetchSummary());
       dispatch(fetchIndices());
       dispatch(fetchWatchlist());
       dispatch(fetchLatestScan());
+      dispatch(fetchTopStocks());
     }, 2000);
     return () => clearInterval(timer);
   }, [dispatch]);
@@ -49,15 +51,16 @@ export function DashboardPage() {
     const symbols: string[] = [];
     const push = (s: string) => {
       const u = s.trim().toUpperCase();
-      if (u && !symbols.includes(u)) symbols.push(u);
+      if (u && /^[A-Z0-9&.-]{1,20}$/.test(u) && !symbols.includes(u)) symbols.push(u);
     };
     watchlist?.items.slice(0, 4).forEach((i) => push(i.symbol));
+    topMovers?.gainers.slice(0, 4).forEach((m) => push(m.symbol));
     scanResult?.opportunities.slice(0, 4).forEach((o) => push(o.symbol));
     if (!symbols.length) ['RELIANCE', 'TATAPOWER', 'HDFCBANK', 'INFY'].forEach(push);
-    dispatch(analyzeMany(symbols.slice(0, 6))).finally(() => {
+    dispatch(analyzeMany(symbols.slice(0, 8))).finally(() => {
       refreshingRef.current = false;
     });
-  }, [watchlist, scanResult, analyzing, dispatch]);
+  }, [watchlist, topMovers, scanResult, analyzing, dispatch]);
 
   // Auto-load suggestions once data is ready, then refresh every 3 minutes so
   // news + market moves keep the recommendation current.
@@ -127,7 +130,13 @@ export function DashboardPage() {
               <span className="small muted">/100</span>
             </div>
             <div className="small muted">
-              {formatCurrency(aiTop.quote?.lastPrice)} · {aiTop.confidence} confidence
+              {formatCurrency(aiTop.quote?.lastPrice)}
+              {aiTop.quote?.changePct != null ? (
+                <span className={aiTop.quote.changePct >= 0 ? 'text-positive' : 'text-negative'}>
+                  {' '}({formatPct(aiTop.quote.changePct)}) · live
+                </span>
+              ) : null}
+              <span> · {aiTop.confidence} confidence</span>
             </div>
             <div className="ai-dash-entry small">
               Entry {formatCurrency(aiTop.entry.zoneLow)}–{formatCurrency(aiTop.entry.zoneHigh)} · SL {formatCurrency(aiTop.entry.stopLoss)}

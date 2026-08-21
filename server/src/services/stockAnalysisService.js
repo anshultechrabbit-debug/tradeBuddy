@@ -366,11 +366,18 @@ function entryAndStop(t) {
 const analysisCache = new Map();
 const ANALYSIS_CACHE_TTL_OK = 2_000; // recompute price/technical/market every ~2s
 const ANALYSIS_CACHE_TTL_ERR = 5_000;
+// Stale-while-revalidate bound: serve the last-known result instantly while a
+// background recompute runs, but never show data older than this.
+const ANALYSIS_MAX_STALENESS_MS = 10_000;
+const pendingRefresh = new Map();
 
 // News and fundamentals change slowly, so cache them separately to keep the
 // 2s recompute fast without hammering Google News / the PE archive.
 const newsCache = new Map();
-const NEWS_CACHE_TTL = 5_000; // real-time: re-fetch news every ~5s with the analysis
+const NEWS_CACHE_TTL = 2_000; // real-time: re-fetch news every ~2s with the analysis
+// NewsAPI optional key (get free key at https://newsapi.org/)
+// When set, NewsAPI is used as fallback if Google News RSS returns < 2 articles.
+const NEWSAPI_KEY = process.env.NEWSAPI_KEY ?? '';
 const fundCache = new Map();
 const FUND_CACHE_TTL = 10 * 60_000;
 
@@ -408,7 +415,31 @@ export async function analyzeStock(symbol, { includeNews = true } = {}) {
   const sym = String(symbol || '').trim().toUpperCase();
 
   const hit = analysisCache.get(sym);
-  if (hit && Date.now() - hit.at < hit.ttl) return hit.result;
+  if (hit) {
+    const age = Date.now() - hit.at;
+    if (age < hit.ttl) return hit.result;
+    if (age < ANALYSIS_MAX_STALENESS_MS) {
+      // Stale but still usable: return instantly and refresh in the background
+      // so the next poll within the TTL window is already fresh.
+      refreshInBackground(provider, sym, { includeNews });
+      return hit.result;
+    }
+    // Too stale — wait for a fresh compute so we never serve outdated scores.
+  }
+
+  return computeAnalysis(provider, sym, { includeNews });
+}
+
+async function refreshInBackground(provider, sym, opts) {
+  if (pendingRefresh.has(sym)) return pendingRefresh.get(sym);
+  const p = computeAnalysis(provider, sym, opts)
+    .catch(() => null)
+    .finally(() => pendingRefresh.delete(sym));
+  pendingRefresh.set(sym, p);
+  return p;
+}
+
+async function computeAnalysis(provider, sym, { includeNews }) {
 
   const tech = await gatherTechnical(provider, sym);
   if (!tech.ok) {

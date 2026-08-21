@@ -70,6 +70,127 @@ def emit(payload):
     sys.stdout.flush()
 
 
+# ---------------------------------------------------------------------------
+# Corporate actions (dividends) — fetched from NSE public API, cached locally
+# ---------------------------------------------------------------------------
+
+CORP_ACTIONS_CACHE_DIR = os.path.join(CACHE_DIR, "corporate_actions") if CACHE_DIR else None
+
+
+def _ca_cache_load(symbol):
+    if not CORP_ACTIONS_CACHE_DIR:
+        return None
+    path = os.path.join(CORP_ACTIONS_CACHE_DIR, f"{symbol}.json")
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except Exception:
+            return None
+    return None
+
+
+def _ca_cache_store(symbol, data):
+    if not CORP_ACTIONS_CACHE_DIR:
+        return data
+    os.makedirs(CORP_ACTIONS_CACHE_DIR, exist_ok=True)
+    path = os.path.join(CORP_ACTIONS_CACHE_DIR, f"{symbol}.json")
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, default=str)
+    except Exception:
+        pass
+    return data
+
+
+def fetch_corporate_actions(symbol):
+    """
+    Fetch dividend history for a symbol from NSE's corporate actions API.
+    Returns list of {exDate, dividend, type} where type='dividend'.
+    Cached for 24h.
+    """
+    cached = _ca_cache_load(symbol)
+    if cached is not None:
+        return cached
+
+    try:
+        # NSE corporate actions endpoint (public, no auth)
+        import urllib.request
+        url = f"https://www.nseindia.com/api/corporate-actions?symbol={symbol.upper()}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+    except Exception:
+        # Fallback: try nselib if available
+        try:
+            from nselib import capital_market
+            df = capital_market.corporate_actions(symbol.upper())
+            if df is not None and not df.empty:
+                data = df.to_dict(orient="records")
+            else:
+                data = []
+        except Exception:
+            data = []
+
+    # Normalize to our schema: only dividends with ex-date and amount
+    dividends = []
+    for row in data:
+        # NSE corporate actions columns vary; probe common ones
+        ca_type = str(row.get("PURPOSE") or row.get("purpose") or row.get("CA_TYPE") or "").lower()
+        if "dividend" not in ca_type:
+            continue
+        ex_date_raw = row.get("EX_DATE") or row.get("Ex_Date") or row.get("exDate")
+        if not ex_date_raw:
+            continue
+        try:
+            ex_date = pd_to_datetime(ex_date_raw).date()
+        except Exception:
+            continue
+        # Dividend amount per share (could be in 'DIVIDEND', 'dividend', 'AMOUNT', 'FaceValue')
+        div_amt = None
+        for key in ["DIVIDEND", "dividend", "AMOUNT", "amount", "FACE_VALUE", "faceValue", "FACE VALUE"]:
+            if key in row and row[key] is not None:
+                div_amt = num(row[key])
+                break
+        if div_amt is None or div_amt <= 0:
+            continue
+        dividends.append({"exDate": ex_date.isoformat(), "dividend": div_amt, "type": "dividend"})
+
+    # Sort by ex-date ascending
+    dividends.sort(key=lambda x: x["exDate"])
+    _ca_cache_store(symbol, dividends)
+    return dividends
+
+
+def adjust_candles_for_dividends(candles, dividends):
+    """
+    Adjust historical candles for dividends (backward adjustment).
+    For each dividend, subtract the dividend amount from all candles
+    with date < exDate. This matches standard price adjustment methodology.
+    """
+    if not candles or not dividends:
+        return candles
+
+    # Work on a copy
+    adjusted = [dict(c) for c in candles]
+    for div in dividends:
+        ex_date = div["exDate"]
+        amount = div["dividend"]
+        for c in adjusted:
+            # candle ts is ISO string; compare date portion
+            c_date = c["ts"][:10]
+            if c_date < ex_date:
+                for key in ("open", "high", "low", "close"):
+                    if c.get(key) is not None:
+                        c[key] = round(c[key] - amount, 2)
+    return adjusted
+
+
 def fail(exc):
     emit({"ok": False, "error": str(exc), "trace": traceback.format_exc(limit=3)})
 
@@ -237,7 +358,11 @@ def nselib_candles(symbol, days, is_index=False):
         df = capital_market.index_data(index=symbol, from_date=fmt_ddmm(frm), to_date=fmt_ddmm(to))
     else:
         df = capital_market.price_volume_data(symbol, from_date=fmt_ddmm(frm), to_date=fmt_ddmm(to))
-    return frame_to_candles(df, symbol)
+    candles = frame_to_candles(df, symbol)
+    if not is_index:
+        dividends = fetch_corporate_actions(symbol)
+        candles = adjust_candles_for_dividends(candles, dividends)
+    return candles
 
 
 def nselib_nifty_list():
@@ -539,7 +664,11 @@ def jugaad_candles(symbol, days, is_index=False):
         df = index_df(symbol, from_date=frm, to_date=to)
     else:
         df = stock_df(symbol, from_date=frm, to_date=to)
-    return frame_to_candles(df, symbol)
+    candles = frame_to_candles(df, symbol)
+    if not is_index:
+        dividends = fetch_corporate_actions(symbol)
+        candles = adjust_candles_for_dividends(candles, dividends)
+    return candles
 
 
 def jugaad_indices():
@@ -806,7 +935,11 @@ def nse_archives_candles(symbol, days, is_index=False):
             continue
         seen.add(key)
         result.append(r)
-    return result[-days:] if days else result
+    result = result[-days:] if days else result
+    if not is_index:
+        dividends = fetch_corporate_actions(symbol)
+        result = adjust_candles_for_dividends(result, dividends)
+    return result
 
 
 def nse_index_rows(df, name, d):
@@ -910,6 +1043,7 @@ def main():
     parser.add_argument("command", choices=[
         "quote", "candles", "indices", "option_chain", "fno",
         "instruments", "fundamentals", "bulk_bhav", "live_quotes", "nifty_list", "top_stocks", "intraday", "health",
+        "corporate_actions",
     ])
     parser.add_argument("--symbol", default=None)
     parser.add_argument("--symbols", default=None)
@@ -932,6 +1066,10 @@ def main():
 
         if cmd == "health":
             emit({"ok": True, "data": health(src)})
+            return
+
+        if cmd == "corporate_actions":
+            emit({"ok": True, "data": fetch_corporate_actions(args.symbol)})
             return
 
         if src == "nselib":
