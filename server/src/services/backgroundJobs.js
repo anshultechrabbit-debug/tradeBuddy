@@ -1,6 +1,7 @@
 import { prisma } from '../config/prisma.js';
 import { evaluateAlerts } from './alertService.js';
 import { logInfra } from '../utils/helpers.js';
+import { getMarketDataProvider } from '../providers/marketData/index.js';
 
 let alertTimer = null;
 let expiryTimer = null;
@@ -66,4 +67,11 @@ export function stopBackgroundJobs() {
   if (expiryTimer) clearInterval(expiryTimer);
   alertTimer = null;
   expiryTimer = null;
+  // Stop the live-quote poller managed by the market-data provider.
+  try {
+    const provider = getMarketDataProvider();
+    if (typeof provider.stopLivePoller === 'function') provider.stopLivePoller();
+  } catch {
+    // Provider not initialized — nothing to stop.
+  }
 }

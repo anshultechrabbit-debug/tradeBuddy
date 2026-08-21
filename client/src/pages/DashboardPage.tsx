@@ -42,7 +42,7 @@ export function DashboardPage() {
     return () => clearInterval(timer);
   }, [dispatch]);
 
-  const top = scanResult?.opportunities.slice(0, 5) ?? [];
+  const top = scanResult?.opportunities.slice(0, 3) ?? [];
   const aiTop = picks[0] ?? null;
 
   const runAiPicks = useCallback(() => {

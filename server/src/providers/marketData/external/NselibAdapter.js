@@ -38,6 +38,13 @@ export class NselibAdapter {
     return out;
   }
 
+  async getLiveQuotes(symbols, exchange = 'NSE') {
+    if (String(exchange).toUpperCase() !== 'NSE') return {};
+    if (!Array.isArray(symbols) || !symbols.length) return {};
+    const data = await this.client.call('live_quotes', { symbols: symbols.join(',') });
+    return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  }
+
   async getHistoricalCandles(symbol, exchange = 'NSE', days = 140, isIndex = false) {
     const data = await this.client.call('candles', { symbol, days, index: isIndex ? 1 : undefined }, { timeoutMs: 240000 });
     const rows = Array.isArray(data) ? data : [];

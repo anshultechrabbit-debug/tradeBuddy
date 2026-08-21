@@ -57,7 +57,15 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
     this._breadthInFlight = null;
     this._intradayCache = new Map();
     this._intradayTtlMs = 10 * 1000;
+    // Background live-quote snapshot: refreshed every livePollerIntervalMs.
+    // HTTP requests read from this Map for instant responses.
+    this._snapshot = new Map();       // symbol → quote
+    this._snapshotAt = 0;             // epoch ms of last successful batch fetch
+    this._snapshotTtlMs = config.externalMarketData.livePollerIntervalMs * 3; // stale after 3 missed polls
+    this._pollerTimer = null;
+    this._pollerRunning = false;
     this._warmUp();
+    this._startLivePoller();
   }
 
   /**
@@ -83,6 +91,87 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
     await Promise.allSettled(jobs);
     logInfra('info', 'market-data-external', 'warm-up complete: indices + breadth + top candles cached');
   }
+
+  // -------------------------------------------------------------------------
+  // Background live-quote snapshot poller
+  // -------------------------------------------------------------------------
+
+  /**
+   * Starts the background live-quote poller. Fires once immediately (so the
+   * first request after startup is already warm) then repeats every
+   * `livePollerIntervalMs`. Safe to call multiple times — only one timer runs.
+   */
+  _startLivePoller() {
+    if (this._pollerTimer) return;
+    // Kick off the first fetch after a short delay (let the server boot first).
+    const firstDelay = 5000;
+    setTimeout(() => this._pollLiveSnapshot(), firstDelay);
+    const interval = config.externalMarketData.livePollerIntervalMs;
+    this._pollerTimer = setInterval(() => this._pollLiveSnapshot(), interval);
+    if (typeof this._pollerTimer.unref === 'function') this._pollerTimer.unref();
+    logInfra('info', 'market-data-external', `live-quote poller started (interval ${interval}ms)`);
+  }
+
+  stopLivePoller() {
+    if (this._pollerTimer) {
+      clearInterval(this._pollerTimer);
+      this._pollerTimer = null;
+    }
+  }
+
+  /**
+   * Core poller tick: fetches live quotes for all enabled Nifty universe symbols
+   * in one jugaad batch call, then writes results to the snapshot Map.
+   * Failures are logged but do not crash the server — old snapshot is preserved.
+   */
+  async _pollLiveSnapshot() {
+    if (this._pollerRunning) return; // Skip if previous tick still running.
+    this._pollerRunning = true;
+    const start = Date.now();
+    try {
+      const universe = await prisma.scanUniverse.findMany({
+        where: { enabled: true, excluded: false, instrumentType: 'EQUITY' },
+        orderBy: { priority: 'asc' },
+        take: 60,
+        select: { symbol: true },
+      });
+      const symbols = universe.map((u) => u.symbol);
+      if (!symbols.length) return;
+
+      const live = await this.primary.getLiveQuotes(symbols, 'NSE');
+      const count = Object.keys(live).length;
+      if (count > 0) {
+        for (const [sym, quote] of Object.entries(live)) {
+          if (quote && Number(quote.lastPrice) > 0) {
+            this._snapshot.set(sym, quote);
+            // Also warm the per-symbol live cache so getQuote() benefits too.
+            this._setLiveCache(sym, quote);
+          }
+        }
+        this._snapshotAt = Date.now();
+        this._recordSuccess('quote');
+        const elapsed = Date.now() - start;
+        logInfra('info', 'market-data-external', `live-quote snapshot refreshed: ${count}/${symbols.length} symbols in ${elapsed}ms`);
+      } else {
+        logInfra('info', 'market-data-external', 'live-quote snapshot: batch returned 0 quotes (market may be closed)');
+      }
+    } catch (err) {
+      this._recordError(err, 'livePoller');
+      logInfra('info', 'market-data-external', `live-quote snapshot poll failed: ${err.message}`);
+    } finally {
+      this._pollerRunning = false;
+    }
+  }
+
+  _fromSnapshot(symbol) {
+    if (!this._snapshotAt) return null;
+    if (Date.now() - this._snapshotAt > this._snapshotTtlMs) return null;
+    return this._snapshot.get(symbol) ?? null;
+  }
+
+  // -------------------------------------------------------------------------
+  // Per-symbol live cache (used by getQuote)
+  // -------------------------------------------------------------------------
 
   _liveFromCache(symbol) {
     const entry = this._liveCache.get(symbol);
@@ -205,7 +294,7 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
 
     // 1) LIVE NSE quote via jugaad (works during market hours).
     try {
-      const live = await this.fallback.getQuote(symbolU, exchange);
+      const live = await this.primary.getQuote(symbolU, exchange);
       if (live) {
         this._recordSuccess('quote');
         this._setLiveCache(symbolU, live);
@@ -221,17 +310,17 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
 
     // 2) EOD fallback via nselib.
     try {
-      const eod = await this.primary.getQuote(symbolU, exchange);
+      const eod = await this.fallback.getQuote(symbolU, exchange);
       if (eod) {
         this._recordSuccess('quote');
         const instrument = await this._instrument(symbolU, exchange);
-        await this._storeQuote(instrument, eod, this.primary.name, eod.sourceTimestamp ?? new Date());
-        await this._audit('getQuote', 'success', `${this.primary.name} EOD`, 1, start);
+        await this._storeQuote(instrument, eod, this.fallback.name, eod.sourceTimestamp ?? new Date());
+        await this._audit('getQuote', 'success', `${this.fallback.name} EOD`, 1, start);
         return { ...eod, exchange, dataSource: this.dataSource };
       }
     } catch (err) {
-      this._recordError(err, `getQuote:${this.primary.name}`);
-      logInfra('info', 'market-data-external', `getQuote(${symbolU}) ${this.primary.name} EOD failed: ${err.message}`);
+      this._recordError(err, `getQuote:${this.fallback.name}`);
+      logInfra('info', 'market-data-external', `getQuote(${symbolU}) ${this.fallback.name} EOD failed: ${err.message}`);
     }
 
     // 3) External unavailable → serve cached data (stale) or null.
@@ -245,31 +334,42 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
     const start = performance.now();
     const out = [];
     const need = [];
+
     for (const s of symbols) {
+      // Priority 1: per-symbol live cache (freshest, set by poller and getQuote).
       const cachedLive = this._liveFromCache(s);
       if (cachedLive) {
         out.push({ ...cachedLive, exchange, dataSource: this.dataSource });
-      } else {
-        need.push(s);
-        out.push(null);
+        continue;
       }
+      // Priority 2: background snapshot (refreshed every livePollerIntervalMs).
+      const snap = this._fromSnapshot(s);
+      if (snap) {
+        out.push({ ...snap, exchange, dataSource: this.dataSource });
+        continue;
+      }
+      // Cache miss — must fetch live.
+      need.push(s);
+      out.push(null);
     }
 
     // Refresh missing symbols from the NSE live API in one batch.
     if (need.length) {
       let live = {};
       try {
-        live = await this.fallback.getLiveQuotes(need, exchange);
+        live = await this.primary.getLiveQuotes(need, exchange);
       } catch (err) {
         this._recordError(err, 'getQuotes:jugaad-live');
         logInfra('info', 'market-data-external', `getQuotes live batch failed: ${err.message}`);
       }
       for (const symbol of need) {
+        // Re-compute index from original symbols array (out has nulls at miss positions).
         const idx = symbols.indexOf(symbol);
         const quote = live[symbol];
         if (quote) {
           this._recordSuccess('quote');
           this._setLiveCache(symbol, quote);
+          this._snapshot.set(symbol, quote);
           const instrument = await this._instrument(symbol, exchange);
           await this._storeQuote(instrument, quote, 'jugaad', quote.sourceTimestamp ?? new Date());
           out[idx] = { ...quote, exchange, dataSource: this.dataSource };
@@ -468,15 +568,15 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
       return entry.candles.map((c) => ({ ...c }));
     }
     try {
-      const candles = await this.fallback.getIntradayCandles(symbol, exchange, duration, days);
+      const candles = await this.primary.getIntradayCandles(symbol, exchange, duration, days);
       if (Array.isArray(candles) && candles.length) {
         this._intradayCache.set(key, { at: Date.now(), candles });
         this._recordSuccess('candle');
-        await this._audit('getIntradayCandles', 'success', `${this.fallback.name} intraday`, candles.length, start);
+        await this._audit('getIntradayCandles', 'success', `${this.primary.name} intraday`, candles.length, start);
         return candles;
       }
     } catch (err) {
-      this._recordError(err, `getIntradayCandles:${this.fallback.name}`);
+      this._recordError(err, `getIntradayCandles:${this.primary.name}`);
       logInfra('info', 'market-data-external', `getIntradayCandles(${symbol}) failed: ${err.message}`);
     }
     if (entry) return entry.candles.map((c) => ({ ...c, stale: true }));
@@ -500,7 +600,7 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
       'NIFTY FIN SERVICE': 'FINNIFTY',
     };
     try {
-      const live = await this.fallback.getIndexData();
+      const live = await this.primary.getIndexData();
       if (Array.isArray(live) && live.length) {
         const mapped = live
           .filter((item) => INDEX_MAP[item.symbol])
@@ -531,7 +631,7 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
 
     // 2) Fallback: nselib EOD snapshot.
     try {
-      const live = await this.primary.getIndexData();
+      const live = await this.fallback.getIndexData();
       if (Array.isArray(live) && live.length) {
         return live
           .map((item) => ({
@@ -575,7 +675,7 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
 
   async getTopStocks() {
     try {
-      const data = await this.fallback.getTopStocks();
+      const data = await this.primary.getTopStocks();
       return {
         gainers: (data.gainers ?? []).slice(0, 10),
         losers: (data.losers ?? []).slice(0, 10),

@@ -58,7 +58,7 @@ export function RadarPage() {
   const [gainPage, setGainPage] = useState(1);
   const [losPage, setLosPage] = useState(1);
   const [trendPage, setTrendPage] = useState(1);
-  const MOVER_PAGE = 12;
+  const MOVER_PAGE = 3;
   const TREND_PAGE = 20;
 
   useEffect(() => {

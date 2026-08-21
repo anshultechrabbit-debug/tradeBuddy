@@ -81,7 +81,7 @@ async function computeScan({ userId = null, limit = 15 }) {
 
   const breadthPct = breadth.breadthPctAboveSma50;
 
-  const candlesList = await mapLimit(universe, 15, (entry) =>
+  const candlesList = await mapLimit(universe, 3, (entry) =>
     provider.getCandles(entry.symbol, '1d', 60, entry.exchange),
   );
 

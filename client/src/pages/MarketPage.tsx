@@ -18,9 +18,11 @@ const INDEX_NAMES: Record<string, string> = {
 function liveBadge(lastUpdated: number | null) {
   if (!lastUpdated) return <span className="live-dot" />;
   const seconds = Math.max(0, Math.round((Date.now() - lastUpdated) / 1000));
+  const isStale = seconds > 30;
   return (
-    <span className="live-badge">
-      <span className="live-dot" /> LIVE · {seconds}s ago
+    <span className={isStale ? 'live-badge live-badge--stale' : 'live-badge'}>
+      <span className="live-dot" />
+      {isStale ? `STALE · ${seconds}s ago` : `LIVE · ${seconds}s ago`}
     </span>
   );
 }
@@ -37,7 +39,7 @@ function TopMoverList({ title, items }: { title: string; items: { symbol: string
   return (
     <div className="topmover-card">
       <div className="topmover-title">{title}</div>
-      {items.slice(0, 6).map((s) => (
+      {items.slice(0, 3).map((s) => (
         <Link key={s.symbol} to={`/radar/${s.symbol}`} className="topmover-row">
           <span className="strong">{s.symbol}</span>
           <span className="topmover-metrics">
@@ -71,6 +73,11 @@ export function MarketPage() {
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'changePct', dir: -1 });
   const visibleKeyRef = useRef<string | null>(null);
   const visibleSymbolsRef = useRef<string[]>([]);
+  // In-flight flags to prevent concurrent poll requests from stacking.
+  const indicesFetchingRef = useRef(false);
+  const quotesFetchingRef = useRef(false);
+  const topFetchingRef = useRef(false);
+  const liveFetchingRef = useRef(false);
 
   useEffect(() => {
     dispatch(fetchIndices());
@@ -78,12 +85,34 @@ export function MarketPage() {
     dispatch(fetchAllQuotes());
     dispatch(fetchTopStocks());
 
-    const indicesTimer = setInterval(() => dispatch(fetchIndices()), 2000);
-    const quotesTimer = setInterval(() => dispatch(fetchQuotes(60)), 2000);
-    const topTimer = setInterval(() => dispatch(fetchTopStocks()), 2000);
+    // Poll at 8s — the server's background snapshot refreshes every 15s,
+    // so 8s gives two client polls per server refresh cycle.
+    const POLL_MS = 8000;
+
+    const indicesTimer = setInterval(() => {
+      if (indicesFetchingRef.current) return;
+      indicesFetchingRef.current = true;
+      dispatch(fetchIndices()).finally(() => { indicesFetchingRef.current = false; });
+    }, POLL_MS);
+
+    const quotesTimer = setInterval(() => {
+      if (quotesFetchingRef.current) return;
+      quotesFetchingRef.current = true;
+      dispatch(fetchQuotes(60)).finally(() => { quotesFetchingRef.current = false; });
+    }, POLL_MS);
+
+    const topTimer = setInterval(() => {
+      if (topFetchingRef.current) return;
+      topFetchingRef.current = true;
+      dispatch(fetchTopStocks()).finally(() => { topFetchingRef.current = false; });
+    }, POLL_MS);
+
     const liveTimer = setInterval(() => {
-      if (visibleSymbolsRef.current.length) dispatch(fetchLiveBySymbols(visibleSymbolsRef.current));
-    }, 2000);
+      if (liveFetchingRef.current || !visibleSymbolsRef.current.length) return;
+      liveFetchingRef.current = true;
+      dispatch(fetchLiveBySymbols(visibleSymbolsRef.current)).finally(() => { liveFetchingRef.current = false; });
+    }, POLL_MS);
+
     return () => {
       clearInterval(indicesTimer);
       clearInterval(quotesTimer);
@@ -140,7 +169,7 @@ export function MarketPage() {
       quotes
         .filter((q) => q.lastPrice != null && q.changePct != null)
         .sort((a, b) => ((a.changePct ?? 0) - (b.changePct ?? 0)) * dir)
-        .slice(0, 6)
+        .slice(0, 3)
         .map((q) => ({ symbol: q.symbol, lastPrice: q.lastPrice, changePct: q.changePct }));
     const gainers = top?.gainers?.length ? top.gainers.map((g) => ({ symbol: g.symbol, lastPrice: g.lastPrice, changePct: g.changePct })) : byPct(-1);
     const losers = top?.losers?.length ? top.losers.map((g) => ({ symbol: g.symbol, lastPrice: g.lastPrice, changePct: g.changePct })) : byPct(1);
@@ -149,7 +178,7 @@ export function MarketPage() {
       : quotes
           .filter((q) => q.volume != null)
           .sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0))
-          .slice(0, 6)
+          .slice(0, 3)
           .map((q) => ({ symbol: q.symbol, lastPrice: q.lastPrice, changePct: q.changePct }));
     return { gainers, losers, active };
   }, [quotes, top]);
@@ -174,7 +203,7 @@ export function MarketPage() {
         {indices.length === 0 ? (
           <Spinner />
         ) : (
-          indices.map((idx) => {
+          indices.slice(0, 3).map((idx) => {
             const up = idx.changePct >= 0;
             return (
               <div key={idx.symbol} className="ticker-card">

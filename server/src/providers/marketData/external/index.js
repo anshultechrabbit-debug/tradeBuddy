@@ -16,8 +16,8 @@ import { NseArchivesAdapter } from './NseArchivesAdapter.js';
  */
 export function getExternalAdapters() {
   return {
-    primary: new NselibAdapter(),
-    fallback: new JugaadAdapter(),
+    primary: new JugaadAdapter(),
+    fallback: new NselibAdapter(),
     backfill: new NseArchivesAdapter(),
   };
 }

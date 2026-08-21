@@ -14,7 +14,7 @@ export function withTimeout(promise, ms) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-export async function withRetry(fn, { retries = 2, baseDelayMs = 500, timeoutMs = 10000 } = {}) {
+export async function withRetry(fn, { retries = 2, baseDelayMs = 500, timeoutMs = 35000 } = {}) {
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     try {

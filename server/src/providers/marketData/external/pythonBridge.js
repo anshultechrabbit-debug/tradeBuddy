@@ -88,8 +88,13 @@ export class PythonClient {
       if (v == null) continue;
       argv.push(`--${k}`, String(v));
     }
+    // Batch live_quotes calls benefit from a longer timeout because they fan out
+    // in parallel Python threads — cap at liveBatchTimeoutMs instead of timeoutMs.
+    const isBatch = command === 'live_quotes';
     try {
-      const timeoutMs = opts.timeoutMs ?? config.externalMarketData.timeoutMs;
+      const timeoutMs = isBatch
+        ? (opts.timeoutMs ?? config.externalMarketData.liveBatchTimeoutMs)
+        : (opts.timeoutMs ?? config.externalMarketData.timeoutMs);
       const payload = await runPython(argv, { ...config.externalMarketData, timeoutMs });
       if (!payload.ok) throw new Error(payload.error || 'unknown python error');
       this._recordSuccess();

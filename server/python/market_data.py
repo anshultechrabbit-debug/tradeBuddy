@@ -28,10 +28,12 @@ Output: single JSON document on stdout. Never logs to stdout.
 """
 
 import argparse
+import io
 import json
 import os
 import sys
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 
 CACHE_DIR = os.environ.get("MARKET_DATA_CACHE_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".cache", "market-data"))
@@ -383,11 +385,28 @@ def nselib_nifty_list():
 
 
 def nselib_indices():
-    from nselib import capital_market
+    """Fetch all NSE index snapshots via nselib.
 
-    df = capital_market.market_watch_all_indices()
-    if df is None or df.empty:
+    Captures any stray stdout/stderr produced by pandas or nselib itself
+    (e.g. DataFrame repr, deprecation warnings) so they cannot corrupt the
+    JSON stream that Node.js parses.
+    """
+    # Suppress any stray stdout lines from pandas / nselib during the call.
+    _saved_stdout = sys.stdout
+    _saved_stderr = sys.stderr
+    sys.stdout = io.StringIO()
+    sys.stderr = io.StringIO()
+    try:
+        from nselib import capital_market
+        df = capital_market.market_watch_all_indices()
+    finally:
+        sys.stdout = _saved_stdout
+        sys.stderr = _saved_stderr
+
+    if df is None or getattr(df, "empty", True):
         return []
+
+    # After restoring stdout, it is now safe to operate on df.
     name_c = col(df, "Index Name", "INDEX_NAME", "indexName")
     open_c = col(df, "OPEN", "indexOpen")
     high_c = col(df, "HIGH", "indexHigh")
@@ -633,26 +652,40 @@ def jugaad_quote(symbol):
     return _fresh_quote(symbol)
 
 
-def jugaad_live_quotes(symbols, delay=0.1):
-    """Batch live quotes for many symbols in ONE Python process (one NSE session).
+def _fetch_one_quote(sym):
+    """Fetch a single live quote; returns (sym, quote_or_None)."""
+    try:
+        q = _fresh_quote(sym, attempts=2, max_age=20)
+        return sym, q
+    except Exception:
+        return sym, None
 
-    Loops NSELive.stock_quote with a small inter-request delay so NSE is not
-    hammered. Returns {symbol: quote, ...} and silently skips failures.
+
+def jugaad_live_quotes(symbols, delay=0.05, concurrency=10):
+    """Batch live quotes for many symbols in ONE Python process.
+
+    Uses a thread pool to fetch all symbols in parallel so the wall-clock
+    time is bounded by the slowest single request (~2-3 s) rather than
+    by N * delay. Returns {symbol: quote, ...}; silently skips failures.
+
+    Args:
+        symbols:     List of NSE symbols (uppercase).
+        delay:       Unused — kept for CLI back-compat. Reserved for future
+                     sequential-mode throttle.
+        concurrency: Maximum number of concurrent NSE requests (default 10).
     """
-    import time as _time
-
-    from jugaad_data.nse import NSELive
-
     out = {}
-    for sym in symbols:
-        try:
-            q = _fresh_quote(sym, attempts=2, max_age=15)
+    if not symbols:
+        return out
+
+    # Cap concurrency to avoid thundering-herd on NSE load balancers.
+    workers = max(1, min(concurrency, len(symbols), 15))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_fetch_one_quote, sym): sym for sym in symbols}
+        for future in as_completed(futures):
+            sym, q = future.result()
             if q:
                 out[sym] = q
-        except Exception:
-            pass
-        if delay > 0:
-            _time.sleep(delay)
     return out
 
 
@@ -1056,8 +1089,9 @@ def main():
     parser.add_argument("--strike", default=None)
     parser.add_argument("--instrument", default=None)
     parser.add_argument("--kind", default="equity")
-    parser.add_argument("--delay", type=float, default=0.1)
+    parser.add_argument("--delay", type=float, default=0.05)
     parser.add_argument("--duration", default="5m")
+    parser.add_argument("--concurrency", type=int, default=10)
     args = parser.parse_args()
 
     try:
@@ -1089,6 +1123,14 @@ def main():
                 emit({"ok": True, "data": nselib_fundamentals(args.symbol)})
             elif cmd == "nifty_list":
                 emit({"ok": True, "data": nselib_nifty_list()})
+            elif cmd == "live_quotes":
+                syms = [s.strip().upper() for s in (args.symbols or "").split(",") if s.strip()]
+                out = {}
+                for sym in syms:
+                    q = nselib_quote(sym)
+                    if q:
+                        out[sym] = q
+                emit({"ok": True, "data": out})
             else:
                 emit({"ok": False, "error": f"nselib: unsupported command {cmd}"})
 
@@ -1097,7 +1139,7 @@ def main():
                 emit({"ok": True, "data": jugaad_quote(args.symbol)})
             elif cmd == "live_quotes":
                 syms = [s.strip().upper() for s in (args.symbols or "").split(",") if s.strip()]
-                emit({"ok": True, "data": jugaad_live_quotes(syms, args.delay)})
+                emit({"ok": True, "data": jugaad_live_quotes(syms, args.delay, args.concurrency)})
             elif cmd == "top_stocks":
                 emit({"ok": True, "data": jugaad_top_stocks()})
             elif cmd == "candles":
