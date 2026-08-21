@@ -2,12 +2,30 @@ import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import { apiClient } from '../api/client';
 import type { Holding, PortfolioSummary, SectorExposure } from '../lib/types';
 
+export interface PortfolioHoldingReview {
+  symbol: string;
+  action: 'BUY_MORE' | 'HOLD' | 'TRIM' | 'SELL';
+  reason: string;
+}
+
+export interface PortfolioReview {
+  overallNarrative: string;
+  portfolioScore: number | null;
+  rebalancing: string;
+  holdings: PortfolioHoldingReview[];
+}
+
 export interface PortfolioState {
   summary: PortfolioSummary | null;
   holdings: Holding[];
   sectors: SectorExposure[];
   loading: boolean;
   error: string | null;
+  review: PortfolioReview | null;
+  reviewLoading: boolean;
+  reviewError: string | null;
+  chatAnswer: string | null;
+  chatLoading: boolean;
 }
 
 const initialState: PortfolioState = {
@@ -16,6 +34,11 @@ const initialState: PortfolioState = {
   sectors: [],
   loading: false,
   error: null,
+  review: null,
+  reviewLoading: false,
+  reviewError: null,
+  chatAnswer: null,
+  chatLoading: false,
 };
 
 export const fetchSummary = createAsyncThunk('portfolio/summary', async () => {
@@ -36,6 +59,16 @@ export const fetchSectors = createAsyncThunk('portfolio/sectors', async () => {
 export const syncPortfolio = createAsyncThunk('portfolio/sync', async (broker: string = 'mock') => {
   const { data } = await apiClient.post(`/portfolio/sync`, { broker });
   return data;
+});
+
+export const fetchPortfolioReview = createAsyncThunk('portfolio/review', async () => {
+  const { data } = await apiClient.post<{ review: PortfolioReview }>('/ai/portfolio-review');
+  return data.review;
+});
+
+export const askPortfolioQuestion = createAsyncThunk('portfolio/chat', async (question: string) => {
+  const { data } = await apiClient.post<{ answer: string }>('/ai/ask', { question });
+  return data.answer;
 });
 
 const portfolioSlice = createSlice({
@@ -67,6 +100,29 @@ const portfolioSlice = createSlice({
       })
       .addCase(fetchSectors.rejected, (state, action) => {
         state.error = action.error.message ?? 'Failed to load sectors';
+      })
+      .addCase(fetchPortfolioReview.pending, (state) => {
+        state.reviewLoading = true;
+        state.reviewError = null;
+      })
+      .addCase(fetchPortfolioReview.fulfilled, (state, action) => {
+        state.reviewLoading = false;
+        state.review = action.payload;
+      })
+      .addCase(fetchPortfolioReview.rejected, (state, action) => {
+        state.reviewLoading = false;
+        state.reviewError = action.error.message ?? 'AI review failed';
+      })
+      .addCase(askPortfolioQuestion.pending, (state) => {
+        state.chatLoading = true;
+        state.chatAnswer = null;
+      })
+      .addCase(askPortfolioQuestion.fulfilled, (state, action) => {
+        state.chatLoading = false;
+        state.chatAnswer = action.payload;
+      })
+      .addCase(askPortfolioQuestion.rejected, (state) => {
+        state.chatLoading = false;
       });
   },
 });

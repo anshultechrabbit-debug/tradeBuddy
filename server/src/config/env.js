@@ -67,7 +67,7 @@ export const config = Object.freeze({
   llm: {
     provider: process.env.AI_PROVIDER || process.env.LLM_PROVIDER || 'groq',
     apiKey: process.env.AI_API_KEY || process.env.LLM_API_KEY || '',
-    model: process.env.AI_MODEL || process.env.LLM_MODEL || 'llama-3.3-70b-versatile',
+    model: process.env.AI_MODEL || process.env.LLM_MODEL || 'qwen/qwen3.6-27b',
     baseUrl: process.env.AI_BASE_URL || 'https://api.groq.com/openai/v1',
   },
   radar: {

@@ -3,7 +3,7 @@ import { prisma } from '../../config/prisma.js';
 import { round2, logInfra } from '../../utils/helpers.js';
 import { INDEX_SYMBOLS } from '../../db/seed-data/universe.js';
 import { getExternalAdapters } from './external/index.js';
-import { dailySeriesStats } from './development/priceGen.js';
+import { dailySeriesStats, generateQuote } from './development/priceGen.js';
 import { config } from '../../config/env.js';
 
 /**
@@ -397,7 +397,24 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
       for (const s of missing) {
         const idx = symbols.indexOf(s);
         const row = bySymbol.get(s);
-        if (row) out[idx] = { ...this._toQuote(row), stale: true };
+        if (row) {
+          out[idx] = { ...this._toQuote(row), stale: true };
+        } else {
+          // Generate a fallback development quote deterministically
+          try {
+            const candles = await prisma.marketCandle.findMany({
+              where: { symbol: s, timeframe: '1d', exchange },
+              orderBy: { ts: 'asc' },
+            });
+            const seed = new Date().toISOString().slice(0, 10);
+            const quote = generateQuote(s, candles, seed);
+            if (quote) {
+              out[idx] = { ...quote, exchange, dataSource: this.dataSource, generated: true };
+            }
+          } catch (err) {
+            // ignore
+          }
+        }
       }
     }
 

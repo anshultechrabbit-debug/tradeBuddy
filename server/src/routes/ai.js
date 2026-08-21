@@ -3,7 +3,7 @@ import { body } from 'express-validator';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../utils/validation.js';
 import { prisma } from '../config/prisma.js';
-import { ask, suggest } from '../services/ai/agent.js';
+import { ask, suggest, portfolioReview } from '../services/ai/agent.js';
 import { recommend } from '../services/ai/recommender.js';
 import { topOpportunities } from '../services/radarService.js';
 import { analyzeStock, formatAnalysis } from '../services/stockAnalysisService.js';
@@ -161,6 +161,19 @@ router.post(
       const userId = req.user?.id ?? null;
       const text = await suggest(userId);
       res.json({ answer: text });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  '/portfolio-review',
+  async (req, res, next) => {
+    try {
+      const userId = req.user?.id ?? null;
+      const review = await portfolioReview(userId);
+      res.json({ review });
     } catch (err) {
       next(err);
     }
