@@ -79,7 +79,7 @@ const MARKETAUX_API_KEY = process.env.MARKETAUX_API_KEY ?? '';
 async function fetchFromMarketaux(symbol, { limit = 8 } = {}) {
   if (!MARKETAUX_API_KEY || MARKETAUX_API_KEY === 'your_marketaux_api_key_here') return null;
   try {
-    const url = `https://api.marketaux.com/v1/news/latest?symbols=${symbol}&filter_entities=true&api_token=${MARKETAUX_API_KEY}&language=en`;
+    const url = `https://api.marketaux.com/v1/news/all?symbols=${encodeURIComponent(`${symbol}.NS`)}&filter_entities=true&api_token=${MARKETAUX_API_KEY}&language=en`;
     const res = await fetch(url, {
       headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
     });
@@ -211,30 +211,36 @@ async function fetchFromNewsAPI(symbol, { limit = 8 } = {}) {
  *           positiveCatalysts, negativeCatalysts }.
  */
 export async function fetchStockNews(symbol, { limit = 8 } = {}) {
-  // 1) Try Marketaux first (free tier: 100 req/day, India coverage, 24h fresh, structured)
+  // 1) Try Marketaux first (free tier: 100 req/day, India coverage, 24h fresh, structured).
+  //    Indian tickers need the .NS / .BO suffix on Marketaux, so try a few forms.
   let marketauxResult = null;
-  try {
-    const url = `https://api.marketaux.com/v1/news/latest?symbols=${symbol}&filter_entities=true&api_token=${MARKETAUX_API_KEY}&language=en`;
-    const res = await fetch(url, {
-      headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data?.data?.length) {
-        marketauxResult = {
-          articles: data.data.slice(0, limit).map((a) => ({
-            title: a.title,
-            source: a.source_name,
-            link: a.url,
-            publishedAt: a.published_at ? new Date(a.published_at) : null,
-            sentiment: classify(a.title),
-          })),
-          marketauxSource: true,
-        };
+  if (MARKETAUX_API_KEY && MARKETAUX_API_KEY !== 'your_marketaux_api_key_here') {
+    const forms = [symbol, `${symbol}.NS`, `${symbol}.BO`];
+    for (const s of forms) {
+      try {
+        const url = `https://api.marketaux.com/v1/news/all?symbols=${encodeURIComponent(s)}&filter_entities=true&api_token=${MARKETAUX_API_KEY}&language=en`;
+        const res = await fetch(url, {
+          headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+        });
+        if (!res.ok) continue;
+        const data = await res.json();
+        if (data?.data?.length) {
+          marketauxResult = {
+            articles: data.data.slice(0, limit).map((a) => ({
+              title: a.title,
+              source: a.source_name ?? '',
+              link: a.url ?? '',
+              publishedAt: a.published_at ? new Date(a.published_at) : null,
+              sentiment: classify(a.title),
+            })),
+            marketauxSource: true,
+          };
+          break;
+        }
+      } catch (err) {
+        logInfra('info', 'market-data-external', `marketaux fetch failed: ${err.message}`);
       }
     }
-  } catch (err) {
-    logInfra('info', 'market-data-external', `marketaux fetch failed: ${err.message}`);
   }
 
   // 2) If Marketaux had no articles, try Google News RSS fallback
@@ -242,7 +248,7 @@ export async function fetchStockNews(symbol, { limit = 8 } = {}) {
   if (!marketauxResult?.articles?.length) {
     // Try Google News RSS
     try {
-      const query = encodeURIComponent(`${symbol} NSE stock`);
+      const query = encodeURIComponent(`${symbol} NSE stock when:14d`);
       const url = `https://news.google.com/rss/search?q=${query}&hl=en-IN&gl=IN&ceid=IN:en`;
       const res = await fetch(url, {
         headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
@@ -268,22 +274,20 @@ export async function fetchStockNews(symbol, { limit = 8 } = {}) {
     }
   }
 
-// Sort by publish date descending (newest first)
-    if (marketauxResult?.articles?.length) {
-      marketauxResult.articles.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
-    }
-    if (finalResult?.articles?.length) {
-      finalResult.articles.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
-    }
+  // Prefer Marketaux when it returned articles; otherwise fall back to Google RSS.
+  const chosen = marketauxResult?.articles?.length ? marketauxResult : finalResult;
+  if (chosen?.articles?.length) {
+    chosen.articles.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+  }
 
-  // Existing processing logic using finalResult.articles
+  // Existing processing logic using chosen.articles
   let weighted = 0;
   let totalWeight = 0;
   let positive = 0;
   let neutral = 0;
   let negative = 0;
 
-  const articles = (finalResult?.articles ?? []).map((a) => {
+  const articles = (chosen?.articles ?? []).map((a) => {
     const w = a.recencyWeight ?? recencyWeight(a.publishedAt);
     const s = a.sentiment === 'POSITIVE' ? 1 : a.sentiment === 'NEGATIVE' ? -1 : 0;
     weighted += w * s;
