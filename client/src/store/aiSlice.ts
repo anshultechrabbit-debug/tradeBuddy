@@ -122,6 +122,7 @@ export function normalizeAnalysis(raw: RawAnalysis): AiAnalysis {
     positiveFactors: raw.positiveFactors ?? [],
     negativeFactors: raw.negativeFactors ?? [],
     oneLiner,
+    simpleNote: raw.simpleNote ?? '',
     dataTimestamp: raw.dataTimestamp ?? new Date().toISOString(),
     disclaimer: raw.disclaimer ?? '',
   };

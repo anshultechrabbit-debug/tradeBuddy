@@ -357,6 +357,13 @@ export function AiPicksPage() {
 
               <p className="sg-oneliner">{active.oneLiner}</p>
 
+              {active.simpleNote ? (
+                <div className="sg-plaintalk">
+                  <span className="sg-plaintalk-label">In plain language</span>
+                  <p className="sg-plaintalk-text">{active.simpleNote}</p>
+                </div>
+              ) : null}
+
               <div className="sg-action-box">
                 <div className="sg-action-item">
                   <span className="sg-action-label">Entry zone</span>

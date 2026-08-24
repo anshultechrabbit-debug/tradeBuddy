@@ -647,6 +647,7 @@ async function computeAnalysis(provider, sym, { includeNews }) {
   };
 
   result.oneLiner = oneLineExplanation(result);
+  result.simpleNote = simpleLanguageNote(result);
 
   cacheResult(sym, result);
   return result;
@@ -736,4 +737,64 @@ export function oneLineExplanation(result) {
   const trend = result.technical.trend === 'Bullish' ? 'uptrend' : result.technical.trend === 'Bearish' ? 'downtrend' : 'range-bound';
   const trendPhrase = trend === 'range-bound' ? 'a range' : trend === 'uptrend' ? 'an uptrend' : 'a downtrend';
   return `${result.finalSignal} (score ${result.overallScore}) — the strongest factor is ${driverNames[driver[0]]} at ${driver[1]}/100. Price is in ${trendPhrase}, buying pressure ${result.technical.rsi != null ? `${result.technical.rsi}/100` : 'n/a'}.${result.flags.length ? ' Flags: ' + result.flags.join(', ') + '.' : ''}`;
+}
+
+// ---------------------------------------------------------------------------
+// Plain-language ("plain talk") note — a simple, human explanation of what the
+// data suggests could happen next. Intentionally non-technical so a first-time
+// user can understand the gist without reading the factor breakdown.
+// ---------------------------------------------------------------------------
+
+function inrShort(n) {
+  if (n == null || !Number.isFinite(Number(n))) return 'n/a';
+  return '₹' + Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+}
+
+export function simpleLanguageNote(result) {
+  const name = result.companyName || result.symbol || 'This stock';
+  const signal = result.finalSignal;
+  const trend = result.technical?.trend ?? 'Range';
+  const entry = result.entry ?? {};
+  const stop = entry.stopLoss;
+  const topPositive = result.positiveFactors?.[0];
+  const topNegative = result.negativeFactors?.[0];
+
+  const buyish = signal === 'STRONG BUY' || signal === 'BUY';
+  const dip = signal === 'BUY ON DIP';
+  const avoid = signal === 'AVOID' || signal === 'STRONG AVOID';
+
+  // Clear verdict: should you buy or not?
+  let verdict;
+  if (buyish) verdict = 'our simple read is BUY — the data says it can go up.';
+  else if (dip) verdict = 'our simple read is BUY ON DIP — you can buy it on a small fall.';
+  else if (avoid) verdict = 'our simple read is DON\'T BUY — better to stay away.';
+  else verdict = 'our simple read is WAIT & WATCH — don\'t buy yet.';
+
+  // Simple reason in everyday words.
+  let reason;
+  if (buyish || dip) {
+    const t = trend === 'Bullish' ? 'price is going up' : 'price is steady';
+    const n = result.news?.overall && result.news.overall !== 'Neutral'
+      ? ` and news is ${String(result.news.overall).toLowerCase()}`
+      : '';
+    const extra = topPositive ? ` ${topPositive.charAt(0).toLowerCase()}${topPositive.slice(1)}.` : '';
+    reason = `Why: ${t}${n}.${extra}`;
+  } else if (avoid) {
+    reason = `Why: ${topNegative ? topNegative.charAt(0).toLowerCase() + topNegative.slice(1) + '.' : 'the data looks weak.'}`;
+  } else {
+    reason = 'Why: the data is mixed, so no clear up or down move yet.';
+  }
+
+  // Short plan.
+  let action;
+  if (buyish || dip) {
+    action = `Plan: buy near ${inrShort(entry.zoneLow)}–${inrShort(entry.zoneHigh)}`;
+    if (stop != null) action += `, and sell if it falls below ${inrShort(stop)}.`;
+  } else if (avoid) {
+    action = 'Plan: no buy. Just keep it on your watchlist.';
+  } else {
+    action = 'Plan: wait for a clearer signal before buying.';
+  }
+
+  return `Plain talk — ${name}: ${verdict} ${reason} ${action}`;
 }

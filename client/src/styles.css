@@ -1722,6 +1722,32 @@ input:disabled {
   padding-left: 10px;
 }
 
+.sg-plaintalk {
+  margin-top: 10px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent, var(--primary));
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+
+.sg-plaintalk-label {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--primary);
+  margin-bottom: 4px;
+}
+
+.sg-plaintalk-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+}
+
 .sg-action-box {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

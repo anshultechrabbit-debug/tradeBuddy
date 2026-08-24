@@ -377,6 +377,7 @@ export interface AiAnalysis {
   positiveFactors: string[];
   negativeFactors: string[];
   oneLiner: string;
+  simpleNote: string;
   dataTimestamp: string;
   disclaimer: string;
 }
