@@ -54,7 +54,10 @@ async function callTools(question, ctx) {
       if (analysisIntent) {
         try {
           const analysis = await analyzeStock(sym);
-          if (analysis.ok) {
+          // Never surface an analysis that fails the mandatory final
+          // consistency gate (see outputValidator.js) — fall through to the
+          // plain live quote below instead.
+          if (analysis.ok && analysis.finalValidation?.passed) {
             extra.push(`STRUCTURED ANALYSIS ${sym}:`);
             extra.push(formatAnalysis(analysis));
             continue;

@@ -1,17 +1,14 @@
 /**
  * stockAnalysisService — structured NSE stock analysis & recommendation engine.
  *
- * Scores a stock on seven weighted factors using LIVE app data only:
- *   1. News & sentiment       20%  (Google News RSS, keyword-classified)
- *   2. Technical analysis     25%  (live quote + daily candles → indicators)
- *   3. Fundamentals           25%  (P/E snapshot only; growth/margin data may be unavailable)
- *   4. Valuation              15%  (P/E vs rough NSE fair-value band)
- *   5. Market & sector trend   5%  (live Nifty trend + relative strength)
- *   6. Risk                   10%  (volatility, drawdown, liquidity)
- *
- * Overall = weighted sum. Overrides: RSI>75 → BUY ON DIP (OVERBOUGHT);
- * strongly negative news downgrades; missing fundamentals/valuation caps the
- * signal at BUY and flags the data gap. Missing data is stated, never guessed.
+ * Gathers seven factors from LIVE app data only (news sentiment, technicals,
+ * fundamentals, valuation, market/sector trend, risk), each scored or left
+ * UNKNOWN (null) when its underlying data is unavailable — never a fabricated
+ * neutral placeholder. The single published overall score, signal, and trade
+ * decision come from predictionEngine.buildEngineResult (see below), which
+ * renormalises over known factors and gates BUY calls on real discipline
+ * rules. Every result passes through outputValidator before it may be
+ * published (see analyzeStock / computeAnalysis).
  *
  * This is an algorithmic research signal, not a guaranteed prediction.
  */
@@ -19,29 +16,9 @@
 import { getMarketDataProvider } from '../providers/marketData/index.js';
 import { sma, ema, rsi, atr, roc, clamp } from './radar/indicators.js';
 import { fetchStockNews } from './newsService.js';
+import { buildEngineResult } from './predictionEngine.js';
+import { validateAnalysis } from './outputValidator.js';
 import { round2 } from '../utils/helpers.js';
-
-const NUMBER_TO_SIGNAL = [
-  [85, 'STRONG BUY'],
-  [75, 'BUY'],
-  [65, 'BUY ON DIP'],
-  [50, 'HOLD'],
-  [35, 'AVOID'],
-  [0, 'STRONG AVOID'],
-];
-
-function signalForScore(score) {
-  for (const [threshold, signal] of NUMBER_TO_SIGNAL) {
-    if (score >= threshold) return signal;
-  }
-  return 'STRONG AVOID';
-}
-
-function downgrade(signal) {
-  const order = ['STRONG BUY', 'BUY', 'BUY ON DIP', 'HOLD', 'AVOID', 'STRONG AVOID'];
-  const i = order.indexOf(signal);
-  return i >= order.length - 1 ? signal : order[i + 1];
-}
 
 // ---------------------------------------------------------------------------
 // Data gathering (each block degrades gracefully)
@@ -141,7 +118,7 @@ async function gatherTechnical(provider, symbol) {
 }
 
 async function gatherMarket(provider, tech) {
-  const out = { ok: false, regime: 'NEUTRAL', niftyRoc20: 0, relativeStrength: 0, note: '' };
+  const out = { ok: false, available: false, partial: false, regime: 'NEUTRAL', niftyRoc20: null, relativeStrength: null, note: '' };
   let niftyCloses = [];
   try {
     const candles = (await provider.getCandles('NIFTY', '1d', 60, 'NSE').catch(() => [])) ?? [];
@@ -155,12 +132,17 @@ async function gatherMarket(provider, tech) {
       const nifty = (idx ?? []).find((i) => /NIFTY|Nifty 50/i.test(i.symbol ?? ''));
       if (nifty?.level) {
         const s = nifty;
+        // Only an index snapshot is available — no candle history, so the
+        // 20d trend regime and relative-strength-vs-Nifty are genuinely
+        // UNKNOWN. Never fabricate them as 0 (0 reads as "known, flat").
         return {
           ok: true,
-          regime: s.changePct >= 0 ? 'NEUTRAL' : 'NEUTRAL',
-          niftyRoc20: 0,
-          relativeStrength: 0,
-          note: `Nifty ${round2(s.level)} (${round2(s.changePct)}%)`,
+          available: true,
+          partial: true,
+          regime: s.changePct > 0 ? 'BULLISH' : s.changePct < 0 ? 'BEARISH' : 'NEUTRAL',
+          niftyRoc20: null,
+          relativeStrength: null,
+          note: `Nifty ${round2(s.level)} (${round2(s.changePct)}%) — index snapshot only, no candle history`,
         };
       }
     } catch {
@@ -184,6 +166,8 @@ async function gatherMarket(provider, tech) {
   const relativeStrength = (tech?.roc20 ?? 0) - niftyRoc20;
   return {
     ok: true,
+    available: true,
+    partial: false,
     regime,
     niftyRoc20: round2(niftyRoc20),
     relativeStrength: round2(relativeStrength),
@@ -224,13 +208,14 @@ function scoreTechnical(t) {
 
 function scoreFundamentals(f) {
   // Only a P/E snapshot is available — no revenue/profit growth, ROE, margins
-  // or balance-sheet data. Score stays neutral and the gap is stated.
-  return { score: 50, available: Boolean(f?.pe != null) };
+  // or balance-sheet data exist in this app, ever. Company-health score is
+  // genuinely UNKNOWN, never a fabricated neutral number.
+  return { score: null, available: Boolean(f?.pe != null) };
 }
 
 function scoreValuation(f) {
   const pe = f?.pe;
-  if (pe == null) return { score: 50, available: false, flag: null };
+  if (pe == null) return { score: null, available: false, flag: null };
   let score;
   let flag = null;
   if (pe < 0) score = 30;
@@ -248,12 +233,14 @@ function scoreValuation(f) {
 }
 
 function scoreMarket(m) {
+  // Market mood is genuinely UNKNOWN without candle history — never fake a
+  // neutral 50. A partial (index-snapshot-only) read still has no relative
+  // strength, so it stays UNKNOWN too.
+  if (!m.ok || m.partial) return null;
   let score = 50;
-  if (m.ok) {
-    if (m.regime === 'BULLISH') score += 20;
-    else if (m.regime === 'BEARISH') score -= 20;
-    score += clamp(m.relativeStrength, -15, 15);
-  }
+  if (m.regime === 'BULLISH') score += 20;
+  else if (m.regime === 'BEARISH') score -= 20;
+  score += clamp(m.relativeStrength, -15, 15);
   return clamp(score, 0, 100);
 }
 
@@ -459,40 +446,22 @@ async function computeAnalysis(provider, sym, { includeNews }) {
   ]);
   const market = await gatherMarket(provider, tech);
 
-  const newsResult = news ? scoreNews(news) : { score: 50, articles: [], positive: 0, neutral: 0, negative: 0, overall: 'Neutral', available: false };
+  const newsResult = news ? scoreNews(news) : { score: null, articles: [], positive: 0, neutral: 0, negative: 0, overall: 'Neutral', available: false };
   const techScore = scoreTechnical(tech);
   const fundResult = scoreFundamentals(fundamentals);
   const valResult = scoreValuation(fundamentals);
   const marketScore = scoreMarket(market);
   const riskScore = scoreRisk(tech);
 
-  let overall =
-    newsResult.score * 0.2 +
-    techScore * 0.25 +
-    fundResult.score * 0.2 +
-    valResult.score * 0.1 +
-    marketScore * 0.15 +
-    riskScore * 0.1;
-  overall = clamp(Math.round(overall), 0, 100);
-
-  let signal = signalForScore(overall);
+  // Advisory flags only — NOT the published score/signal. The single
+  // user-facing overall score and signal come from the engine below
+  // (predictionEngine.buildEngineResult), which renormalises over known
+  // factors instead of silently substituting a neutral 50 for UNKNOWN ones.
   const flags = [];
-
-  // Overrides.
-  if (tech.rsi != null && tech.rsi > 75) {
-    flags.push('PRICE RAN UP FAST');
-    signal = 'BUY ON DIP';
-  }
-  if (market.ok && market.regime === 'BEARISH') {
-    signal = downgrade(signal);
-    flags.push('WEAK MARKET');
-  }
-  if (newsResult.score < 35) signal = downgrade(signal);
+  if (tech.rsi != null && tech.rsi > 75) flags.push('PRICE RAN UP FAST');
+  if (market.ok && !market.partial && market.regime === 'BEARISH') flags.push('WEAK MARKET');
   const fundamentalsAvailable = fundResult.available && valResult.available;
-  if (!fundamentalsAvailable) {
-    signal = downgrade(signal); // missing data → no STRONG BUY
-    flags.push('LIMITED COMPANY DATA');
-  }
+  if (!fundamentalsAvailable) flags.push('LIMITED COMPANY DATA');
   if (valResult.flag) flags.push(valResult.flag);
 
   const entry = entryAndStop(tech);
@@ -513,7 +482,7 @@ async function computeAnalysis(provider, sym, { includeNews }) {
   if (market.regime === 'BULLISH') positiveFactors.push('Market mood is positive (Nifty is in an uptrend)');
   if (market.ok && market.regime === 'BEARISH') negativeFactors.push('Market mood is weak (Nifty is in a downtrend) — this drags on the whole market, so be extra careful');
   if (market.relativeStrength > 0) positiveFactors.push(`Doing better than the Nifty by +${round2(market.relativeStrength)}% over a month`);
-  if (newsResult.score >= 60) positiveFactors.push(`News is positive (${newsResult.score}/100)`);
+  if (newsResult.score != null && newsResult.score >= 60) positiveFactors.push(`News is positive (${newsResult.score}/100)`);
 
   if (tech.rsi != null && tech.rsi > 75) negativeFactors.push('Price has run up fast — may be overheated, waiting for a dip is safer');
   if (tech.rsi != null && tech.rsi < 35) negativeFactors.push(`Buying pressure is weak (${round2(tech.rsi)}/100)`);
@@ -521,26 +490,26 @@ async function computeAnalysis(provider, sym, { includeNews }) {
   if (tech.price < tech.s200) negativeFactors.push('Below its 200-day average — long-term trend is down');
   if (tech.drawdownFromHigh < -30) negativeFactors.push(`Price is ${Math.abs(tech.drawdownFromHigh)}% below its 1-year high`);
   if (tech.volRatio < 0.7) negativeFactors.push('Trading activity is low — the move is not strongly confirmed');
-  if (newsResult.score <= 40) negativeFactors.push(`News is negative (${newsResult.score}/100)`);
+  if (newsResult.score != null && newsResult.score <= 40) negativeFactors.push(`News is negative (${newsResult.score}/100)`);
   if (valResult.flag) negativeFactors.push('Price looks expensive compared to company earnings');
-  if (!fundamentalsAvailable) negativeFactors.push('Limited company data available — company-health score is neutral, not verified');
+  if (!fundamentalsAvailable) negativeFactors.push('Limited company data available — company-health score is UNKNOWN, not verified');
 
   const newsAvailable = Boolean(newsResult.available ?? newsResult.articles?.length);
 
   const reasons = {
     news: newsAvailable
       ? `${newsResult.positive ?? 0} positive, ${newsResult.neutral ?? 0} neutral and ${newsResult.negative ?? 0} negative news articles. Overall mood: ${newsResult.overall ?? 'Neutral'} (score ${newsResult.score}/100).`
-      : 'We could not fetch news for this stock, so the news score is neutral.',
+      : 'We could not fetch news for this stock, so the news score is UNKNOWN.',
     technical: technicalReason(tech),
     fundamentals: fundResult.available
-      ? `We have the earnings multiple (P/E ${fundamentals?.pe}). We do not have growth, profit-margin or debt data from our current sources, so the company-health score stays neutral.`
-      : 'We do not have company financials from our current sources, so the company-health score is neutral.',
+      ? `We have the earnings multiple (P/E ${fundamentals?.pe}). We do not have growth, profit-margin or debt data from our current sources, so the company-health score is UNKNOWN.`
+      : 'We do not have company financials from our current sources, so the company-health score is UNKNOWN.',
     valuation: valResult.available
       ? `The price is ${round2(valResult.pe)}× the company's yearly earnings. Compared to typical NSE stocks, ${valuationLabel(valResult)}.`
-      : 'We do not have valuation data from our current sources, so this score is neutral.',
-    market: market.ok
+      : 'We do not have valuation data from our current sources, so this score is UNKNOWN.',
+    market: market.ok && !market.partial
       ? `Market mood is ${String(market.regime).toLowerCase()}${market.relativeStrength > 0 ? ` and this stock is doing better than the Nifty by ${round2(market.relativeStrength)}% over a month` : market.relativeStrength < 0 ? ` but this stock is trailing the Nifty by ${Math.abs(round2(market.relativeStrength))}% over a month` : ''}.`
-      : 'We could not read the broader market trend, so this score is neutral.',
+      : 'We could not read the broader market trend (no candle history), so this score is UNKNOWN.',
     risk: `On an average day the price swings about ${tech.atrPct != null ? round2(tech.atrPct) : 'n/a'}%. It is ${Math.abs(tech.drawdownFromHigh)}% below its 1-year high. About ${tech.avgVol20 > 0 ? `${Math.round(tech.avgVol20).toLocaleString()} shares` : 'not enough shares'} are traded daily.`,
   };
 
@@ -550,8 +519,12 @@ async function computeAnalysis(provider, sym, { includeNews }) {
     companyName: tech.quote?.companyName ?? tech.quote?.symbol ?? sym,
     price: tech.price,
     quote: tech.quote ?? null,
-    finalSignal: signal,
-    overallScore: overall,
+    // finalSignal/overallScore/confidence are placeholders here — they are
+    // overwritten below from result.engine, the single scoring/signal
+    // authority, once it has been built. Never read these two fields before
+    // that point.
+    finalSignal: null,
+    overallScore: null,
     confidence,
     flags,
     factorScores: {
@@ -559,7 +532,7 @@ async function computeAnalysis(provider, sym, { includeNews }) {
       technical: techScore,
       fundamentals: fundResult.score,
       valuation: valResult.score,
-      market: Math.round(marketScore),
+      market: marketScore,
       risk: riskScore,
     },
     scores: {
@@ -567,7 +540,7 @@ async function computeAnalysis(provider, sym, { includeNews }) {
       technical: techScore,
       fundamentals: fundResult.score,
       valuation: valResult.score,
-      market: Math.round(marketScore),
+      market: marketScore,
       risk: riskScore,
     },
     news: {
@@ -580,6 +553,8 @@ async function computeAnalysis(provider, sym, { includeNews }) {
       articles: newsResult.articles ?? [],
       positiveCatalysts: newsResult.positiveCatalysts ?? [],
       negativeCatalysts: newsResult.negativeCatalysts ?? [],
+      independentEvents: newsResult.independentEvents ?? null,
+      materialEvents: newsResult.materialEvents ?? null,
     },
     technical: {
       trend: tech.trend,
@@ -620,6 +595,9 @@ async function computeAnalysis(provider, sym, { includeNews }) {
         : 'Valuation data not available from current sources.',
     },
     market: {
+      ok: Boolean(market.ok),
+      available: Boolean(market.ok),
+      partial: Boolean(market.partial),
       regime: market.regime,
       relativeStrength: market.relativeStrength,
       niftyLevel: market.niftyLevel ?? null,
@@ -647,6 +625,22 @@ async function computeAnalysis(provider, sym, { includeNews }) {
       'This is an algorithmic research signal using live market data and news, not a guaranteed prediction of future price movement.',
   };
 
+  // Structured expected close so the UI can show a checkable "predicted high" list.
+  const _expPct = expectedMove(tech);
+  result.expectedClose = tech.price != null ? round2(tech.price * (1 + _expPct / 100)) : null;
+  result.expectedPct = _expPct;
+
+  // Spec-compliant prediction engine: 0-100 weighted score (renormalised over
+  // known factors — UNKNOWN factors are excluded, never treated as neutral),
+  // classification, BUY discipline gates, trade plan and closing-range
+  // forecast. This is the SINGLE authority for the published overall score
+  // and signal — nothing above this line is user-facing yet.
+  result.engine = buildEngineResult(result);
+  result.overallScore = result.engine.totalScore;
+  result.finalSignal = result.engine.signal;
+
+  // Narrative text is generated AFTER the single score/signal is fixed, so
+  // it can never describe a different verdict than what's published.
   result.oneLiner = oneLineExplanation(result);
   const note = simpleLanguageNote(result);
   result.simpleNote = note;
@@ -654,10 +648,9 @@ async function computeAnalysis(provider, sym, { includeNews }) {
   const predIdx = note.indexOf(' Prediction:');
   result.prediction = predIdx >= 0 ? note.slice(predIdx + ' Prediction:'.length).trim() : '';
 
-  // Structured expected close so the UI can show a checkable "predicted high" list.
-  const _expPct = expectedMove(tech);
-  result.expectedClose = tech.price != null ? round2(tech.price * (1 + _expPct / 100)) : null;
-  result.expectedPct = _expPct;
+  // Mandatory final consistency gate (see outputValidator.js). Callers must
+  // check result.finalValidation.passed before publishing this analysis.
+  result.finalValidation = validateAnalysis(result);
 
   cacheResult(sym, result);
   return result;
@@ -682,17 +675,20 @@ export function formatAnalysis(result) {
   lines.push(`NSE SYMBOL: ${result.symbol}`);
   lines.push(`CURRENT PRICE: ₹${result.price}`);
   lines.push('');
-  lines.push(`FINAL SIGNAL: ${result.finalSignal}${result.flags.length ? ` (${result.flags.join(', ')})` : ''}`);
   lines.push(`OVERALL SCORE: ${result.overallScore}`);
+  lines.push(`DIRECTIONAL OUTLOOK: ${result.engine?.directionalOutlook ?? 'n/a'}`);
+  lines.push(`TRADING SIGNAL: ${result.finalSignal}${result.flags.length ? ` (${result.flags.join(', ')})` : ''}`);
+  lines.push(`TRADE DECISION: ${result.engine?.tradeStatus ?? 'n/a'}`);
   lines.push(`CONFIDENCE: ${result.confidence}`);
   lines.push('');
   lines.push('SCORES:');
-  lines.push(`📰 News: ${s.news}/100`);
-  lines.push(`📈 Price action: ${s.technical}/100`);
-  lines.push(`💰 Company health: ${s.fundamentals}/100`);
-  lines.push(`💵 Price vs value: ${s.valuation}/100`);
-  lines.push(`📊 Market mood: ${s.market}/100`);
-  lines.push(`⚠️ Safety: ${s.risk}/100`);
+  const sc = (v) => (v == null ? 'UNKNOWN' : `${v}/100`);
+  lines.push(`📰 News: ${sc(s.news)}`);
+  lines.push(`📈 Price action: ${sc(s.technical)}`);
+  lines.push(`💰 Company health: ${sc(s.fundamentals)}`);
+  lines.push(`💵 Price vs value: ${sc(s.valuation)}`);
+  lines.push(`📊 Market mood: ${sc(s.market)}`);
+  lines.push(`⚠️ Safety: ${sc(s.risk)}`);
   lines.push('');
   lines.push('KEY POSITIVE FACTORS:');
   result.positiveFactors.forEach((p) => lines.push(`- ${p}`));
@@ -712,7 +708,7 @@ export function formatAnalysis(result) {
   lines.push(`- Neutral: ${n.neutral}`);
   lines.push(`- Negative: ${n.negative}`);
   lines.push(`- Overall sentiment: ${n.overall}`);
-  if (!n.available) lines.push('- News unavailable — sentiment scored neutral.');
+  if (!n.available) lines.push('- News unavailable — sentiment score is UNKNOWN.');
   lines.push('');
   lines.push('ENTRY:');
   lines.push(`₹${e.zoneLow} – ₹${e.zoneHigh}`);
@@ -742,11 +738,13 @@ export function formatAnalysis(result) {
 
 export function oneLineExplanation(result) {
   const s = result.scores;
-  const driver = Object.entries(s).sort((a, b) => b[1] - a[1])[0];
+  const known = Object.entries(s).filter(([, v]) => v != null);
+  const driver = known.length ? known.sort((a, b) => b[1] - a[1])[0] : null;
   const driverNames = { news: 'news', technical: 'price action', fundamentals: 'company health', valuation: 'price vs value', market: 'market mood', risk: 'safety' };
   const trend = result.technical.trend === 'Bullish' ? 'uptrend' : result.technical.trend === 'Bearish' ? 'downtrend' : 'range-bound';
   const trendPhrase = trend === 'range-bound' ? 'a range' : trend === 'uptrend' ? 'an uptrend' : 'a downtrend';
-  return `${result.finalSignal} (score ${result.overallScore}) — the strongest factor is ${driverNames[driver[0]]} at ${driver[1]}/100. Price is in ${trendPhrase}, buying pressure ${result.technical.rsi != null ? `${result.technical.rsi}/100` : 'n/a'}.${result.flags.length ? ' Flags: ' + result.flags.join(', ') + '.' : ''}`;
+  const driverText = driver ? `the strongest factor is ${driverNames[driver[0]]} at ${driver[1]}/100` : 'no factor scores are known with confidence yet';
+  return `${result.finalSignal} (score ${result.overallScore}) — ${driverText}. Price is in ${trendPhrase}, buying pressure ${result.technical.rsi != null ? `${result.technical.rsi}/100` : 'n/a'}.${result.flags.length ? ' Flags: ' + result.flags.join(', ') + '.' : ''}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -785,9 +783,9 @@ export function simpleLanguageNote(result) {
   const topPositive = result.positiveFactors?.[0];
   const topNegative = result.negativeFactors?.[0];
 
-  const buyish = signal === 'STRONG BUY' || signal === 'BUY';
-  const dip = signal === 'BUY ON DIP';
-  const avoid = signal === 'AVOID' || signal === 'STRONG AVOID';
+  const buyish = signal === 'BUY' || signal === 'STRONG BUY';
+  const dip = signal === 'WATCH' && Boolean(entry.overbought);
+  const avoid = signal === 'AVOID';
 
   // Clear verdict: should you buy or not?
   let verdict;

@@ -7,7 +7,9 @@ import { ask, suggest, portfolioReview } from '../services/ai/agent.js';
 import { recommend } from '../services/ai/recommender.js';
 import { topOpportunities } from '../services/radarService.js';
 import { analyzeStock, formatAnalysis } from '../services/stockAnalysisService.js';
+import { formatValidationFailure } from '../services/outputValidator.js';
 import { getTodayPrediction, getTrackRecord } from '../services/marketPredictionService.js';
+import { recordPrediction, evaluatePredictions, getPredictions, weeklyStats } from '../services/predictionTracker.js';
 
 const CONCURRENCY = 4;
 
@@ -70,6 +72,12 @@ router.post(
       if (!result.ok) {
         return res.status(404).json({ ok: false, symbol, error: result.error });
       }
+      // Mandatory final consistency gate — never publish an analysis that
+      // fails it (dual scores/signals, fabricated UNKNOWN data, bad trade
+      // structure, etc.).
+      if (!result.finalValidation?.passed) {
+        return res.status(422).json(formatValidationFailure(result, result.finalValidation));
+      }
       res.json({ ok: true, symbol, analysis: result, formatted: formatAnalysis(result) });
     } catch (err) {
       next(err);
@@ -91,7 +99,11 @@ router.post(
           symbol,
           error: err?.message ?? 'Analysis failed',
         }));
-        return result?.ok ? { symbol, analysis: result, formatted: formatAnalysis(result) } : { symbol, error: result?.error ?? 'Analysis failed' };
+        if (!result?.ok) return { symbol, error: result?.error ?? 'Analysis failed' };
+        if (!result.finalValidation?.passed) {
+          return { symbol, error: `VALIDATION FAILED: ${result.finalValidation.failedChecks.map((f) => f.id).join(', ')}` };
+        }
+        return { symbol, analysis: result, formatted: formatAnalysis(result) };
       });
       res.json({ results: out.filter((r) => r.analysis), errors: out.filter((r) => !r.analysis) });
     } catch (err) {
@@ -121,33 +133,51 @@ router.post(
     try {
       const { topOpportunities } = await import('../services/radarService.js');
       const wanted = Number(req.body.limit ?? 5);
-      // Wider candidate pool than the AI Picks watchlist so we can surface 5.
+      // Wider candidate pool than the AI Picks watchlist so we can rank candidates.
       const opps = await topOpportunities(40);
       const symbols = [...new Set(opps.map((o) => o.symbol))].slice(0, 40);
-      const analyzed = await mapLimit(symbols, CONCURRENCY, async (sym) => {
+      const analyzed = (await mapLimit(symbols, CONCURRENCY, async (sym) => {
         const r = await analyzeStock(sym).catch(() => null);
-        return r && r.ok ? r : null;
-      });
-      const risers = analyzed
-        .filter(
-          (r) =>
-            r &&
-            /BUY/.test(r.finalSignal) &&
-            r.technical?.trend === 'Bullish' &&
-            r.expectedClose != null,
-        )
-        .sort((a, b) => (b.expectedPct ?? 0) - (a.expectedPct ?? 0))
+        // Never publish a result that fails the mandatory final consistency
+        // gate — drop it from the candidate pool rather than surface it.
+        return r && r.ok && r.engine && r.finalValidation?.passed ? r : null;
+      })).filter(Boolean);
+
+      // TOP 5 CANDIDATES — the highest-scoring names, by signal (not forced BUY).
+      const candidates = analyzed
+        .sort((a, b) => (b.engine.totalScore ?? 0) - (a.engine.totalScore ?? 0))
         .slice(0, wanted)
         .map((r) => ({
           symbol: r.symbol,
           companyName: r.companyName,
           price: r.price ?? null,
+          score: r.engine.totalScore,
+          signal: r.engine.signal,
+          tradeStatus: r.engine.tradeStatus,
           expectedClose: r.expectedClose,
           expectedPct: r.expectedPct,
-          finalSignal: r.finalSignal,
-          stopLoss: r.entry?.stopLoss ?? null,
         }));
-      res.json({ risers });
+
+      // ACTIONABLE BUY SETUPS — only names that passed ALL tradeability gates.
+      const actionable = analyzed
+        .filter((r) => r.engine?.tradeStatus === 'EXECUTABLE' && r.engine?.isBuy)
+        .sort((a, b) => (b.engine.totalScore ?? 0) - (a.engine.totalScore ?? 0))
+        .slice(0, wanted)
+        .map((r) => ({
+          symbol: r.symbol,
+          companyName: r.companyName,
+          price: r.price ?? null,
+          score: r.engine.totalScore,
+          entry: r.engine.buy?.preferredEntryRange ?? null,
+          confirmation: r.engine.buy?.confirmationPrice ?? null,
+          target1: r.engine.buy?.target1 ?? null,
+          target2: r.engine.buy?.target2 ?? null,
+          stopLoss: r.engine.buy?.stopLoss ?? null,
+          riskReward: r.engine.buy?.riskReward ?? null,
+          expectedClose: r.expectedClose,
+        }));
+
+      res.json({ candidates, actionable });
     } catch (err) {
       next(err);
     }
@@ -190,9 +220,11 @@ router.post(
           symbol,
           error: err?.message ?? 'Analysis failed',
         }));
-        return result?.ok
-          ? { symbol, analysis: result, formatted: formatAnalysis(result) }
-          : { symbol, error: result?.error ?? 'Analysis failed' };
+        if (!result?.ok) return { symbol, error: result?.error ?? 'Analysis failed' };
+        if (!result.finalValidation?.passed) {
+          return { symbol, error: `VALIDATION FAILED: ${result.finalValidation.failedChecks.map((f) => f.id).join(', ')}` };
+        }
+        return { symbol, analysis: result, formatted: formatAnalysis(result) };
       });
 
       const okResults = scored.filter((r) => r.analysis);
@@ -229,6 +261,79 @@ router.post(
       const userId = req.user?.id ?? null;
       const review = await portfolioReview(userId);
       res.json({ review });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// Record a prediction from the spec-compliant engine for a symbol, so it can be
+// scored against the official closing price later.
+router.post(
+  '/record-prediction',
+  body('symbol').trim().isLength({ min: 1, max: 20 }),
+  validate,
+  async (req, res, next) => {
+    try {
+      const symbol = String(req.body.symbol).toUpperCase();
+      const result = await analyzeStock(symbol, { includeNews: true });
+      if (!result?.ok || !result.engine) {
+        return res.status(422).json({ error: 'Analysis unavailable for symbol', detail: result?.error });
+      }
+      if (!result.finalValidation?.passed) {
+        return res.status(422).json(formatValidationFailure(result, result.finalValidation));
+      }
+      const e = result.engine;
+      const rec = recordPrediction({
+        symbol,
+        sector: 'N/A',
+        predictionPrice: result.price,
+        expectedRange: e.closingRange?.range ?? null,
+        baseCase: e.closingRange?.base ?? null,
+        bullCase: e.closingRange?.bull ?? null,
+        bearCase: e.closingRange?.bear ?? null,
+        entry: e.buy?.preferredEntryRange ?? null,
+        confirmation: e.buy?.confirmationPrice ?? null,
+        target1: e.buy?.target1 ?? null,
+        target2: e.buy?.target2 ?? null,
+        stopLoss: e.buy?.stopLoss ?? null,
+        signal: e.signal,
+        score: e.totalScore,
+        confidence: e.closingRange?.confidence ?? null,
+        confidenceScore: e.closingRange?.confidenceScore ?? null,
+        dataStatus: e.dataStatus,
+        modelVersion: e.modelVersion,
+      });
+      res.json({ recorded: rec });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// Evaluate OPEN predictions against actual closes. `closes` maps SYMBOL -> { close, hitStop }.
+// If omitted, the market provider's last price is used as a proxy for the close.
+router.post(
+  '/evaluate-predictions',
+  body('closes').optional().isObject(),
+  validate,
+  async (req, res, next) => {
+    try {
+      const closes = req.body.closes ?? {};
+      const { updated } = evaluatePredictions(closes);
+      res.json({ updated, performance: weeklyStats() });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// Permanent prediction table + weekly performance summary.
+router.get(
+  '/prediction-performance',
+  async (req, res, next) => {
+    try {
+      res.json({ predictions: getPredictions(), performance: weeklyStats() });
     } catch (err) {
       next(err);
     }

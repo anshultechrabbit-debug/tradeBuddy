@@ -1783,6 +1783,15 @@ input:disabled {
   color: var(--text);
 }
 
+.sg-engine {
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 10px;
+}
+
 /* Daily market prediction card */
 .mp-card {
   border-radius: var(--radius-sm);
@@ -1989,6 +1998,10 @@ input:disabled {
   color: var(--red);
 }
 
+.sg-unknown {
+  color: var(--muted, #8a8f98);
+}
+
 .sg-factor-bar {
   height: 9px;
   border-radius: 999px;
@@ -2010,6 +2023,16 @@ input:disabled {
 
 .sg-factor-fill.sg-good {
   background: var(--grad-brand);
+}
+
+.sg-factor-fill.sg-unknown {
+  background: repeating-linear-gradient(
+    135deg,
+    #d7dade,
+    #d7dade 6px,
+    #c3c7cc 6px,
+    #c3c7cc 12px
+  );
 }
 
 .sg-factor-reason {
@@ -2751,6 +2774,26 @@ select {
 .sort-btn:hover {
   color: var(--text);
 }
+
+.tracker-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.tracker-stats b {
+  color: var(--text);
+}
+.tracker-result {
+  font-weight: 600;
+}
+.tracker-win { color: #16a34a; }
+.tracker-partial { color: #d97706; }
+.tracker-loss { color: #dc2626; }
+.tracker-stopped { color: #dc2626; }
+.tracker-open { color: var(--text-muted); }
 
 .sort-arrow {
   font-size: 10px;

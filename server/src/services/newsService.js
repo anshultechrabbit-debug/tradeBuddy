@@ -210,6 +210,8 @@ async function fetchFromNewsAPI(symbol, { limit = 8 } = {}) {
  * Returns { articles, positive, neutral, negative, sentimentScore, overall,
  *           positiveCatalysts, negativeCatalysts }.
  */
+import { dedupeArticles } from './predictionEngine.js';
+
 export async function fetchStockNews(symbol, { limit = 8 } = {}) {
   // 1) Try Marketaux first (free tier: 100 req/day, India coverage, 24h fresh, structured).
   //    Indian tickers need the .NS / .BO suffix on Marketaux, so try a few forms.
@@ -287,7 +289,7 @@ export async function fetchStockNews(symbol, { limit = 8 } = {}) {
   let neutral = 0;
   let negative = 0;
 
-  const articles = (chosen?.articles ?? []).map((a) => {
+  const rawArticles = (chosen?.articles ?? []).map((a) => {
     const w = a.recencyWeight ?? recencyWeight(a.publishedAt);
     const s = a.sentiment === 'POSITIVE' ? 1 : a.sentiment === 'NEGATIVE' ? -1 : 0;
     weighted += w * s;
@@ -298,19 +300,25 @@ export async function fetchStockNews(symbol, { limit = 8 } = {}) {
     return { ...a, recencyWeight: Math.round(w * 100) / 100 };
   });
 
+  // Deduplicate syndicated/copied articles — four repeats of one story = ONE event.
+  const deduped = dedupeArticles(rawArticles);
+  const unique = deduped.unique;
+
   const sentimentScore = totalWeight
     ? Math.round(Math.min(100, Math.max(0, 50 + (weighted / totalWeight) * 50)))
     : 50;
   const overall = sentimentScore >= 60 ? 'Positive' : sentimentScore <= 40 ? 'Negative' : 'Neutral';
 
   return {
-    articles,
+    articles: unique,
     positive,
     neutral,
     negative,
     sentimentScore,
     overall,
-    positiveCatalysts: articles.filter((a) => a.sentiment === 'POSITIVE').slice(0, 4).map((a) => a.title),
-    negativeCatalysts: articles.filter((a) => a.sentiment === 'NEGATIVE').slice(0, 4).map((a) => a.title),
+    independentEvents: deduped.independentEvents,
+    materialEvents: deduped.materialEvents,
+    positiveCatalysts: unique.filter((a) => a.sentiment === 'POSITIVE').slice(0, 4).map((a) => a.title),
+    negativeCatalysts: unique.filter((a) => a.sentiment === 'NEGATIVE').slice(0, 4).map((a) => a.title),
   };
 }

@@ -1,82 +1,69 @@
-import { useState } from 'react';
 import { Card } from '../components/ui';
 import { formatCurrency } from '../lib/format';
-import type { PredictedRiser } from '../lib/types';
+import type { RiserCandidate, ActionableSetup } from '../lib/types';
 
-function buildSheet(risers: PredictedRiser[]): string {
-  const now = new Date().toLocaleString();
-  const lines = [
-    'TradeBuddy — Evening verification sheet',
-    `Snapshot taken: ${now}`,
-    '',
-    'Tonight on Groww, for each stock:',
-    '  ✅ Correct  -> closing price >= Expected close AND never crossed below Stop',
-    '  ❌ Wrong    -> closing price below Stop (or below Expected close)',
-    '',
-    '#  Stock       Live ₹     Expected close ₹   Stop ₹     Result',
-  ];
-  risers.forEach((p, i) => {
-    const sym = p.symbol.padEnd(11, ' ');
-    const live = (p.price != null ? p.price.toFixed(2) : '—').padStart(10, ' ');
-    const exp = p.expectedClose.toFixed(2).padStart(12, ' ');
-    const stop = (p.stopLoss != null ? p.stopLoss.toFixed(2) : '—').padStart(9, ' ');
-    lines.push(`${i + 1}. ${sym}${live}${exp}${stop}   [   ]`);
-  });
-  return lines.join('\n');
-}
-
-function TopRisersCard({ risers }: { risers: PredictedRiser[] }) {
-  const [copied, setCopied] = useState(false);
-
-  const copySheet = async () => {
-    try {
-      await navigator.clipboard.writeText(buildSheet(risers));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setCopied(false);
-    }
-  };
-
+function TopRisersCard({
+  candidates,
+  actionable,
+}: {
+  candidates: RiserCandidate[];
+  actionable: ActionableSetup[];
+}) {
   return (
-    <Card title="5 stocks predicted to rise today">
-      {risers.length === 0 ? (
-        <p className="muted small">No stocks currently meet the “rise today” criteria (buy signal + uptrend).</p>
+    <Card title="TOP 5 CANDIDATES">
+      {candidates.length === 0 ? (
+        <p className="muted small">No candidate data available right now.</p>
       ) : (
         <>
           <div className="risers-table">
             <div className="risers-head">
               <span>#</span>
               <span>Stock</span>
-              <span>Live ₹</span>
-              <span>Expected close ₹</span>
-              <span>Verify tonight</span>
+              <span>Score</span>
+              <span>Signal</span>
+              <span>Trade</span>
             </div>
-            {risers.map((p, i) => (
+            {candidates.map((p, i) => (
               <div className="risers-row" key={p.symbol}>
                 <span className="strong">{i + 1}</span>
                 <span>
-                  <span className="strong">{p.symbol}</span>
-                  <span className="muted small"> · {p.finalSignal}</span>
+                  <span className="strong">{p.symbol}</span>{' '}
+                  <span className="muted small">{p.companyName}</span>
                 </span>
-                <span>{p.price != null ? formatCurrency(p.price) : '—'}</span>
-                <span className="strong text-positive">{formatCurrency(p.expectedClose)}</span>
-                <span className="muted small">
-                  close ≥ {formatCurrency(p.expectedClose)} → ✅
-                  {p.stopLoss != null ? ` · stop ₹${p.stopLoss}` : ''}
-                </span>
+                <span>{p.score}</span>
+                <span className={p.signal.includes('BUY') ? 'text-positive' : ''}>{p.signal}</span>
+                <span className="muted small">{p.tradeStatus}</span>
               </div>
             ))}
           </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10 }}>
-            <button type="button" className="btn" onClick={copySheet}>
-              {copied ? 'Copied!' : 'Copy for evening check'}
-            </button>
-            <p className="muted small" style={{ margin: 0 }}>
-              Compares each “Expected close” with the actual closing price on Groww tonight. Correct if it
-              closed at/above expected (and didn’t hit the stop).
-            </p>
-          </div>
+
+          <h4 style={{ marginTop: 14, marginBottom: 6 }}>ACTIONABLE BUY SETUPS</h4>
+          {actionable.length === 0 ? (
+            <p className="muted small">NO ACTIONABLE BUY SETUPS TODAY. (This is a valid outcome — quality over quantity.)</p>
+          ) : (
+            <div className="risers-table">
+              <div className="risers-head">
+                <span>Stock</span>
+                <span>Entry ₹</span>
+                <span>T1 ₹</span>
+                <span>Stop ₹</span>
+                <span>R:R</span>
+              </div>
+              {actionable.map((p) => (
+                <div className="risers-row" key={p.symbol}>
+                  <span className="strong">{p.symbol}</span>
+                  <span>{p.entry ? `${formatCurrency(p.entry[0])}–${formatCurrency(p.entry[1])}` : '—'}</span>
+                  <span className="text-positive">{p.target1 != null ? formatCurrency(p.target1) : '—'}</span>
+                  <span className="text-negative">{p.stopLoss != null ? formatCurrency(p.stopLoss) : '—'}</span>
+                  <span>{p.riskReward != null ? `${p.riskReward}:1` : '—'}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="muted small" style={{ marginTop: 8 }}>
+            Candidates are ranked by signal score. Only names passing every tradeability gate (risk/reward ≥ 1:2,
+            volume confirmation, liquidity, ≥3 agreeing signals) appear in Actionable Setups. Never forced to five.
+          </p>
         </>
       )}
     </Card>

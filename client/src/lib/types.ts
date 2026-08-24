@@ -350,6 +350,74 @@ export interface AiTechnical {
   trend: string;
 }
 
+export interface EngineBuy {
+  currentPrice: number | null;
+  preferredEntryRange: [number, number];
+  confirmationPrice: number | null;
+  target1: number | null;
+  target2: number | null;
+  stopLoss: number | null;
+  riskReward: number | null;
+  probabilityTarget1: string | null;
+  expectedMovePct: number | null;
+  maxAcceptableRisk: string;
+  reasonSetupCouldFail: string | null;
+  entryNote?: string | null;
+}
+
+export interface EngineOutput {
+  schemaVersion: number;
+  modelVersion: string;
+  generatedAt: string;
+  dataTimestamp: string | null;
+  dataStatus: string;
+  subScores: {
+    technicalMomentum: number | null;
+    trend: number | null;
+    volumeConfirmation: number | null;
+    relativeStrength: number | null;
+    news: number | null;
+    fundamentals: number | null;
+    marketSector: number | null;
+  };
+  totalScore: number;
+  classification: string;
+  directionalOutlook: 'BULLISH' | 'NEUTRAL' | 'BEARISH';
+  signal: string;
+  isBuy: boolean;
+  tradeStatus: string;
+  gatesPassed: boolean | null;
+  gates: {
+    riskReward: boolean;
+    volumeConfirms: boolean;
+    htfAgrees: boolean;
+    noContraryNews: boolean;
+    liquidEnough: boolean;
+    agreeingSignals: number;
+    agreeingRequired: number;
+    structureOk?: boolean;
+    deepPullback?: boolean;
+  };
+  buy: EngineBuy | null;
+  closingRange: {
+    bear: number | null;
+    base: number | null;
+    bull: number | null;
+    range: [number, number] | null;
+    expectedMovePct: number | null;
+    confidence: string;
+    confidenceScore: number;
+    probability: string;
+    note?: string;
+  };
+  newsIndependentEvents?: number | null;
+  newsMaterialEvents?: number | null;
+  validation: string;
+  validationProblems: string[];
+  coverage: Record<string, boolean | string[]>;
+  disclaimer: string;
+}
+
 export interface AiAnalysis {
   ok: boolean;
   symbol: string;
@@ -365,12 +433,19 @@ export interface AiAnalysis {
   overallScore: number;
   confidence: string;
   flags: string[];
-  factorScores: { news: number; technical: number; fundamentals: number; valuation: number; market: number; risk: number };
+  factorScores: {
+    news: number | null;
+    technical: number | null;
+    fundamentals: number | null;
+    valuation: number | null;
+    market: number | null;
+    risk: number | null;
+  };
   reasons: { news: string; technical: string; fundamentals: string; valuation: string; market: string; risk: string };
   news: AiNews;
   technical: AiTechnical;
   fundamentals: { pe: number | null; adjustedPe: number | null; tradeDate: string | null; note: string };
-  valuation: { score: number; pe: number | null; flag: string | null; note: string };
+  valuation: { score: number | null; pe: number | null; flag: string | null; note: string };
   market: { regime: string; relativeStrength: number | null; niftyLevel: number | null; note: string };
   risk: { score: number; volatilityPct: number | null; drawdownPct: number | null; volRatio: number | null; note: string };
   entry: { zoneLow: number; zoneHigh: number; stopLoss: number; note: string; reason: string; overbought: boolean };
@@ -381,6 +456,8 @@ export interface AiAnalysis {
   prediction: string;
   expectedClose: number | null;
   expectedPct: number | null;
+  engine: EngineOutput | null;
+  finalValidation?: { passed: boolean; failedChecks: { id: string; title: string; detail: string }[] } | null;
   dataTimestamp: string;
   disclaimer: string;
 }
@@ -431,8 +508,85 @@ export interface PredictedRiser {
   stopLoss: number | null;
 }
 
+export interface PredictedRiser {
+  symbol: string;
+  companyName: string;
+  price: number | null;
+  expectedClose: number;
+  expectedPct: number;
+  finalSignal: string;
+  stopLoss: number | null;
+}
+
+export interface RiserCandidate {
+  symbol: string;
+  companyName: string;
+  price: number | null;
+  score: number;
+  signal: string;
+  tradeStatus: string;
+  expectedClose: number | null;
+  expectedPct: number | null;
+}
+
+export interface ActionableSetup {
+  symbol: string;
+  companyName: string;
+  price: number | null;
+  score: number;
+  entry: [number, number] | null;
+  confirmation: number | null;
+  target1: number | null;
+  target2: number | null;
+  stopLoss: number | null;
+  riskReward: number | null;
+  expectedClose: number | null;
+}
+
 export interface PredictedRisersResponse {
-  risers: PredictedRiser[];
+  candidates: RiserCandidate[];
+  actionable: ActionableSetup[];
+}
+
+export interface PredictionRecord {
+  id: string;
+  date: string;
+  week: string;
+  symbol: string;
+  sector: string;
+  predictionPrice: number | null;
+  expectedRange: [number, number] | null;
+  baseCase: number | null;
+  bullCase: number | null;
+  bearCase: number | null;
+  entry: number | null;
+  confirmation: number | null;
+  target1: number | null;
+  target2: number | null;
+  stopLoss: number | null;
+  signal: string | null;
+  score: number | null;
+  confidence: string | null;
+  confidenceScore: number | null;
+  dataStatus: string | null;
+  modelVersion: string | null;
+  status: 'OPEN' | 'CLOSED';
+  actualClose?: number;
+  intradayLow?: number | null;
+  stopHit?: boolean;
+  result?: 'WIN' | 'PARTIAL' | 'LOSS' | 'STOPPED';
+  errorPct?: number;
+  returnPct?: number;
+  directionCorrect?: boolean;
+}
+
+export interface PredictionPerformance {
+  predictions: PredictionRecord[];
+  performance: {
+    overall: Record<string, unknown>;
+    byWeek: Record<string, unknown>;
+    note: string;
+  };
 }
 
 export interface Alert {

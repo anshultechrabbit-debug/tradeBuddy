@@ -1,6 +1,6 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import { apiClient, apiErrorMessage } from '../api/client';
-import type { AiAnalysis, AiAnalyzeManyResponse, AiAnalyzeResponse, MarketPredictionResponse, PredictedRiser, PredictedRisersResponse } from '../lib/types';
+import type { AiAnalysis, AiAnalyzeManyResponse, AiAnalyzeResponse, MarketPredictionResponse, PredictedRisersResponse, PredictionPerformance } from '../lib/types';
 
 type RawAnalysis = Record<string, any>;
 
@@ -60,12 +60,12 @@ export function normalizeAnalysis(raw: RawAnalysis): AiAnalysis {
     confidence: raw.confidence ?? 'LOW',
     flags: Array.isArray(raw.flags) ? raw.flags : [],
     factorScores: {
-      news: scores.news ?? 50,
-      technical: scores.technical ?? 50,
-      fundamentals: scores.fundamentals ?? 50,
-      valuation: scores.valuation ?? 50,
-      market: scores.market ?? 50,
-      risk: scores.risk ?? 50,
+      news: scores.news ?? null,
+      technical: scores.technical ?? null,
+      fundamentals: scores.fundamentals ?? null,
+      valuation: scores.valuation ?? null,
+      market: scores.market ?? null,
+      risk: scores.risk ?? null,
     },
     reasons: {
       news: raw.reasons?.news ?? '',
@@ -94,7 +94,7 @@ export function normalizeAnalysis(raw: RawAnalysis): AiAnalysis {
       note: f.note ?? '',
     },
     valuation: {
-      score: v.score ?? scores.valuation ?? 50,
+      score: v.score ?? scores.valuation ?? null,
       pe: v.pe ?? null,
       flag: v.flag ?? null,
       note: v.note ?? '',
@@ -127,6 +127,7 @@ export function normalizeAnalysis(raw: RawAnalysis): AiAnalysis {
     prediction: raw.prediction ?? '',
     expectedClose: raw.expectedClose ?? null,
     expectedPct: raw.expectedPct ?? null,
+    engine: raw.engine ?? null,
     dataTimestamp: raw.dataTimestamp ?? new Date().toISOString(),
     disclaimer: raw.disclaimer ?? '',
   };
@@ -147,7 +148,8 @@ export interface AiState {
   suggestions: InstrumentSuggestion[];
   searching: boolean;
   marketPrediction: MarketPredictionResponse | null;
-  predictedRisers: PredictedRiser[];
+  predictedRisers: PredictedRisersResponse | null;
+  predictionPerformance: PredictionPerformance | null;
 }
 
 const initialState: AiState = {
@@ -159,7 +161,8 @@ const initialState: AiState = {
   suggestions: [],
   searching: false,
   marketPrediction: null,
-  predictedRisers: [],
+  predictedRisers: null,
+  predictionPerformance: null,
 };
 
 export const searchSymbols = createAsyncThunk<InstrumentSuggestion[], string>('ai/searchSymbols', async (q) => {
@@ -192,9 +195,14 @@ export const fetchMarketPrediction = createAsyncThunk<MarketPredictionResponse>(
   return data;
 });
 
-export const fetchPredictedRisers = createAsyncThunk<PredictedRiser[]>('ai/predictedRisers', async () => {
+export const fetchPredictedRisers = createAsyncThunk<PredictedRisersResponse>('ai/predictedRisers', async () => {
   const { data } = await apiClient.post<PredictedRisersResponse>('/ai/predicted-risers', { limit: 5 });
-  return data.risers;
+  return data;
+});
+
+export const fetchPredictionPerformance = createAsyncThunk<PredictionPerformance>('ai/predictionPerformance', async () => {
+  const { data } = await apiClient.get<PredictionPerformance>('/ai/prediction-performance');
+  return data;
 });
 
 function mergeAnalyses(state: AiState, payload: AiAnalysis[]) {
@@ -286,6 +294,9 @@ const aiSlice = createSlice({
       })
       .addCase(fetchPredictedRisers.fulfilled, (state, action) => {
         state.predictedRisers = action.payload;
+      })
+      .addCase(fetchPredictionPerformance.fulfilled, (state, action) => {
+        state.predictionPerformance = action.payload;
       });
   },
 });

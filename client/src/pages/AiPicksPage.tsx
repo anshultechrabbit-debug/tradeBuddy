@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { analyzeMany, analyzeSymbol, searchSymbols, suggestMarket, fetchMarketPrediction, fetchPredictedRisers } from '../store/aiSlice';
+import { analyzeMany, analyzeSymbol, searchSymbols, suggestMarket, fetchMarketPrediction, fetchPredictedRisers, fetchPredictionPerformance } from '../store/aiSlice';
 import { fetchWatchlist } from '../store/watchlistSlice';
 import { fetchLatestScan } from '../store/radarSlice';
 import { fetchAllQuotes } from '../store/marketSlice';
@@ -10,6 +10,7 @@ import { formatCurrency, formatPct, formatTimeAgo } from '../lib/format';
 import { CandleChart } from '../components/CandleChart';
 import MarketPredictionCard from '../components/MarketPredictionCard';
 import TopRisersCard from '../components/TopRisersCard';
+import PredictionTrackerCard from '../components/PredictionTrackerCard';
 import type { AiAnalysis } from '../lib/types';
 
 function signalTone(signal: string): 'buy' | 'watch' | 'avoid' {
@@ -58,7 +59,23 @@ function ScoreGauge({ value, signal }: { value: number; signal: string }) {
   );
 }
 
-function FactorRow({ factor, score, reason }: { factor: (typeof FACTORS)[number]; score: number; reason: string }) {
+function FactorRow({ factor, score, reason }: { factor: (typeof FACTORS)[number]; score: number | null; reason: string }) {
+  if (score == null) {
+    return (
+      <div className="sg-factor">
+        <div className="sg-factor-top">
+          <span className="sg-factor-label">
+            {factor.icon} {factor.label}
+          </span>
+          <span className="sg-factor-score sg-unknown">UNKNOWN</span>
+        </div>
+        <div className="sg-factor-bar">
+          <div className="sg-factor-fill sg-unknown" style={{ width: '100%' }} />
+        </div>
+        <p className="sg-factor-reason">{reason || 'Data unavailable — not scored.'}</p>
+      </div>
+    );
+  }
   const tone = score >= 65 ? 'sg-good' : score <= 40 ? 'sg-bad' : '';
   return (
     <div className="sg-factor">
@@ -78,7 +95,7 @@ function FactorRow({ factor, score, reason }: { factor: (typeof FACTORS)[number]
 
 export function AiPicksPage() {
   const dispatch = useAppDispatch();
-  const { picks, bySymbol, analyzing, error, lastUpdated, suggestions, searching, marketPrediction, predictedRisers } = useAppSelector((s) => s.ai);
+  const { picks, bySymbol, analyzing, error, lastUpdated, suggestions, searching, marketPrediction, predictedRisers, predictionPerformance } = useAppSelector((s) => s.ai);
   const { watchlist } = useAppSelector((s) => s.watchlist);
   const { scanResult } = useAppSelector((s) => s.radar);
   const { allQuotes } = useAppSelector((s) => s.market);
@@ -95,6 +112,7 @@ export function AiPicksPage() {
     dispatch(fetchAllQuotes());
     dispatch(fetchMarketPrediction());
     dispatch(fetchPredictedRisers());
+    dispatch(fetchPredictionPerformance());
     const marketTimer = setInterval(() => dispatch(fetchMarketPrediction()), 30000);
     const risersTimer = setInterval(() => dispatch(fetchPredictedRisers()), 60000);
     const timer = setInterval(() => dispatch(fetchAllQuotes()), 60000);
@@ -302,7 +320,13 @@ export function AiPicksPage() {
           {marketPrediction ? (
             <MarketPredictionCard today={marketPrediction.today} track={marketPrediction.track} />
           ) : null}
-          <TopRisersCard risers={predictedRisers} />
+          <TopRisersCard
+            candidates={predictedRisers?.candidates ?? []}
+            actionable={predictedRisers?.actionable ?? []}
+          />
+          {predictionPerformance ? (
+            <PredictionTrackerCard performance={predictionPerformance} />
+          ) : null}
           {searched ? (
             <div className="sg-search-view-head">
               <span className="sg-live-badge">
@@ -384,6 +408,36 @@ export function AiPicksPage() {
                 <div className={`sg-prediction sg-pred-${signalTone(active.finalSignal)}`}>
                   <span className="sg-prediction-label">🔮 Prediction</span>
                   <p className="sg-prediction-text">{active.prediction}</p>
+                </div>
+              ) : null}
+
+              {active.engine ? (
+                <div className="sg-engine">
+                  <span className="sg-prediction-label">
+                    Outlook: {active.engine.directionalOutlook} · Signal: {active.engine.signal} · Trade decision: {active.engine.tradeStatus}
+                  </span>
+                  <p className="sg-plaintalk-text">
+                    Expected close range{' '}
+                    {active.engine.closingRange.range
+                      ? `${formatCurrency(active.engine.closingRange.range[0])}–${formatCurrency(active.engine.closingRange.range[1])}`
+                      : 'n/a'}{' '}
+                    · confidence {active.engine.closingRange.confidenceScore}/100
+                    {active.engine.isBuy && active.engine.buy ? (
+                      <>
+                        <br />
+                        Entry {formatCurrency(active.engine.buy.preferredEntryRange[0])}–
+                        {formatCurrency(active.engine.buy.preferredEntryRange[1])} · T1{' '}
+                        {formatCurrency(active.engine.buy.target1)} · Stop{' '}
+                        {formatCurrency(active.engine.buy.stopLoss)} · R:R{' '}
+                        {active.engine.buy.riskReward ?? 'n/a'} · P(T1){' '}
+                        {active.engine.buy.probabilityTarget1 ?? 'n/a'}%
+                        {active.engine.gatesPassed === false ? ' · BUY gated → WATCH' : ''}
+                      </>
+                    ) : null}
+                    {((active.engine.coverage?.unknownFactors as string[] | undefined)?.length
+                      ? ` · UNKNOWN: ${(active.engine.coverage?.unknownFactors as string[]).join(', ')}`
+                      : '')}
+                  </p>
                 </div>
               ) : null}
 
