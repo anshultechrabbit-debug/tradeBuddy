@@ -1,12 +1,45 @@
 import aiConfig from '../../config/aiConfig.js';
 
+// Reasoning models (DeepSeek-R1 and similar) emit their chain-of-thought
+// wrapped in <think>...</think> before the actual answer. Every caller of
+// chat() wants the answer, never the internal reasoning, so strip it once
+// here instead of relying on each call site to remember to.
+function stripThinking(text) {
+  return (text ?? '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+}
+
 export async function chat({ system, messages = [], maxTokens, temperature, stream = false }) {
+  const tokens = maxTokens ?? aiConfig.maxTokens;
   const body = {
     model: aiConfig.model,
     messages: system ? [{ role: 'system', content: system }, ...messages] : messages,
-    max_tokens: maxTokens ?? aiConfig.maxTokens,
+    // Groq's OpenAI-compatible endpoint accepts both; reasoning models there
+    // key off max_completion_tokens specifically, so send both rather than
+    // guess which one this model reads.
+    max_tokens: tokens,
+    max_completion_tokens: tokens,
     temperature: temperature ?? aiConfig.temperature,
     stream,
+    ...(aiConfig.provider === 'groq'
+      ? {
+          // Every call this app makes is "answer from the app data given" —
+          // Q&A, a structured JSON review, stock suggestions — never the kind
+          // of multi-step math/coding problem thinking mode is for. Measured
+          // on a real call: reasoning_effort "default" burned 1161 of 1239
+          // completion tokens on hidden reasoning before answering (2.5s);
+          // "none" answered directly in 68 tokens (0.14s). Beyond the latency
+          // and rate-limit cost, a big enough prompt could exhaust maxTokens
+          // entirely on reasoning and return an EMPTY answer — "none"
+          // sidesteps that failure mode rather than just budgeting around it.
+          reasoning_effort: 'none',
+          // Backstop in case reasoning ever gets triggered anyway (a model
+          // update, an unsupported combination, etc.) — return the answer
+          // only, never the <think> block. stripThinking() below is the
+          // other half of this backstop for when reasoning_format itself
+          // isn't honored (a known Groq bug on some models).
+          reasoning_format: 'hidden',
+        }
+      : {}),
   };
 
   if (aiConfig.provider === 'mock' || !aiConfig.apiKey) {
@@ -28,7 +61,7 @@ export async function chat({ system, messages = [], maxTokens, temperature, stre
     }
     if (stream) return res.body;
     const data = await res.json();
-    return data.choices?.[0]?.message?.content ?? '';
+    return stripThinking(data.choices?.[0]?.message?.content);
   } finally {
     clearTimeout(timer);
   }

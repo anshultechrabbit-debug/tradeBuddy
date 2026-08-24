@@ -18,71 +18,101 @@ function generateHoldingsHash(holdings) {
     .join('|');
 }
 
-// Words never treated as stock symbols.
+// Words never treated as stock symbols. Cheap first pass before the real
+// check below — the blocklist can never cover every plain-English word
+// ("SHOULD", "WOULD", "COULD", ...) that happens to be 2-6 uppercase
+// letters, so it only exists to cut the candidate list before the DB call.
 const STOP_WORDS = new Set([
   'BUY', 'SELL', 'BEST', 'TODAY', 'NSE', 'STOCK', 'STOCKS', 'PRICE', 'RS',
   'WHAT', 'WHY', 'HOW', 'THE', 'AND', 'FOR', 'WITH', 'TRADE', 'TRADING',
 ]);
 
-function findSymbols(question) {
+// A plain word-shape heuristic misfires on ordinary questions ("Should I buy
+// TCS?" → "SHOULD" also looks like a symbol) and each false positive costs a
+// full quote/candle/analysis round-trip through the Python bridge — a real
+// chunk of /ai/ask's latency on natural-language questions. Validate
+// candidates against the actual instrument list instead of guessing.
+async function findSymbols(question) {
   const words = question.toUpperCase().match(/\b[A-Z]{2,6}\b/g) ?? [];
-  return [...new Set(words)].filter((w) => !STOP_WORDS.has(w)).slice(0, 3);
+  const candidates = [...new Set(words)].filter((w) => !STOP_WORDS.has(w));
+  if (!candidates.length) return [];
+  const known = await prisma.instrument.findMany({
+    where: { symbol: { in: candidates }, instrumentType: 'EQUITY' },
+    select: { symbol: true },
+  }).catch(() => []);
+  const knownSet = new Set(known.map((i) => i.symbol));
+  return candidates.filter((w) => knownSet.has(w)).slice(0, 3);
 }
 
-// TOOLS: fetch live data about the question and return text lines.
-async function callTools(question, ctx) {
+// TOOLS: fetch live data about the question and return text lines. Doesn't
+// touch ctx — callers run this concurrently with buildContext() instead of
+// waiting on it, which used to be most of /ai/ask's latency for no reason
+// (this function never actually read ctx).
+async function callTools(question) {
   const extra = [];
   const uq = question.toUpperCase();
+  const wantsTop = /\b(BEST|WHICH|RECOMMEND|BUY|TOP)\b/.test(uq);
 
-  // "best/which/buy" → latest radar scan
-  if (/\b(BEST|WHICH|RECOMMEND|BUY|TOP)\b/.test(uq)) {
-    try {
-      const opps = await topOpportunities(5);
-      extra.push('LIVE RADAR SCAN RESULTS:');
-      for (const o of opps) extra.push(`- ${o.symbol}: score ${o.convictionScore}, signal ${o.signal} - ${o.explanation}`);
-    } catch {
-      // scan unavailable
-    }
+  // findSymbols() first: "buy" alone doesn't tell us whether this is an
+  // open-ended "what should I buy" question or "should I buy TCS" about one
+  // specific stock, and that distinction decides whether the generic top-5
+  // list belongs in context at all (see below).
+  const symbols = await findSymbols(question);
+
+  // Only pull the generic "top picks" list for genuinely open-ended
+  // questions. When a specific stock is named, that list is noise the model
+  // was observed misreading as evidence against the named stock (e.g.
+  // "TCS is not in the top radar list" used as a bearish signal) — absence
+  // from an arbitrary top-5 says nothing about that stock on its own; its
+  // own live quote/structured analysis below is the real signal to use.
+  const topOpps = wantsTop && !symbols.length ? await topOpportunities(5).catch(() => []) : [];
+  if (topOpps.length) {
+    extra.push('LIVE RADAR SCAN RESULTS:');
+    for (const o of topOpps) extra.push(`- ${o.symbol}: score ${o.convictionScore}, signal ${o.signal} - ${o.explanation}`);
   }
 
-  // symbol mentioned → live quote + recent daily candles
-  const symbols = findSymbols(question);
+  // symbol(s) mentioned → live quote + recent daily candles (or full
+  // structured analysis for an analysis-intent question). Independent per
+  // symbol, so fetch all of them concurrently instead of one at a time.
   if (symbols.length) {
     const provider = getMarketDataProvider();
     const analysisIntent = /\b(ANALYZE|ANALYSIS|RECOMMEND|SHOULD I (BUY|SELL|HOLD|INVEST)|FUNDAMENTAL|VALUATION|TARGET|STOP.?LOSS|ENTRY)\b/.test(uq);
-    for (const sym of symbols) {
-      if (analysisIntent) {
-        try {
-          const analysis = await analyzeStock(sym);
-          // Never surface an analysis that fails the mandatory final
-          // consistency gate (see outputValidator.js) — fall through to the
-          // plain live quote below instead.
-          if (analysis.ok && analysis.finalValidation?.passed) {
-            extra.push(`STRUCTURED ANALYSIS ${sym}:`);
-            extra.push(formatAnalysis(analysis));
-            continue;
+
+    const perSymbolLines = await Promise.all(
+      symbols.map(async (sym) => {
+        const lines = [];
+        if (analysisIntent) {
+          try {
+            const analysis = await analyzeStock(sym);
+            // Never surface an analysis that fails the mandatory final
+            // consistency gate (see outputValidator.js) — fall through to
+            // the plain live quote below instead.
+            if (analysis.ok && analysis.finalValidation?.passed) {
+              lines.push(`STRUCTURED ANALYSIS ${sym}:`, formatAnalysis(analysis));
+              return lines;
+            }
+          } catch {
+            // fall through to quote/candles below
           }
-        } catch {
-          // fall through to quote/candles below
         }
-      }
-      try {
-        const q = await provider.getQuote(sym, 'NSE');
-        if (q) extra.push(`LIVE QUOTE ${sym}: last Rs ${q.lastPrice}, change ${q.changePct}%`);
-      } catch {
-        // quote unavailable
-      }
-      try {
-        const candles = await provider.getCandles(sym, '1d', 30, 'NSE');
-        if (candles?.length) {
+        const [quoteResult, candlesResult] = await Promise.allSettled([
+          provider.getQuote(sym, 'NSE'),
+          provider.getCandles(sym, '1d', 30, 'NSE'),
+        ]);
+        if (quoteResult.status === 'fulfilled' && quoteResult.value) {
+          const q = quoteResult.value;
+          lines.push(`LIVE QUOTE ${sym}: last Rs ${q.lastPrice}, change ${q.changePct}%`);
+        }
+        if (candlesResult.status === 'fulfilled' && candlesResult.value?.length) {
+          const candles = candlesResult.value;
           const last = candles[candles.length - 1];
           const prev = candles[candles.length - 2]?.close ?? 'n/a';
-          extra.push(`${sym} 1D: last close Rs ${last.close}, prev close Rs ${prev}`);
+          lines.push(`${sym} 1D: last close Rs ${last.close}, prev close Rs ${prev}`);
         }
-      } catch {
-        // candles unavailable
-      }
-    }
+        return lines;
+      }),
+    );
+    for (const lines of perSymbolLines) extra.push(...lines);
   }
 
   return extra;
@@ -90,8 +120,11 @@ async function callTools(question, ctx) {
 
 // Main entry: answer a user question using live tool data.
 export async function ask(userId, question) {
-  const ctx = await buildContext(userId);
-  const toolLines = await callTools(question, ctx);
+  // Independent of each other — buildContext reads the user's portfolio/
+  // watchlist/journal, callTools fetches live quotes/analysis for symbols
+  // mentioned in the question. Running them one after another just added
+  // their latencies together for no reason.
+  const [ctx, toolLines] = await Promise.all([buildContext(userId), callTools(question)]);
   const { system, messages } = buildMessages(ctx, question);
   if (toolLines.length) {
     messages[messages.length - 1] = {
@@ -279,12 +312,26 @@ portfolioScore must be 0-100.
 MY CURRENT HOLDINGS:
 ${holdingLines}`;
 
-  const raw = await chat({
-    system: system + '\n\nCRITICAL: You MUST NOT output <think> tags or any reasoning. Output ONLY the JSON object defined above, nothing else.',
-    messages: [{ role: 'user', content: question }],
-    maxTokens: 4096,
-    temperature: 0.2,
-  });
+  // The review is a compact JSON object (short per-holding reasons), not a
+  // long document — 4096 was pure headroom that counts against the model's
+  // per-minute token budget on every call. Trimming it buys back TPM margin
+  // without touching the prompt (which scales with portfolio size and can't
+  // shrink below the holdings list itself).
+  let raw = '';
+  try {
+    raw = await chat({
+      system: system + '\n\nCRITICAL: You MUST NOT output <think> tags or any reasoning. Output ONLY the JSON object defined above, nothing else.',
+      messages: [{ role: 'user', content: question }],
+      maxTokens: 1536,
+      temperature: 0.2,
+    });
+  } catch (err) {
+    // Network error, timeout, or a provider-side rejection (e.g. a 413 when
+    // a large portfolio pushes the request over the model's tokens-per-minute
+    // limit) — never let an LLM outage surface as a raw 500 to the user when
+    // a perfectly good deterministic review is one call away.
+    console.error('[AI Review] chat() call failed, falling back to deterministic review:', err.message);
+  }
 
   console.log('[AI Review] Raw LLM response length:', raw?.length ?? 0);
   console.log('[AI Review] Raw LLM response preview:', (raw || '').slice(0, 800));

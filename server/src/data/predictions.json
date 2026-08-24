@@ -60,5 +60,67 @@
     "modelVersion": "tradebuddy-engine-1.0",
     "status": "OPEN",
     "createdAt": "2026-08-24T09:02:55.658Z"
+  },
+  {
+    "id": "EPL-2026-08-24-1787572330555",
+    "date": "2026-08-24",
+    "week": "2026-W35",
+    "symbol": "EPL",
+    "sector": "N/A",
+    "predictionPrice": 263.89,
+    "expectedRange": [
+      262.57,
+      267.85
+    ],
+    "baseCase": 265.21,
+    "bullCase": 267.85,
+    "bearCase": 262.57,
+    "entry": [
+      236.94,
+      243.18
+    ],
+    "confirmation": 274.03,
+    "target1": 274.03,
+    "target2": 281.95,
+    "stopLoss": 225,
+    "signal": "BUY",
+    "score": 75,
+    "confidence": "HIGH",
+    "confidenceScore": 66,
+    "dataStatus": "VERIFIED DELAYED",
+    "modelVersion": "tradebuddy-engine-1.0",
+    "status": "OPEN",
+    "createdAt": "2026-08-24T11:52:10.555Z"
+  },
+  {
+    "id": "THELEELA-2026-08-24-1787572330558",
+    "date": "2026-08-24",
+    "week": "2026-W35",
+    "symbol": "THELEELA",
+    "sector": "N/A",
+    "predictionPrice": 547.4,
+    "expectedRange": [
+      544.67,
+      555.61
+    ],
+    "baseCase": 550.14,
+    "bullCase": 555.61,
+    "bearCase": 544.67,
+    "entry": [
+      498.78,
+      516.12
+    ],
+    "confirmation": 564,
+    "target1": 564,
+    "target2": 580.42,
+    "stopLoss": 479.23,
+    "signal": "BUY",
+    "score": 74,
+    "confidence": "LOW",
+    "confidenceScore": 49,
+    "dataStatus": "VERIFIED DELAYED",
+    "modelVersion": "tradebuddy-engine-1.0",
+    "status": "OPEN",
+    "createdAt": "2026-08-24T11:52:10.558Z"
   }
 ]

@@ -26,8 +26,14 @@ import { isPastClose } from './officialClose.js';
 // ---------------------------------------------------------------------------
 
 async function gatherTechnical(provider, symbol) {
-  const q = await provider.getQuote(symbol, 'NSE').catch(() => null);
-  const candles = (await provider.getCandles(symbol, '1d', 280, 'NSE').catch(() => [])) ?? [];
+  // Independent fetches — used to run one after the other, doubling the
+  // wait on every analyzeStock() call (which itself is the slowest step
+  // in most /ai callers, e.g. AI Picks and /ai/ask's per-symbol lookups).
+  const [q, candlesResult] = await Promise.all([
+    provider.getQuote(symbol, 'NSE').catch(() => null),
+    provider.getCandles(symbol, '1d', 280, 'NSE').catch(() => []),
+  ]);
+  const candles = candlesResult ?? [];
   if (!candles.length && !q) return { ok: false };
 
   const closes = candles.map((c) => Number(c.close)).filter(Number.isFinite);

@@ -440,12 +440,19 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
   // -------------------------------------------------------------------------
 
   async _cachedCandles(symbol, exchange = 'NSE', timeframe = '1d', limit = 100) {
+    // Must take the most RECENT `limit` rows — ordering ascending and taking
+    // the first `limit` always returns the OLDEST slice of whatever history
+    // has accumulated, so once a symbol has more rows than `limit` (any
+    // actively-tracked symbol, fast), every caller silently gets stuck
+    // reading a fixed old window forever, no matter how much fresh data has
+    // since been fetched and stored. Take the newest `limit` descending,
+    // then reverse back to the ascending order callers expect.
     const rows = await prisma.marketCandle.findMany({
       where: { symbol, exchange, timeframe, source: { in: EXTERNAL_SOURCES } },
-      orderBy: { ts: 'asc' },
+      orderBy: { ts: 'desc' },
       take: limit,
     });
-    return rows;
+    return rows.reverse();
   }
 
   async _storeCandles(instrument, candles, source) {

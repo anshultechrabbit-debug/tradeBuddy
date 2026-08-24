@@ -6,9 +6,10 @@
     "reason": "Nifty ₹24173.7 (-0.32%), 69.16% of stocks above their 50-day average (BULLISH regime), average stock move -0.12% today.",
     "predictedNiftyLevel": 24173.7,
     "predictedNiftyChangePct": -0.32,
-    "outcome": "PENDING",
-    "actualNiftyLevel": null,
-    "actualChangePct": null,
-    "createdAt": "2026-08-24T09:35:21.467Z"
+    "outcome": "CORRECT",
+    "actualNiftyLevel": 24219.05,
+    "actualChangePct": 0.19,
+    "createdAt": "2026-08-24T09:35:21.467Z",
+    "evaluatedAt": "2026-08-24T12:01:15.402Z"
   }
 ]
