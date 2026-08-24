@@ -622,6 +622,7 @@ async function computeAnalysis(provider, sym, { includeNews }) {
     market: {
       regime: market.regime,
       relativeStrength: market.relativeStrength,
+      niftyLevel: market.niftyLevel ?? null,
       note: market.note,
     },
     risk: {
@@ -647,7 +648,16 @@ async function computeAnalysis(provider, sym, { includeNews }) {
   };
 
   result.oneLiner = oneLineExplanation(result);
-  result.simpleNote = simpleLanguageNote(result);
+  const note = simpleLanguageNote(result);
+  result.simpleNote = note;
+  // Pull out the forward-looking "Prediction:" sentence for a highlighted box.
+  const predIdx = note.indexOf(' Prediction:');
+  result.prediction = predIdx >= 0 ? note.slice(predIdx + ' Prediction:'.length).trim() : '';
+
+  // Structured expected close so the UI can show a checkable "predicted high" list.
+  const _expPct = expectedMove(tech);
+  result.expectedClose = tech.price != null ? round2(tech.price * (1 + _expPct / 100)) : null;
+  result.expectedPct = _expPct;
 
   cacheResult(sym, result);
   return result;
@@ -750,6 +760,22 @@ function inrShort(n) {
   return '₹' + Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
 
+// Rough expected day move (%) from the live trend + momentum. Capped ±2% so it
+// stays a sane, checkable "where should it close" estimate — not a wild target.
+export function expectedMove(tech) {
+  let expPct = 0;
+  const trend = tech?.trend ?? 'Range';
+  if (trend === 'Bullish') expPct += 0.8;
+  else if (trend === 'Bearish') expPct -= 0.8;
+  const rsi = tech?.rsi;
+  if (rsi != null) {
+    if (rsi >= 45 && rsi <= 70) expPct += 0.4;
+    else if (rsi > 70) expPct -= 0.3; // overbought → less upside
+    else if (rsi < 40) expPct -= 0.4;
+  }
+  return Math.max(-2, Math.min(2, expPct));
+}
+
 export function simpleLanguageNote(result) {
   const name = result.companyName || result.symbol || 'This stock';
   const signal = result.finalSignal;
@@ -796,5 +822,54 @@ export function simpleLanguageNote(result) {
     action = 'Plan: wait for a clearer signal before buying.';
   }
 
-  return `Plain talk — ${name}: ${verdict} ${reason} ${action}`;
+  // Clarify where today's price sits vs the buy zone so the call can't be
+  // misread as "buy at any price".
+  let priceNote = '';
+  const price = result.price;
+  if ((buyish || dip) && price != null && entry.zoneHigh != null && entry.zoneLow != null) {
+    if (price > entry.zoneHigh) {
+      priceNote = ` But today's price is ${inrShort(price)}, which is ABOVE the buy zone — so wait for it to dip to that zone; don't buy at today's price.`;
+    } else if (price < entry.zoneLow) {
+      priceNote = ` But today's price is ${inrShort(price)}, which is BELOW the buy zone — that is a warning, so be extra careful.`;
+    } else {
+      priceNote = ` Today's price ${inrShort(price)} is already inside the buy zone, so you can buy now.`;
+    }
+  }
+
+  // Forward-looking, LIVE prediction: anchored to the current price and a
+  // rough expected close derived from the live trend + momentum, so the user
+  // gets a checkable "where should it end the day" number in plain words.
+  let prediction = '';
+  const marketRegime = result.market?.regime ?? 'NEUTRAL';
+  const resistance = result.technical?.primaryResistance;
+  const support = result.technical?.primarySupport;
+  const entryMid = (Number(entry.zoneLow) + Number(entry.zoneHigh)) / 2;
+
+  const expPct = expectedMove(result.technical);
+  const expClose = price != null ? price * (1 + expPct / 100) : null;
+
+  const nifty = result.market?.niftyLevel;
+  const marketWord = marketRegime === 'BULLISH' ? 'market looks like it will rise'
+    : marketRegime === 'BEARISH' ? 'market looks weak'
+    : 'market looks flat';
+  const marketPrice = nifty != null ? ` (Nifty ${inrShort(nifty)})` : '';
+  const livePrice = price != null ? ` Right now ${name} is ${inrShort(price)},` : '';
+  const expText = expClose != null
+    ? ` on its trend it should close around ${inrShort(expClose)} (${expPct >= 0 ? '+' : ''}${expPct.toFixed(1)}% from here)`
+    : ' it should move up';
+
+  if (buyish || dip) {
+    if (resistance != null && entryMid > 0) {
+      const upside = ((Number(resistance) - entryMid) / entryMid) * 100;
+      prediction = ` Prediction:${livePrice} ${marketWord}${marketPrice}, and ${name} is in an uptrend, so${expText}. If you buy near ${inrShort(entryMid)} it could give about ${upside >= 0 ? '+' : ''}${upside.toFixed(0)}% up to resistance ${inrShort(resistance)}. Sell if it falls below ${inrShort(stop)}.`;
+    } else {
+      prediction = ` Prediction:${livePrice} ${marketWord}${marketPrice}, and ${name} is in an uptrend, so${expText}. Plan: buy near ${inrShort(entry.zoneLow)}–${inrShort(entry.zoneHigh)}, sell if below ${inrShort(stop)}.`;
+    }
+  } else if (avoid) {
+    prediction = ` Prediction:${livePrice} ${marketWord}${marketPrice}, and the trend is down, so${expText}. Better not to buy — if you already hold, exit if it falls below ${inrShort(stop)}.`;
+  } else {
+    prediction = ` Prediction:${livePrice} ${marketWord}${marketPrice}, no clear move expected, so${expText}. Just watch for now.`;
+  }
+
+  return `Plain talk — ${name}: ${verdict} ${reason} ${action}${priceNote}${prediction}`;
 }

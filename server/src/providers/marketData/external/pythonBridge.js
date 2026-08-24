@@ -18,6 +18,34 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const SCRIPT = path.resolve(__dirname, '../../../../python/market_data.py');
 
+// Circuit breaker: once the external data source fails a few times in a row,
+// stop shelling out to Python for a cooldown window. This avoids hanging on
+// 10s timeouts (now capped) and spamming error logs every poll. The provider
+// falls back to synthetic data while the circuit is open.
+const CIRCUIT_THRESHOLD = 3;
+const CIRCUIT_COOLDOWN_MS = 5 * 60 * 1000;
+let _circuitFails = 0;
+let _circuitOpenUntil = 0;
+
+function circuitOpen() {
+  return Date.now() < _circuitOpenUntil;
+}
+function circuitNoteFailure() {
+  _circuitFails += 1;
+  if (_circuitFails >= CIRCUIT_THRESHOLD && _circuitOpenUntil === 0) {
+    _circuitOpenUntil = Date.now() + CIRCUIT_COOLDOWN_MS;
+    logInfra(
+      'info',
+      'market-data-external',
+      `circuit opened after ${_circuitFails} consecutive failures; using synthetic fallback for ${CIRCUIT_COOLDOWN_MS / 60000}min`,
+    );
+  }
+}
+function circuitNoteSuccess() {
+  _circuitFails = 0;
+  _circuitOpenUntil = 0;
+}
+
 let _pythonBin = null;
 
 export function pythonBin() {
@@ -83,20 +111,26 @@ export class PythonClient {
   }
 
   async call(command, args = {}, opts = {}) {
+    // Circuit open → fail fast without shelling out (no hang, no log spam).
+    if (circuitOpen()) {
+      throw new Error('external circuit open (cooldown) — using fallback');
+    }
     const argv = [this.source, command];
     for (const [k, v] of Object.entries(args)) {
       if (v == null) continue;
       argv.push(`--${k}`, String(v));
     }
-    const timeoutMs = opts.timeoutMs ?? (command === 'live_quotes' 
-      ? config.externalMarketData.liveBatchTimeoutMs 
+    const timeoutMs = opts.timeoutMs ?? (command === 'live_quotes'
+      ? config.externalMarketData.liveBatchTimeoutMs
       : config.externalMarketData.timeoutMs);
     try {
       const payload = await runPython(argv, { ...config.externalMarketData, timeoutMs, retries: 0 });
       if (!payload.ok) throw new Error(payload.error || 'unknown python error');
+      circuitNoteSuccess();
       this._recordSuccess();
       return payload.data;
     } catch (err) {
+      circuitNoteFailure();
       this._recordError(err, command);
       logInfra('info', 'market-data-external', `${this.name}.${command}: ${err.message}`);
       throw err;

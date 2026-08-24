@@ -52,10 +52,10 @@ export const config = Object.freeze({
   marketDataLicenseKey: process.env.MARKET_DATA_LICENSE_KEY || '',
   externalMarketData: {
     baseUrl: process.env.MARKET_DATA_EXTERNAL_BASE_URL || '',
-    timeoutMs: Number(process.env.MARKET_DATA_TIMEOUT_MS || 10000),
+    timeoutMs: Number(process.env.MARKET_DATA_TIMEOUT_MS || 4000),
     // Dedicated timeout for batch live_quotes calls (many symbols, parallel Python fetch).
-    liveBatchTimeoutMs: Number(process.env.MARKET_DATA_LIVE_BATCH_TIMEOUT_MS || 35000),
-    retries: Number(process.env.MARKET_DATA_RETRIES || 1),
+    liveBatchTimeoutMs: Number(process.env.MARKET_DATA_LIVE_BATCH_TIMEOUT_MS || 15000),
+    retries: Number(process.env.MARKET_DATA_RETRIES || 0),
     rateLimitPerMinute: Number(process.env.MARKET_DATA_RATE_LIMIT_PER_MINUTE || 30),
     cacheTtlMs: Number(process.env.MARKET_DATA_CACHE_TTL_MS || 60 * 60 * 1000),
     staleAfterMs: Number(process.env.MARKET_DATA_STALE_AFTER_MS || 72 * 60 * 60 * 1000),

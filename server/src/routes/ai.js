@@ -7,6 +7,7 @@ import { ask, suggest, portfolioReview } from '../services/ai/agent.js';
 import { recommend } from '../services/ai/recommender.js';
 import { topOpportunities } from '../services/radarService.js';
 import { analyzeStock, formatAnalysis } from '../services/stockAnalysisService.js';
+import { getTodayPrediction, getTrackRecord } from '../services/marketPredictionService.js';
 
 const CONCURRENCY = 4;
 
@@ -93,6 +94,60 @@ router.post(
         return result?.ok ? { symbol, analysis: result, formatted: formatAnalysis(result) } : { symbol, error: result?.error ?? 'Analysis failed' };
       });
       res.json({ results: out.filter((r) => r.analysis), errors: out.filter((r) => !r.analysis) });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  '/market-prediction',
+  async (req, res, next) => {
+    try {
+      const today = await getTodayPrediction();
+      const track = getTrackRecord(10);
+      res.json({ today, track });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  '/predicted-risers',
+  body('limit').optional().isInt({ min: 1, max: 20 }),
+  validate,
+  async (req, res, next) => {
+    try {
+      const { topOpportunities } = await import('../services/radarService.js');
+      const wanted = Number(req.body.limit ?? 5);
+      // Wider candidate pool than the AI Picks watchlist so we can surface 5.
+      const opps = await topOpportunities(40);
+      const symbols = [...new Set(opps.map((o) => o.symbol))].slice(0, 40);
+      const analyzed = await mapLimit(symbols, CONCURRENCY, async (sym) => {
+        const r = await analyzeStock(sym).catch(() => null);
+        return r && r.ok ? r : null;
+      });
+      const risers = analyzed
+        .filter(
+          (r) =>
+            r &&
+            /BUY/.test(r.finalSignal) &&
+            r.technical?.trend === 'Bullish' &&
+            r.expectedClose != null,
+        )
+        .sort((a, b) => (b.expectedPct ?? 0) - (a.expectedPct ?? 0))
+        .slice(0, wanted)
+        .map((r) => ({
+          symbol: r.symbol,
+          companyName: r.companyName,
+          price: r.price ?? null,
+          expectedClose: r.expectedClose,
+          expectedPct: r.expectedPct,
+          finalSignal: r.finalSignal,
+          stopLoss: r.entry?.stopLoss ?? null,
+        }));
+      res.json({ risers });
     } catch (err) {
       next(err);
     }

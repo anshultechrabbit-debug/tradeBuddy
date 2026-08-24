@@ -371,13 +371,16 @@ export interface AiAnalysis {
   technical: AiTechnical;
   fundamentals: { pe: number | null; adjustedPe: number | null; tradeDate: string | null; note: string };
   valuation: { score: number; pe: number | null; flag: string | null; note: string };
-  market: { regime: string; relativeStrength: number | null; note: string };
+  market: { regime: string; relativeStrength: number | null; niftyLevel: number | null; note: string };
   risk: { score: number; volatilityPct: number | null; drawdownPct: number | null; volRatio: number | null; note: string };
   entry: { zoneLow: number; zoneHigh: number; stopLoss: number; note: string; reason: string; overbought: boolean };
   positiveFactors: string[];
   negativeFactors: string[];
   oneLiner: string;
   simpleNote: string;
+  prediction: string;
+  expectedClose: number | null;
+  expectedPct: number | null;
   dataTimestamp: string;
   disclaimer: string;
 }
@@ -392,6 +395,44 @@ export interface AiAnalyzeResponse {
 export interface AiAnalyzeManyResponse {
   results: { symbol: string; analysis: AiAnalysis; formatted: string }[];
   errors: { symbol: string; error: string }[];
+}
+
+export interface MarketPrediction {
+  tradeDate: string;
+  direction: 'RISE' | 'FALL' | 'FLAT';
+  confidence: number;
+  reason: string;
+  predictedNiftyLevel: number | null;
+  predictedNiftyChangePct: number | null;
+  actualNiftyLevel: number | null;
+  actualChangePct: number | null;
+  outcome: 'PENDING' | 'CORRECT' | 'WRONG';
+}
+
+export interface MarketPredictionTrack {
+  records: MarketPrediction[];
+  accuracy: number | null;
+  decidedCount: number;
+  correctCount: number;
+}
+
+export interface MarketPredictionResponse {
+  today: MarketPrediction;
+  track: MarketPredictionTrack;
+}
+
+export interface PredictedRiser {
+  symbol: string;
+  companyName: string;
+  price: number | null;
+  expectedClose: number;
+  expectedPct: number;
+  finalSignal: string;
+  stopLoss: number | null;
+}
+
+export interface PredictedRisersResponse {
+  risers: PredictedRiser[];
 }
 
 export interface Alert {

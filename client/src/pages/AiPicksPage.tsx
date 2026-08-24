@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { analyzeMany, analyzeSymbol, searchSymbols, suggestMarket } from '../store/aiSlice';
+import { analyzeMany, analyzeSymbol, searchSymbols, suggestMarket, fetchMarketPrediction, fetchPredictedRisers } from '../store/aiSlice';
 import { fetchWatchlist } from '../store/watchlistSlice';
 import { fetchLatestScan } from '../store/radarSlice';
 import { fetchAllQuotes } from '../store/marketSlice';
 import { Card, Spinner, EmptyState, ErrorBox } from '../components/ui';
 import { formatCurrency, formatPct, formatTimeAgo } from '../lib/format';
 import { CandleChart } from '../components/CandleChart';
+import MarketPredictionCard from '../components/MarketPredictionCard';
+import TopRisersCard from '../components/TopRisersCard';
 import type { AiAnalysis } from '../lib/types';
 
 function signalTone(signal: string): 'buy' | 'watch' | 'avoid' {
@@ -76,7 +78,7 @@ function FactorRow({ factor, score, reason }: { factor: (typeof FACTORS)[number]
 
 export function AiPicksPage() {
   const dispatch = useAppDispatch();
-  const { picks, bySymbol, analyzing, error, lastUpdated, suggestions, searching } = useAppSelector((s) => s.ai);
+  const { picks, bySymbol, analyzing, error, lastUpdated, suggestions, searching, marketPrediction, predictedRisers } = useAppSelector((s) => s.ai);
   const { watchlist } = useAppSelector((s) => s.watchlist);
   const { scanResult } = useAppSelector((s) => s.radar);
   const { allQuotes } = useAppSelector((s) => s.market);
@@ -91,8 +93,16 @@ export function AiPicksPage() {
     dispatch(fetchWatchlist());
     dispatch(fetchLatestScan());
     dispatch(fetchAllQuotes());
+    dispatch(fetchMarketPrediction());
+    dispatch(fetchPredictedRisers());
+    const marketTimer = setInterval(() => dispatch(fetchMarketPrediction()), 30000);
+    const risersTimer = setInterval(() => dispatch(fetchPredictedRisers()), 60000);
     const timer = setInterval(() => dispatch(fetchAllQuotes()), 60000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      clearInterval(marketTimer);
+      clearInterval(risersTimer);
+    };
   }, [dispatch]);
 
   const defaultSymbols = useMemo(() => {
@@ -289,6 +299,10 @@ export function AiPicksPage() {
         )
       ) : active ? (
         <>
+          {marketPrediction ? (
+            <MarketPredictionCard today={marketPrediction.today} track={marketPrediction.track} />
+          ) : null}
+          <TopRisersCard risers={predictedRisers} />
           {searched ? (
             <div className="sg-search-view-head">
               <span className="sg-live-badge">
@@ -363,6 +377,13 @@ export function AiPicksPage() {
                 <div className="sg-plaintalk">
                   <span className="sg-plaintalk-label">In plain language</span>
                   <p className="sg-plaintalk-text">{active.simpleNote}</p>
+                </div>
+              ) : null}
+
+              {active.prediction ? (
+                <div className={`sg-prediction sg-pred-${signalTone(active.finalSignal)}`}>
+                  <span className="sg-prediction-label">🔮 Prediction</span>
+                  <p className="sg-prediction-text">{active.prediction}</p>
                 </div>
               ) : null}
 
