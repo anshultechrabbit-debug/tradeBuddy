@@ -19,6 +19,7 @@ import { fetchStockNews } from './newsService.js';
 import { buildEngineResult } from './predictionEngine.js';
 import { validateAnalysis } from './outputValidator.js';
 import { round2 } from '../utils/helpers.js';
+import { isPastClose } from './officialClose.js';
 
 // ---------------------------------------------------------------------------
 // Data gathering (each block degrades gracefully)
@@ -32,6 +33,13 @@ async function gatherTechnical(provider, symbol) {
   const closes = candles.map((c) => Number(c.close)).filter(Number.isFinite);
   if (!closes.length) return { ok: false };
 
+  // The provider flags candles `stale: true` when it had to fall back to an
+  // old cached series (see RealDevelopmentMarketDataProvider.getCandles).
+  // Every indicator below is computed from `candles`/`closes`, so if the
+  // most recent candle is stale, all of them are — surface that instead of
+  // silently scoring multi-day-old data as if it were current.
+  const candlesStale = candles.length > 0 && candles[candles.length - 1]?.stale === true;
+
   const price = q?.lastPrice ?? closes[closes.length - 1];
   const s20 = sma(closes, 20);
   const s50 = sma(closes, 50);
@@ -39,7 +47,10 @@ async function gatherTechnical(provider, symbol) {
   const rsi14 = rsi(closes, 14);
   const atr14 = atr(candles, 14);
 
-  // MACD line series → signal (EMA9 of MACD line).
+  // MACD line series → signal (EMA9 of MACD line). Both EMA legs need at
+  // least their own period of history to mean anything; with fewer candles
+  // than the slow (26) leg, "e12"/"e26" are still anchored on the seed value
+  // and macdValue would be a confident-looking number computed from noise.
   let e12 = closes[0];
   let e26 = closes[0];
   const macdLine = [];
@@ -48,8 +59,8 @@ async function gatherTechnical(provider, symbol) {
     e26 = c * (2 / 27) + e26 * (1 - 2 / 27);
     macdLine.push(e12 - e26);
   }
-  const macdValue = macdLine[macdLine.length - 1];
-  const macdSignal = ema(macdLine, 9);
+  const macdValue = closes.length >= 26 ? macdLine[macdLine.length - 1] : null;
+  const macdSignal = closes.length >= 26 ? ema(macdLine, 9) : null;
 
   const recent = candles.slice(-20);
   const low20 = Math.min(...recent.map((c) => Number(c.low)));
@@ -91,6 +102,7 @@ async function gatherTechnical(provider, symbol) {
     price: round2(price),
     candles,
     closes,
+    candlesStale,
     s20: s20 == null ? null : round2(s20),
     s50: s50 == null ? null : round2(s50),
     s200: s200 == null ? null : round2(s200),
@@ -135,6 +147,7 @@ async function gatherMarket(provider, tech) {
         // Only an index snapshot is available — no candle history, so the
         // 20d trend regime and relative-strength-vs-Nifty are genuinely
         // UNKNOWN. Never fabricate them as 0 (0 reads as "known, flat").
+        const chgTxt = s.changePct == null ? 'n/a' : `${round2(s.changePct)}%`;
         return {
           ok: true,
           available: true,
@@ -142,7 +155,7 @@ async function gatherMarket(provider, tech) {
           regime: s.changePct > 0 ? 'BULLISH' : s.changePct < 0 ? 'BEARISH' : 'NEUTRAL',
           niftyRoc20: null,
           relativeStrength: null,
-          note: `Nifty ${round2(s.level)} (${round2(s.changePct)}%) — index snapshot only, no candle history`,
+          note: `Nifty ${round2(s.level)} (${chgTxt}) — index snapshot only, no candle history`,
         };
       }
     } catch {
@@ -163,16 +176,22 @@ async function gatherMarket(provider, tech) {
     else if (niftyPrice < niftySma20 && niftyPrice < niftySma50) regime = 'BEARISH';
   }
 
-  const relativeStrength = (tech?.roc20 ?? 0) - niftyRoc20;
+  // Relative strength needs BOTH sides' 20d return to be real numbers — a
+  // stock or index with too little history must make this UNKNOWN, not
+  // silently treat the missing side as "0% return".
+  const relativeStrength =
+    tech?.roc20 != null && niftyRoc20 != null ? round2(tech.roc20 - niftyRoc20) : null;
+  const roc5 = roc(niftyCloses, 5);
+  const roc5Txt = roc5 == null ? 'n/a' : `${round2(roc5)}%`;
   return {
     ok: true,
     available: true,
     partial: false,
     regime,
     niftyRoc20: round2(niftyRoc20),
-    relativeStrength: round2(relativeStrength),
+    relativeStrength,
     niftyLevel: round2(niftyPrice),
-    note: `Nifty ${round2(niftyPrice)} (${round2(roc(niftyCloses, 5))}% 5d)`,
+    note: `Nifty ${round2(niftyPrice)} (${roc5Txt} 5d)`,
   };
 }
 
@@ -197,7 +216,7 @@ function scoreTechnical(t) {
     else if (t.rsi < 45) score -= 4;
   }
   if (t.macdValue != null && t.macdSignal != null) score += t.macdValue > t.macdSignal ? 5 : -5;
-  score += t.roc20 > 0 ? 4 : -4;
+  if (t.roc20 != null) score += t.roc20 > 0 ? 4 : -4;
   if (t.volRatio >= 1.2) score += 3;
   else if (t.volRatio <= 0.7) score -= 3;
   const fromHigh = (t.price - t.high52w) / t.high52w;
@@ -213,9 +232,18 @@ function scoreFundamentals(f) {
   return { score: null, available: Boolean(f?.pe != null) };
 }
 
+// NSE's daily P/E snapshot can be up to 12 days old before the fetch gives
+// up (see server/python/market_data.py nselib_fundamentals). Past ~5
+// trading days it's stale enough that it shouldn't be treated as identical
+// to a same-day read — flagged, not discarded, since it's still the best
+// data available.
+const VALUATION_STALE_DAYS = 7;
+
 function scoreValuation(f) {
   const pe = f?.pe;
-  if (pe == null) return { score: null, available: false, flag: null };
+  if (pe == null) return { score: null, available: false, flag: null, stale: false, ageDays: null };
+  const ageDays = f?.tradeDate ? Math.round((Date.now() - new Date(f.tradeDate).getTime()) / 86400000) : null;
+  const stale = ageDays != null && ageDays > VALUATION_STALE_DAYS;
   let score;
   let flag = null;
   if (pe < 0) score = 30;
@@ -229,7 +257,7 @@ function scoreValuation(f) {
     score = 20;
     flag = 'EXPENSIVE';
   }
-  return { score, available: true, pe, flag };
+  return { score, available: true, pe, flag, stale, ageDays };
 }
 
 function scoreMarket(m) {
@@ -240,7 +268,7 @@ function scoreMarket(m) {
   let score = 50;
   if (m.regime === 'BULLISH') score += 20;
   else if (m.regime === 'BEARISH') score -= 20;
-  score += clamp(m.relativeStrength, -15, 15);
+  if (m.relativeStrength != null) score += clamp(m.relativeStrength, -15, 15);
   return clamp(score, 0, 100);
 }
 
@@ -463,13 +491,16 @@ async function computeAnalysis(provider, sym, { includeNews }) {
   const fundamentalsAvailable = fundResult.available && valResult.available;
   if (!fundamentalsAvailable) flags.push('LIMITED COMPANY DATA');
   if (valResult.flag) flags.push(valResult.flag);
+  if (valResult.stale) flags.push('STALE VALUATION DATA');
 
   const entry = entryAndStop(tech);
 
-  // Confidence.
+  // Confidence. A stale P/E snapshot is still the best data available, but
+  // it shouldn't buy the same confidence as a fresh one.
+  const valuationFresh = valResult.available && !valResult.stale;
   let confidence = 'LOW';
   if (tech.closes.length >= 100 && newsResult.articles?.length >= 3) confidence = 'MEDIUM';
-  if (fundamentalsAvailable && tech.closes.length >= 150 && newsResult.articles?.length >= 3) confidence = 'HIGH';
+  if (fundResult.available && valuationFresh && tech.closes.length >= 150 && newsResult.articles?.length >= 3) confidence = 'HIGH';
 
   const positiveFactors = [];
   const negativeFactors = [];
@@ -477,8 +508,8 @@ async function computeAnalysis(provider, sym, { includeNews }) {
   if (tech.trend === 'Bullish') positiveFactors.push('Price is in an uptrend, trading above its 50-day average');
   if (tech.price > tech.s200) positiveFactors.push('Above its 200-day average — long-term trend is up');
   if (tech.rsi != null && tech.rsi >= 45 && tech.rsi <= 70) positiveFactors.push(`Buying pressure is healthy (${round2(tech.rsi)}/100) — not overheated`);
-  if (tech.roc20 > 0) positiveFactors.push(`Price moved up ${round2(tech.roc20)}% over the last month`);
-  if (tech.macdValue > tech.macdSignal) positiveFactors.push('Short-term momentum is turning up');
+  if (tech.roc20 != null && tech.roc20 > 0) positiveFactors.push(`Price moved up ${round2(tech.roc20)}% over the last month`);
+  if (tech.macdValue != null && tech.macdSignal != null && tech.macdValue > tech.macdSignal) positiveFactors.push('Short-term momentum is turning up');
   if (market.regime === 'BULLISH') positiveFactors.push('Market mood is positive (Nifty is in an uptrend)');
   if (market.ok && market.regime === 'BEARISH') negativeFactors.push('Market mood is weak (Nifty is in a downtrend) — this drags on the whole market, so be extra careful');
   if (market.relativeStrength > 0) positiveFactors.push(`Doing better than the Nifty by +${round2(market.relativeStrength)}% over a month`);
@@ -557,6 +588,7 @@ async function computeAnalysis(provider, sym, { includeNews }) {
       materialEvents: newsResult.materialEvents ?? null,
     },
     technical: {
+      stale: tech.candlesStale,
       trend: tech.trend,
       rsi: tech.rsi,
       macd: { value: round2(tech.macdValue), signal: round2(tech.macdSignal) },
@@ -590,8 +622,10 @@ async function computeAnalysis(provider, sym, { includeNews }) {
       available: valResult.available,
       pe: valResult.pe ?? null,
       flag: valResult.flag,
+      stale: valResult.stale,
+      ageDays: valResult.ageDays,
       note: valResult.available
-        ? `P/E ${valResult.pe} compared against a rough NSE fair-value band (15–25).`
+        ? `P/E ${valResult.pe} compared against a rough NSE fair-value band (15–25)${valResult.stale ? ` — snapshot is ${valResult.ageDays} days old, treat as STALE` : ''}.`
         : 'Valuation data not available from current sources.',
     },
     market: {
@@ -837,11 +871,18 @@ export function simpleLanguageNote(result) {
   // Forward-looking, LIVE prediction: anchored to the current price and a
   // rough expected close derived from the live trend + momentum, so the user
   // gets a checkable "where should it end the day" number in plain words.
+  // Once the session has closed for the day (see officialClose.isPastClose),
+  // "it should close around X" is no longer a forecast — the close already
+  // happened and may well have gone the other way — so switch to reporting
+  // today's realized move instead of restating a now-falsified prediction.
   let prediction = '';
   const marketRegime = result.market?.regime ?? 'NEUTRAL';
   const resistance = result.technical?.primaryResistance;
   const support = result.technical?.primarySupport;
   const entryMid = (Number(entry.zoneLow) + Number(entry.zoneHigh)) / 2;
+
+  const sessionOver = isPastClose();
+  const realizedPct = result.quote?.changePct;
 
   const expPct = expectedMove(result.technical);
   const expClose = price != null ? price * (1 + expPct / 100) : null;
@@ -851,10 +892,18 @@ export function simpleLanguageNote(result) {
     : marketRegime === 'BEARISH' ? 'market looks weak'
     : 'market looks flat';
   const marketPrice = nifty != null ? ` (Nifty ${inrShort(nifty)})` : '';
-  const livePrice = price != null ? ` Right now ${name} is ${inrShort(price)},` : '';
-  const expText = expClose != null
-    ? ` on its trend it should close around ${inrShort(expClose)} (${expPct >= 0 ? '+' : ''}${expPct.toFixed(1)}% from here)`
-    : ' it should move up';
+  const priceLead = sessionOver ? "Today's close for" : 'Right now';
+  const realizedText = sessionOver && realizedPct != null ? ` (${realizedPct >= 0 ? '+' : ''}${realizedPct}% for the day)` : '';
+  const livePrice = price != null ? ` ${priceLead} ${name} is ${inrShort(price)}${realizedText},` : '';
+  // Same trend+momentum estimate either way — only the framing changes.
+  // Pre-close it's phrased as "today should close around X"; once today's
+  // close already happened, re-anchor the same number to the NEXT session
+  // instead of dropping the call entirely.
+  const expText = expClose == null
+    ? ' it should move up'
+    : sessionOver
+    ? ` for the next session, starting from today's close, the trend points to around ${inrShort(expClose)} (${expPct >= 0 ? '+' : ''}${expPct.toFixed(1)}%)`
+    : ` on its trend it should close around ${inrShort(expClose)} (${expPct >= 0 ? '+' : ''}${expPct.toFixed(1)}% from here)`;
 
   if (buyish || dip) {
     if (resistance != null && entryMid > 0) {

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { round2 } from '../utils/helpers.js';
+import { dayKey } from './officialClose.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, '..', 'data');
@@ -43,7 +44,10 @@ function isoWeek(dateStr) {
 
 export function recordPrediction(rec) {
   const arr = load();
-  const date = rec.date ?? new Date().toISOString().slice(0, 10);
+  // IST calendar day — a UTC-based date (the old `toISOString().slice(0,10)`)
+  // would misfile anything recorded between 00:00-05:29 IST into the
+  // previous day's bucket (see MED-2 in the pipeline audit).
+  const date = rec.date ?? dayKey();
   const entry = {
     id: `${rec.symbol}-${date}-${Date.now()}`,
     date,
@@ -74,12 +78,54 @@ export function recordPrediction(rec) {
   return entry;
 }
 
+export function hasPredictionFor(symbol, date) {
+  return load().some((p) => p.symbol === symbol && p.date === date);
+}
+
+/**
+ * Freezes a stock-analysis engine result (see predictionEngine.buildEngineResult)
+ * as a trackable prediction, at most once per symbol per trading day. Used
+ * both by the manual /record-prediction endpoint and by the automatic
+ * recorder in /predicted-risers so the tracking system actually accumulates
+ * real records instead of sitting empty (see CRIT-6 in the pipeline audit).
+ */
+export function recordFromAnalysis(result, date = dayKey()) {
+  const e = result?.engine;
+  if (!result?.symbol || !e) return null;
+  if (hasPredictionFor(result.symbol, date)) return null;
+  return recordPrediction({
+    date,
+    symbol: result.symbol,
+    sector: 'N/A',
+    predictionPrice: result.price,
+    expectedRange: e.closingRange?.range ?? null,
+    baseCase: e.closingRange?.base ?? null,
+    bullCase: e.closingRange?.bull ?? null,
+    bearCase: e.closingRange?.bear ?? null,
+    entry: e.buy?.preferredEntryRange ?? null,
+    confirmation: e.buy?.confirmationPrice ?? null,
+    target1: e.buy?.target1 ?? null,
+    target2: e.buy?.target2 ?? null,
+    stopLoss: e.buy?.stopLoss ?? null,
+    signal: e.signal,
+    score: e.totalScore,
+    confidence: e.closingRange?.confidence ?? null,
+    confidenceScore: e.closingRange?.confidenceScore ?? null,
+    dataStatus: e.dataStatus,
+    modelVersion: e.modelVersion,
+  });
+}
+
 export function evaluatePredictions(closes) {
   const arr = load();
   let updated = 0;
   for (const p of arr) {
     if (p.status !== 'OPEN') continue;
-    const c = closes[p.symbol];
+    // Prefer an exact symbol+date match so a backlog of OPEN predictions for
+    // the same symbol on different days is never all closed against the
+    // close of just one of those days. Falls back to symbol-only for
+    // backward compatibility with older callers.
+    const c = closes[`${p.symbol}|${p.date}`] ?? closes[p.symbol];
     if (!c) continue;
     const close = Number(c.close);
     if (!Number.isFinite(close)) continue;
@@ -104,8 +150,18 @@ export function evaluatePredictions(closes) {
       p.result = 'PARTIAL';
     }
 
+    // `entry` is stored as a [low, high] range, not a single price — use the
+    // midpoint so returnPct is a real number instead of arithmetic on an array.
+    const entryMid = Array.isArray(p.entry)
+      ? (Number(p.entry[0]) + Number(p.entry[1])) / 2
+      : p.entry != null
+        ? Number(p.entry)
+        : null;
+
     if (p.baseCase != null) p.errorPct = round2(((close - p.baseCase) / p.baseCase) * 100);
-    if (p.entry != null) p.returnPct = round2(((close - p.entry) / p.entry) * 100);
+    if (entryMid != null && Number.isFinite(entryMid) && entryMid > 0) {
+      p.returnPct = round2(((close - entryMid) / entryMid) * 100);
+    }
     if (p.predictionPrice != null) p.directionCorrect = close > p.predictionPrice;
     p.evaluatedAt = new Date().toISOString();
     p.status = 'CLOSED';

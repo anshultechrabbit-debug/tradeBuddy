@@ -1,5 +1,6 @@
 import { PythonClient } from './pythonBridge.js';
 import { extractQuote, normalizeCandles } from './normalize.js';
+import { resolveLiveSymbol, canonicalSymbol } from './symbolAliases.js';
 
 /**
  * JugaadAdapter — FALLBACK external development source.
@@ -20,9 +21,12 @@ export class JugaadAdapter {
 
   async getQuote(symbol, exchange = 'NSE') {
     if (String(exchange).toUpperCase() !== 'NSE') return null;
-    const data = await this.client.call('quote', { symbol });
+    const data = await this.client.call('quote', { symbol: resolveLiveSymbol(symbol) });
     if (!data) return null;
-    return { ...extractQuote(data), ...data, source: this.name };
+    // `symbol` last: some renamed tickers (see symbolAliases.js) come back
+    // from the live API under their NEW ticker in the raw payload — always
+    // report the symbol the caller actually asked for, not that one.
+    return { ...extractQuote(data), ...data, symbol, source: this.name };
   }
 
   /**
@@ -32,8 +36,16 @@ export class JugaadAdapter {
   async getLiveQuotes(symbols, exchange = 'NSE') {
     if (String(exchange).toUpperCase() !== 'NSE') return {};
     if (!Array.isArray(symbols) || !symbols.length) return {};
-    const data = await this.client.call('live_quotes', { symbols: symbols.join(',') });
-    return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+    const data = await this.client.call('live_quotes', { symbols: symbols.map(resolveLiveSymbol).join(',') });
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return {};
+    // Re-key (and re-tag) any aliased tickers back onto the symbol the
+    // caller asked for, so nothing downstream needs to know about the alias.
+    const out = {};
+    for (const [key, quote] of Object.entries(data)) {
+      const canonical = canonicalSymbol(key);
+      out[canonical] = quote && typeof quote === 'object' ? { ...quote, symbol: canonical } : quote;
+    }
+    return out;
   }
 
   async getQuotes(symbols, exchange = 'NSE') {
@@ -49,7 +61,7 @@ export class JugaadAdapter {
   }
 
   async getHistoricalCandles(symbol, exchange = 'NSE', days = 140, isIndex = false) {
-    const data = await this.client.call('candles', { symbol, days, index: isIndex ? 1 : undefined });
+    const data = await this.client.call('candles', { symbol: resolveLiveSymbol(symbol), days, index: isIndex ? 1 : undefined });
     const rows = Array.isArray(data) ? data : [];
     return normalizeCandles(rows).map((c) => ({
       ...c,
@@ -72,7 +84,7 @@ export class JugaadAdapter {
 
   async getIntradayCandles(symbol, exchange = 'NSE', duration = '5m', days = 1) {
     if (String(exchange).toUpperCase() !== 'NSE') return [];
-    const data = await this.client.call('intraday', { symbol, duration, days });
+    const data = await this.client.call('intraday', { symbol: resolveLiveSymbol(symbol), duration, days });
     const rows = Array.isArray(data) ? data : [];
     return rows
       .map((c) => {
@@ -96,7 +108,7 @@ export class JugaadAdapter {
   }
 
   async getOptionChain(symbol, { expiry } = {}) {
-    return this.client.call('option_chain', { symbol, expiry });
+    return this.client.call('option_chain', { symbol: resolveLiveSymbol(symbol), expiry });
   }
 
   async health() {

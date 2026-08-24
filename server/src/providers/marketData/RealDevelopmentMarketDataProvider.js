@@ -3,7 +3,7 @@ import { prisma } from '../../config/prisma.js';
 import { round2, logInfra } from '../../utils/helpers.js';
 import { INDEX_SYMBOLS } from '../../db/seed-data/universe.js';
 import { getExternalAdapters } from './external/index.js';
-import { dailySeriesStats, generateQuote } from './development/priceGen.js';
+import { dailySeriesStats } from './development/priceGen.js';
 import { config } from '../../config/env.js';
 
 /**
@@ -274,6 +274,8 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
           change: quote.change,
           changePct: quote.changePct,
           volume: BigInt(Math.round(quote.volume ?? 0)),
+          // Illustrative only — these free sources carry no real order-book
+          // depth. Never present bid/ask from this field as live market depth.
           bid: quote.lastPrice - 0.1,
           ask: quote.lastPrice + 0.1,
           source,
@@ -399,22 +401,12 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
         const row = bySymbol.get(s);
         if (row) {
           out[idx] = { ...this._toQuote(row), stale: true };
-        } else {
-          // Generate a fallback development quote deterministically
-          try {
-            const candles = await prisma.marketCandle.findMany({
-              where: { symbol: s, timeframe: '1d', exchange },
-              orderBy: { ts: 'asc' },
-            });
-            const seed = new Date().toISOString().slice(0, 10);
-            const quote = generateQuote(s, candles, seed);
-            if (quote) {
-              out[idx] = { ...quote, exchange, dataSource: this.dataSource, generated: true };
-            }
-          } catch (err) {
-            // ignore
-          }
         }
+        // No cached row either → leave out[idx] as null. This provider must
+        // never fabricate a price: a symbol with no live and no cached data
+        // is missing, not "development-generated" (see CRIT-1/HIGH-2 audit
+        // fix — a generated quote used to be stamped dataSource:'live' and
+        // was indistinguishable from a real one to every consumer).
       }
     }
 
@@ -603,6 +595,19 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
       logInfra('info', 'market-data-external', `getIntradayCandles(${symbol}) failed: ${err.message}`);
     }
     if (entry) return entry.candles.map((c) => ({ ...c, stale: true }));
+
+    // Live intraday feed unavailable and no cache yet (e.g. first load while
+    // the circuit is open) — fall back to daily/EOD candles so the chart
+    // still shows real data instead of staying blank.
+    try {
+      const daily = await this.getCandles(symbol, '1d', 5, exchange);
+      if (daily.length) {
+        await this._audit('getIntradayCandles', 'stale', 'daily fallback', daily.length, start);
+        return daily.map((c) => ({ ...c, timeframe: duration, stale: true }));
+      }
+    } catch (err) {
+      this._recordError(err, 'getIntradayCandles:dailyFallback');
+    }
     return [];
   }
 

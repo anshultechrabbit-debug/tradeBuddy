@@ -9,7 +9,7 @@ import { topOpportunities } from '../services/radarService.js';
 import { analyzeStock, formatAnalysis } from '../services/stockAnalysisService.js';
 import { formatValidationFailure } from '../services/outputValidator.js';
 import { getTodayPrediction, getTrackRecord } from '../services/marketPredictionService.js';
-import { recordPrediction, evaluatePredictions, getPredictions, weeklyStats } from '../services/predictionTracker.js';
+import { recordFromAnalysis, evaluatePredictions, getPredictions, weeklyStats } from '../services/predictionTracker.js';
 
 const CONCURRENCY = 4;
 
@@ -158,9 +158,22 @@ router.post(
           expectedPct: r.expectedPct,
         }));
 
+      const executable = analyzed.filter((r) => r.engine?.tradeStatus === 'EXECUTABLE' && r.engine?.isBuy);
+
+      // Freeze every executable BUY as a trackable prediction, once per
+      // symbol per trading day — this is what lets /prediction-performance
+      // ever accumulate real out-of-sample records instead of sitting empty
+      // (CRIT-6 in the pipeline audit: this loop used to not exist at all).
+      for (const r of executable) {
+        try {
+          recordFromAnalysis(r);
+        } catch (err) {
+          // Never let tracking failures break the candidate response.
+        }
+      }
+
       // ACTIONABLE BUY SETUPS — only names that passed ALL tradeability gates.
-      const actionable = analyzed
-        .filter((r) => r.engine?.tradeStatus === 'EXECUTABLE' && r.engine?.isBuy)
+      const actionable = executable
         .sort((a, b) => (b.engine.totalScore ?? 0) - (a.engine.totalScore ?? 0))
         .slice(0, wanted)
         .map((r) => ({
@@ -283,27 +296,10 @@ router.post(
       if (!result.finalValidation?.passed) {
         return res.status(422).json(formatValidationFailure(result, result.finalValidation));
       }
-      const e = result.engine;
-      const rec = recordPrediction({
-        symbol,
-        sector: 'N/A',
-        predictionPrice: result.price,
-        expectedRange: e.closingRange?.range ?? null,
-        baseCase: e.closingRange?.base ?? null,
-        bullCase: e.closingRange?.bull ?? null,
-        bearCase: e.closingRange?.bear ?? null,
-        entry: e.buy?.preferredEntryRange ?? null,
-        confirmation: e.buy?.confirmationPrice ?? null,
-        target1: e.buy?.target1 ?? null,
-        target2: e.buy?.target2 ?? null,
-        stopLoss: e.buy?.stopLoss ?? null,
-        signal: e.signal,
-        score: e.totalScore,
-        confidence: e.closingRange?.confidence ?? null,
-        confidenceScore: e.closingRange?.confidenceScore ?? null,
-        dataStatus: e.dataStatus,
-        modelVersion: e.modelVersion,
-      });
+      const rec = recordFromAnalysis(result);
+      if (!rec) {
+        return res.json({ recorded: null, note: `${symbol} already has a recorded prediction for today.` });
+      }
       res.json({ recorded: rec });
     } catch (err) {
       next(err);

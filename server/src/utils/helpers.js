@@ -1,12 +1,14 @@
 import { prisma } from '../config/prisma.js';
 
+// Preserves null/undefined/NaN as null (UNKNOWN) rather than fabricating 0 —
+// a rounded "no data" must never look identical to a rounded "no change".
 export function round2(value) {
-  if (value == null || Number.isNaN(Number(value))) return 0;
+  if (value == null || Number.isNaN(Number(value))) return null;
   return Math.round(Number(value) * 100) / 100;
 }
 
 export function round4(value) {
-  if (value == null || Number.isNaN(Number(value))) return 0;
+  if (value == null || Number.isNaN(Number(value))) return null;
   return Math.round(Number(value) * 10000) / 10000;
 }
 

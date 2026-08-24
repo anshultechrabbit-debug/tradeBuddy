@@ -32,10 +32,17 @@ export function CandleChart({
   symbol,
   livePrice,
   lastUpdated,
+  dayChangePct,
 }: {
   symbol: string;
   livePrice?: number | null;
   lastUpdated?: string | null;
+  // Authoritative day-over-day % change (vs previous close), e.g. from the
+  // quote endpoint — same number Groww/TradingView show next to the price.
+  // When omitted, falls back to the last candle's own open→close move, which
+  // is a different (and often misleading) number once that candle is a thin
+  // closing tick with open ≈ close.
+  dayChangePct?: number | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -249,9 +256,9 @@ export function CandleChart({
           <div className="strong">
             {effectiveLast ? formatCurrency(effectiveLast.close) : '—'}
             {effectiveLast ? (
-              <span className={effectiveLast.close >= effectiveLast.open ? 'text-positive' : 'text-negative'}>
+              <span className={(dayChangePct ?? intradayPct(effectiveLast)) >= 0 ? 'text-positive' : 'text-negative'}>
                 {' '}
-                {formatPctShort(effectiveLast.open > 0 ? ((effectiveLast.close - effectiveLast.open) / effectiveLast.open) * 100 : 0)}
+                {formatPctShort(dayChangePct ?? intradayPct(effectiveLast))}
               </span>
             ) : null}
           </div>
@@ -291,8 +298,11 @@ export function CandleChart({
         </div>
       </div>
       <div className="chart-status">
-        {loading ? <span className="muted small">Loading…</span> : null}
+        {loading && !candles.length ? <span className="muted small">Loading…</span> : null}
         {error ? <span className="text-negative small">{error}</span> : null}
+        {!loading && !error && !candles.length ? (
+          <span className="muted small">No candle data available right now — the live feed may be down, try again shortly.</span>
+        ) : null}
       </div>
       <div ref={containerRef} className="chart-canvas" />
     </div>
@@ -301,6 +311,14 @@ export function CandleChart({
 
 function formatPctShort(value: number): string {
   return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
+}
+
+// Fallback when no authoritative day-change is passed in: the last visible
+// candle's own open→close move. Only meaningful as a "day change" when that
+// candle happens to span the whole session — for a single 1m/5m bar it is
+// not the same thing and callers should prefer `dayChangePct`.
+function intradayPct(candle: { open: number; close: number }): number {
+  return candle.open > 0 ? ((candle.close - candle.open) / candle.open) * 100 : 0;
 }
 
 /**

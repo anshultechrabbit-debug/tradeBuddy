@@ -21,7 +21,7 @@ export const CONVICTION_WEIGHTS = {
 };
 
 export function computeFeatures(candles, context = {}) {
-  const { indexReturn20 = 0, breadthPct = 50, livePrice = null } = context;
+  const { indexReturn20 = null, breadthPct = 50, livePrice = null } = context;
   const closes = candles.map((c) => Number(c.close));
   if (closes.length < 30) return null;
 
@@ -51,8 +51,12 @@ export function computeFeatures(candles, context = {}) {
   const breakout = last >= recentHigh;
   const breakoutPct = recentHigh > 0 ? ((last - recentHigh) / recentHigh) * 100 : 0;
 
-  const ret20 = closes.length > 21 ? last / closes[closes.length - 21] - 1 : 0;
-  const relativeStrength = ret20 * 100 - (indexReturn20 ?? 0);
+  const ret20 = closes.length > 21 ? last / closes[closes.length - 21] - 1 : null;
+  // Needs BOTH the stock's own 20d return and a real index return — treating
+  // a missing index read as "0% index move" would silently relabel the
+  // stock's absolute return as if it were relative strength.
+  const relativeStrength =
+    ret20 != null && indexReturn20 != null ? ret20 * 100 - indexReturn20 : null;
 
   // Intraday move since the last recorded daily close — makes momentum react
   // to the live price during market hours instead of only at each day's close.
@@ -61,9 +65,12 @@ export function computeFeatures(candles, context = {}) {
       ? (Number(livePrice) / closes[closes.length - 2] - 1) * 100
       : 0;
 
+  // sma50 needs 50 candles; computeFeatures only guarantees 30. When it's
+  // missing, trend is genuinely UNKNOWN — never a fabricated neutral 50.
+  // computeConviction() renormalises over whichever sub-scores are non-null.
   const scoreTrend =
     sma50 == null
-      ? 50
+      ? null
       : clamp(50 + 100 * (0.5 * ((last - sma50) / sma50) / 0.08 + 0.5 * ((sma20 - sma50) / sma50) / 0.05), 0, 100);
 
   const scoreMomentum =
@@ -73,7 +80,8 @@ export function computeFeatures(candles, context = {}) {
 
   const scoreVolume = clamp(50 + 100 * ((volumeRatio - 1) / 1.5), 0, 100);
 
-  const scoreRelativeStrength = clamp(50 + 100 * (relativeStrength / 8), 0, 100);
+  const scoreRelativeStrength =
+    relativeStrength == null ? null : clamp(50 + 100 * (relativeStrength / 8), 0, 100);
 
   const scoreVolatility = clamp(100 - 100 * ((annualVolPct - 10) / 40), 0, 100);
 
@@ -97,8 +105,8 @@ export function computeFeatures(candles, context = {}) {
     lastVolume,
     breakout,
     breakoutPct: round2(breakoutPct),
-    ret20: round2(ret20 * 100),
-    relativeStrength: round2(relativeStrength),
+    ret20: ret20 != null ? round2(ret20 * 100) : null,
+    relativeStrength: relativeStrength != null ? round2(relativeStrength) : null,
     intradayMovePct: round2(intradayMovePct),
     subscores: {
       trend: round2(scoreTrend),
@@ -111,15 +119,14 @@ export function computeFeatures(candles, context = {}) {
   };
 }
 
+// Renormalises over whichever sub-scores are known — a null sub-score (e.g.
+// trend without 50 days of history) is excluded from both the numerator and
+// the weight total, instead of being coerced into the sum as if it were 0.
 export function computeConviction(features) {
   const s = features.subscores;
-  const conviction =
-    s.trend * CONVICTION_WEIGHTS.trend +
-    s.momentum * CONVICTION_WEIGHTS.momentum +
-    s.volume * CONVICTION_WEIGHTS.volume +
-    s.relativeStrength * CONVICTION_WEIGHTS.relativeStrength +
-    s.volatility * CONVICTION_WEIGHTS.volatility +
-    s.breadth * CONVICTION_WEIGHTS.breadth;
+  const known = Object.entries(CONVICTION_WEIGHTS).filter(([key]) => s[key] != null);
+  const knownWeight = known.reduce((sum, [, w]) => sum + w, 0) || 1;
+  const conviction = known.reduce((sum, [key, w]) => sum + s[key] * w, 0) / knownWeight;
   return Math.round(clamp(conviction, 0, 100));
 }
 
@@ -141,9 +148,21 @@ export function regimeScore(regime, breadthPct) {
   return clamp(breadthPct ?? 50, 0, 100);
 }
 
+// A high conviction score alone must never become a BUY (audit CRIT-4/F).
+// Require the same kind of confirmation the AI Picks engine gates on before
+// calling BUY: known/agreeing trend, volume actually confirming the move,
+// and enough liquidity to trade — otherwise it's a candidate to WATCH, not
+// an instruction to buy.
 export function generateSignal({ conviction, regime, features }) {
   if (regime === 'BEARISH') return 'AVOID';
-  if (conviction >= 70) return 'BUY';
+  if (conviction >= 70) {
+    const s = features?.subscores ?? {};
+    const trendKnownAndAgrees = s.trend != null && s.trend >= 55;
+    const volumeConfirms = features?.volumeRatio != null && features.volumeRatio >= 1.1;
+    const liquidEnough = features?.avgVolume20 != null && features.avgVolume20 >= 100000;
+    if (trendKnownAndAgrees && volumeConfirms && liquidEnough) return 'BUY';
+    return 'WATCH'; // high conviction, but not confirmed enough to act on yet
+  }
   if (conviction >= 40) return 'WATCH';
   return 'AVOID';
 }
@@ -153,7 +172,9 @@ export function buildReason(features, regime, conviction) {
   const s = features.subscores;
   const price = features.lastPrice;
 
-  if (s.trend >= 65) {
+  if (s.trend == null) {
+    parts.push('medium-term trend is UNKNOWN — fewer than 50 days of price history');
+  } else if (s.trend >= 65) {
     parts.push(`price is comfortably above the medium-term trend (SMA50 ${features.sma50})`);
   } else if (s.trend <= 40) {
     parts.push(`price is below the medium-term trend (SMA50 ${features.sma50})`);
@@ -185,7 +206,7 @@ export function buildReason(features, regime, conviction) {
     parts.push(`market regime is BEARISH (breadth ${features.subscores.breadth}/100)`);
   }
 
-  return parts.length ? parts.join('; ') : `Synthetic price ${price} with conviction ${conviction}/100`;
+  return parts.length ? parts.join('; ') : `Price ${price} with conviction ${conviction}/100`;
 }
 
 export function deepDive(candles, features, context = {}) {
@@ -195,13 +216,14 @@ export function deepDive(candles, features, context = {}) {
   const trendStrength =
     features.sma50 != null
       ? clamp(50 + 100 * ((last - features.sma50) / features.sma50) / 0.08, 0, 100)
-      : 50;
+      : null;
   const momentum = clamp(50 + 100 * ((features.rsi14 ?? 50) - 50) / 25, 0, 100);
   const volumeConfirmation =
     features.volumeRatio >= 1.3 ? clamp(100 * (features.volumeRatio - 0.3) / 1.7, 0, 100) : clamp(50 + 100 * (features.volumeRatio - 1) / 1.5, 0, 100);
   const volatilityScore = clamp(100 - 100 * (features.annualizedVolatilityPct - 10) / 40, 0, 100);
   const breakoutScore = features.breakout ? clamp(70 + features.breakoutPct * 3, 70, 100) : clamp(50 + features.breakoutPct * 3, 20, 60);
-  const relativeStrength = clamp(50 + 100 * (features.relativeStrength / 8), 0, 100);
+  const relativeStrength =
+    features.relativeStrength == null ? null : clamp(50 + 100 * (features.relativeStrength / 8), 0, 100);
 
   const signals = [];
   if (features.sma20 != null && features.sma50 != null) {

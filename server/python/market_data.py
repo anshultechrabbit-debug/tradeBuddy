@@ -31,7 +31,9 @@ import argparse
 import io
 import json
 import os
+import re
 import sys
+import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
@@ -105,15 +107,34 @@ def _ca_cache_store(symbol, data):
     return data
 
 
+# NSE PURPOSE text for a face-value split reads like
+# "Face Value Split (Sub-Division) - From Rs 10/- Per Share To Rs 2/- Per Share".
+# Ratio = old face value / new face value (a 10 -> 2 split multiplies share
+# count by 5 and divides price by 5).
+_SPLIT_RE = re.compile(
+    r"rs\.?\s*(\d+(?:\.\d+)?)\s*/?-?\s*(?:per\s*share)?\s*(?:to|into)\s*rs\.?\s*(\d+(?:\.\d+)?)",
+    re.I,
+)
+# "Bonus Issue 1:1" / "Bonus 4:1" — X new shares for every Y held.
+# Multiplier = (X + Y) / Y; price divides by that multiplier historically.
+_BONUS_RE = re.compile(r"bonus.*?(\d+)\s*:\s*(\d+)", re.I)
+
+CA_CACHE_TTL_SECONDS = 24 * 60 * 60
+
+
 def fetch_corporate_actions(symbol):
     """
-    Fetch dividend history for a symbol from NSE's corporate actions API.
-    Returns list of {exDate, dividend, type} where type='dividend'.
-    Cached for 24h.
+    Fetch dividend, split and bonus history for a symbol from NSE's corporate
+    actions API. Returns a list of entries:
+      {exDate, type: 'dividend', dividend: <amount per share>}
+      {exDate, type: 'split' | 'bonus', ratio: <price adjustment factor>}
+    `ratio` > 1 means the historical price must be DIVIDED by `ratio` (and
+    volume multiplied by it) for candles before exDate. Cached for 24h.
     """
     cached = _ca_cache_load(symbol)
-    if cached is not None:
-        return cached
+    if cached is not None and isinstance(cached, dict) and "actions" in cached:
+        if time.time() - cached.get("fetchedAt", 0) < CA_CACHE_TTL_SECONDS:
+            return cached["actions"]
 
     try:
         # NSE corporate actions endpoint (public, no auth)
@@ -139,58 +160,103 @@ def fetch_corporate_actions(symbol):
         except Exception:
             data = []
 
-    # Normalize to our schema: only dividends with ex-date and amount
-    dividends = []
+    actions = []
     for row in data:
         # NSE corporate actions columns vary; probe common ones
-        ca_type = str(row.get("PURPOSE") or row.get("purpose") or row.get("CA_TYPE") or "").lower()
-        if "dividend" not in ca_type:
-            continue
+        ca_type = str(row.get("PURPOSE") or row.get("purpose") or row.get("CA_TYPE") or "")
+        ca_type_lc = ca_type.lower()
         ex_date_raw = row.get("EX_DATE") or row.get("Ex_Date") or row.get("exDate")
         if not ex_date_raw:
             continue
         try:
-            ex_date = pd_to_datetime(ex_date_raw).date()
+            ex_date = pd_to_datetime(ex_date_raw).date().isoformat()
         except Exception:
             continue
-        # Dividend amount per share (could be in 'DIVIDEND', 'dividend', 'AMOUNT', 'FaceValue')
-        div_amt = None
-        for key in ["DIVIDEND", "dividend", "AMOUNT", "amount", "FACE_VALUE", "faceValue", "FACE VALUE"]:
-            if key in row and row[key] is not None:
-                div_amt = num(row[key])
-                break
-        if div_amt is None or div_amt <= 0:
+
+        if "split" in ca_type_lc or "sub-division" in ca_type_lc or "sub division" in ca_type_lc:
+            m = _SPLIT_RE.search(ca_type)
+            if not m:
+                continue  # can't confidently parse the ratio — skip rather than mis-adjust
+            old_fv, new_fv = float(m.group(1)), float(m.group(2))
+            if new_fv <= 0 or old_fv <= new_fv:
+                continue
+            actions.append({"exDate": ex_date, "type": "split", "ratio": round(old_fv / new_fv, 6)})
             continue
-        dividends.append({"exDate": ex_date.isoformat(), "dividend": div_amt, "type": "dividend"})
+
+        if "bonus" in ca_type_lc:
+            m = _BONUS_RE.search(ca_type)
+            if not m:
+                continue
+            new_shares, held_shares = float(m.group(1)), float(m.group(2))
+            if held_shares <= 0:
+                continue
+            actions.append({
+                "exDate": ex_date,
+                "type": "bonus",
+                "ratio": round((new_shares + held_shares) / held_shares, 6),
+            })
+            continue
+
+        if "dividend" in ca_type_lc:
+            # Dividend amount per share (could be in 'DIVIDEND', 'dividend', 'AMOUNT', 'FaceValue')
+            div_amt = None
+            for key in ["DIVIDEND", "dividend", "AMOUNT", "amount", "FACE_VALUE", "faceValue", "FACE VALUE"]:
+                if key in row and row[key] is not None:
+                    div_amt = num(row[key])
+                    break
+            if div_amt is None or div_amt <= 0:
+                continue
+            actions.append({"exDate": ex_date, "type": "dividend", "dividend": div_amt})
 
     # Sort by ex-date ascending
-    dividends.sort(key=lambda x: x["exDate"])
-    _ca_cache_store(symbol, dividends)
-    return dividends
+    actions.sort(key=lambda x: x["exDate"])
+    _ca_cache_store(symbol, {"fetchedAt": time.time(), "actions": actions})
+    return actions
 
 
-def adjust_candles_for_dividends(candles, dividends):
+def adjust_candles_for_corporate_actions(candles, actions):
     """
-    Adjust historical candles for dividends (backward adjustment).
-    For each dividend, subtract the dividend amount from all candles
-    with date < exDate. This matches standard price adjustment methodology.
+    Back-adjust historical candles for dividends, splits and bonuses so the
+    series is continuous across corporate-action boundaries (otherwise a
+    split/bonus reads to every technical indicator as a real, sudden crash).
+
+    For each action, candles dated before exDate are adjusted:
+      - dividend: subtract the per-share amount from OHLC (standard cash
+        adjustment).
+      - split/bonus: divide OHLC by `ratio` and multiply volume by `ratio`
+        (standard back-adjustment for a share-count change).
     """
-    if not candles or not dividends:
+    if not candles or not actions:
         return candles
 
-    # Work on a copy
     adjusted = [dict(c) for c in candles]
-    for div in dividends:
-        ex_date = div["exDate"]
-        amount = div["dividend"]
-        for c in adjusted:
-            # candle ts is ISO string; compare date portion
-            c_date = c["ts"][:10]
-            if c_date < ex_date:
-                for key in ("open", "high", "low", "close"):
-                    if c.get(key) is not None:
-                        c[key] = round(c[key] - amount, 2)
+    for action in actions:
+        ex_date = action["exDate"]
+        if action.get("type") == "dividend":
+            amount = action["dividend"]
+            for c in adjusted:
+                c_date = c["ts"][:10]
+                if c_date < ex_date:
+                    for key in ("open", "high", "low", "close"):
+                        if c.get(key) is not None:
+                            c[key] = round(c[key] - amount, 2)
+        elif action.get("type") in ("split", "bonus"):
+            ratio = action["ratio"]
+            if not ratio or ratio <= 1:
+                continue
+            for c in adjusted:
+                c_date = c["ts"][:10]
+                if c_date < ex_date:
+                    for key in ("open", "high", "low", "close"):
+                        if c.get(key) is not None:
+                            c[key] = round(c[key] / ratio, 2)
+                    if c.get("volume") is not None:
+                        c["volume"] = round(c["volume"] * ratio)
     return adjusted
+
+
+# Back-compat alias — the old name adjusted dividends only.
+adjust_candles_for_dividends = adjust_candles_for_corporate_actions
 
 
 def fail(exc):
@@ -362,8 +428,8 @@ def nselib_candles(symbol, days, is_index=False):
         df = capital_market.price_volume_data(symbol, from_date=fmt_ddmm(frm), to_date=fmt_ddmm(to))
     candles = frame_to_candles(df, symbol)
     if not is_index:
-        dividends = fetch_corporate_actions(symbol)
-        candles = adjust_candles_for_dividends(candles, dividends)
+        corp_actions = fetch_corporate_actions(symbol)
+        candles = adjust_candles_for_corporate_actions(candles, corp_actions)
     return candles
 
 
@@ -699,8 +765,8 @@ def jugaad_candles(symbol, days, is_index=False):
         df = stock_df(symbol, from_date=frm, to_date=to)
     candles = frame_to_candles(df, symbol)
     if not is_index:
-        dividends = fetch_corporate_actions(symbol)
-        candles = adjust_candles_for_dividends(candles, dividends)
+        corp_actions = fetch_corporate_actions(symbol)
+        candles = adjust_candles_for_corporate_actions(candles, corp_actions)
     return candles
 
 
@@ -970,8 +1036,8 @@ def nse_archives_candles(symbol, days, is_index=False):
         result.append(r)
     result = result[-days:] if days else result
     if not is_index:
-        dividends = fetch_corporate_actions(symbol)
-        result = adjust_candles_for_dividends(result, dividends)
+        corp_actions = fetch_corporate_actions(symbol)
+        result = adjust_candles_for_corporate_actions(result, corp_actions)
     return result
 
 

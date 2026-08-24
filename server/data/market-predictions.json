@@ -1,0 +1,14 @@
+[
+  {
+    "tradeDate": "2026-08-24",
+    "direction": "RISE",
+    "confidence": 74,
+    "reason": "Nifty ₹24173.7 (-0.32%), 69.16% of stocks above their 50-day average (BULLISH regime), average stock move -0.12% today.",
+    "predictedNiftyLevel": 24173.7,
+    "predictedNiftyChangePct": -0.32,
+    "outcome": "PENDING",
+    "actualNiftyLevel": null,
+    "actualChangePct": null,
+    "createdAt": "2026-08-24T09:35:21.467Z"
+  }
+]

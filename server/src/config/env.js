@@ -52,11 +52,20 @@ export const config = Object.freeze({
   marketDataLicenseKey: process.env.MARKET_DATA_LICENSE_KEY || '',
   externalMarketData: {
     baseUrl: process.env.MARKET_DATA_EXTERNAL_BASE_URL || '',
-    timeoutMs: Number(process.env.MARKET_DATA_TIMEOUT_MS || 4000),
+    // A single call takes ~1.5-3s in isolation but the CLI spawns a fresh
+    // Python process + NSE session per call, so it needs headroom once a few
+    // calls are queued behind the concurrency cap below.
+    timeoutMs: Number(process.env.MARKET_DATA_TIMEOUT_MS || 8000),
     // Dedicated timeout for batch live_quotes calls (many symbols, parallel Python fetch).
     liveBatchTimeoutMs: Number(process.env.MARKET_DATA_LIVE_BATCH_TIMEOUT_MS || 15000),
     retries: Number(process.env.MARKET_DATA_RETRIES || 0),
     rateLimitPerMinute: Number(process.env.MARKET_DATA_RATE_LIMIT_PER_MINUTE || 30),
+    // Max Python CLI processes spawned at once. Each call shells out to a new
+    // python process + NSE session; firing many concurrently (e.g. scoring 10-60
+    // symbols in parallel) makes every one of them slow enough to blow past
+    // timeoutMs even though each is individually fine — this caps the burst so
+    // calls queue briefly instead of all contending for CPU/network at once.
+    maxConcurrency: Number(process.env.MARKET_DATA_MAX_CONCURRENCY || 4),
     cacheTtlMs: Number(process.env.MARKET_DATA_CACHE_TTL_MS || 60 * 60 * 1000),
     staleAfterMs: Number(process.env.MARKET_DATA_STALE_AFTER_MS || 72 * 60 * 60 * 1000),
     liveTtlMs: Number(process.env.MARKET_DATA_LIVE_TTL_MS || 2 * 1000),

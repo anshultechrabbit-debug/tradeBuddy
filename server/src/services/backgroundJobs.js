@@ -2,10 +2,58 @@ import { prisma } from '../config/prisma.js';
 import { evaluateAlerts } from './alertService.js';
 import { logInfra } from '../utils/helpers.js';
 import { getMarketDataProvider } from '../providers/marketData/index.js';
+import { getPredictions, evaluatePredictions } from './predictionTracker.js';
+import { isPastClose, getOfficialClose } from './officialClose.js';
 
 let alertTimer = null;
 let expiryTimer = null;
+let predictionEvalTimer = null;
 let alertRunning = false;
+let predictionEvalRunning = false;
+
+/**
+ * Evaluates every OPEN prediction against the OFFICIAL end-of-day close,
+ * never a live tick. No-ops before market close; safe to call repeatedly —
+ * already-CLOSED predictions are skipped, and a symbol whose official close
+ * hasn't been published yet just gets picked up on the next run (see
+ * CRIT-6/CRIT-7 in the pipeline audit — this loop is what makes the
+ * prediction-tracking feature actually produce real, verified records
+ * instead of sitting permanently empty).
+ */
+async function runPredictionCloseEvaluationLoop() {
+  if (predictionEvalRunning) return;
+  predictionEvalRunning = true;
+  try {
+    if (!isPastClose()) return;
+    const open = getPredictions().filter((p) => p.status === 'OPEN');
+    if (!open.length) return;
+
+    const provider = getMarketDataProvider();
+    const closes = {};
+    const seen = new Set();
+    for (const p of open) {
+      // A symbol can carry OPEN predictions from more than one day if this
+      // job missed a run — key by (symbol, date) so each is matched against
+      // the close of the specific day it was made on, never a different day's.
+      const key = `${p.symbol}|${p.date}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const close = await getOfficialClose(provider, p.symbol, p.date).catch(() => null);
+      if (close != null) closes[key] = { close };
+    }
+
+    if (Object.keys(closes).length) {
+      const { updated } = evaluatePredictions(closes);
+      if (updated > 0) {
+        logInfra('info', 'predictions', `Evaluated ${updated} prediction(s) against the official close`);
+      }
+    }
+  } catch (err) {
+    logInfra('error', 'predictions', `Prediction close-evaluation loop failed: ${err.message}`);
+  } finally {
+    predictionEvalRunning = false;
+  }
+}
 
 /**
  * Evaluates every active alert across all users. Runs continuously so alerts
@@ -55,18 +103,25 @@ async function runExpiryLoop() {
 export function startBackgroundJobs() {
   runAlertLoop();
   runExpiryLoop();
+  runPredictionCloseEvaluationLoop();
   alertTimer = setInterval(runAlertLoop, 30_000);
   expiryTimer = setInterval(runExpiryLoop, 60 * 60 * 1000);
+  // No-ops before close, so polling every 15 minutes is cheap; frequent
+  // enough to catch EOD data as soon as it's published after 15:30 IST.
+  predictionEvalTimer = setInterval(runPredictionCloseEvaluationLoop, 15 * 60 * 1000);
   if (typeof alertTimer.unref === 'function') alertTimer.unref();
   if (typeof expiryTimer.unref === 'function') expiryTimer.unref();
-  logInfra('info', 'app', 'Background jobs started (alerts every 30s, broker expiry hourly)');
+  if (typeof predictionEvalTimer.unref === 'function') predictionEvalTimer.unref();
+  logInfra('info', 'app', 'Background jobs started (alerts every 30s, broker expiry hourly, prediction close-evaluation every 15min)');
 }
 
 export function stopBackgroundJobs() {
   if (alertTimer) clearInterval(alertTimer);
+  if (predictionEvalTimer) clearInterval(predictionEvalTimer);
   if (expiryTimer) clearInterval(expiryTimer);
   alertTimer = null;
   expiryTimer = null;
+  predictionEvalTimer = null;
   // Stop the live-quote poller managed by the market-data provider.
   try {
     const provider = getMarketDataProvider();

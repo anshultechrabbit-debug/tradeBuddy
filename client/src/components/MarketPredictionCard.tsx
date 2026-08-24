@@ -25,11 +25,15 @@ function MarketPredictionCard({
   track: MarketPredictionTrack;
 }) {
   const tone = DIR_TONE[today.direction] ?? 'mp-flat';
+  const decided = today.outcome !== 'PENDING';
   const actual = today.actualChangePct;
   const actualText =
-    actual == null ? '—' : `${actual >= 0 ? '+' : ''}${actual}% (actual so far)`;
-  const marketPrice = today.actualNiftyLevel;
-  const marketChange = today.actualChangePct;
+    actual == null ? 'Decided after market close (15:30 IST)' : `${actual >= 0 ? '+' : ''}${actual}% at official close`;
+  // Live level is shown for context only — it never decides the outcome.
+  const liveLevel = today.liveNiftyLevel;
+  const liveChange = today.liveChangePct;
+  const marketPrice = decided ? today.actualNiftyLevel : liveLevel;
+  const marketChange = decided ? today.actualChangePct : liveChange;
 
   return (
     <Card title="Today's market prediction">
@@ -40,7 +44,7 @@ function MarketPredictionCard({
         </div>
         {marketPrice != null ? (
           <div className="mp-price">
-            <span className="muted small">Market price (Nifty 50):</span>{' '}
+            <span className="muted small">{decided ? 'Nifty 50 (official close):' : 'Nifty 50 (live):'}</span>{' '}
             <span className="strong">{`₹${Number(marketPrice).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`}</span>
             {marketChange != null ? (
               <span className={marketChange >= 0 ? ' text-positive' : ' text-negative'}>
@@ -53,7 +57,7 @@ function MarketPredictionCard({
         ) : null}
         <p className="mp-reason">{today.reason}</p>
         <div className="mp-actual">
-          <span className="muted small">Actual (app feed): </span>
+          <span className="muted small">Result: </span>
           <span className="strong">{actualText}</span>
           <span className={`mp-outcome ${today.outcome === 'CORRECT' ? 'text-positive' : today.outcome === 'WRONG' ? 'text-negative' : 'muted'}`}>
             {' '}

@@ -362,7 +362,12 @@ export function AiPicksPage() {
 
           <div className="sg-hero">
             <div className="sg-hero-chart">
-              <CandleChart symbol={active.symbol} livePrice={active.quote?.lastPrice} lastUpdated={active.dataTimestamp} />
+              <CandleChart
+                symbol={active.symbol}
+                livePrice={active.quote?.lastPrice}
+                lastUpdated={active.dataTimestamp}
+                dayChangePct={active.quote?.changePct}
+              />
             </div>
             <div className="sg-hero-panel">
               <div className="sg-symbol-row">
@@ -416,8 +421,13 @@ export function AiPicksPage() {
                   <span className="sg-prediction-label">
                     Outlook: {active.engine.directionalOutlook} · Signal: {active.engine.signal} · Trade decision: {active.engine.tradeStatus}
                   </span>
+                  {active.engine.sessionOver ? (
+                    <p className="sg-plaintalk-text muted small">
+                      Today's session is closed — the range below is a next-session estimate, not a same-day forecast anymore.
+                    </p>
+                  ) : null}
                   <p className="sg-plaintalk-text">
-                    Expected close range{' '}
+                    {active.engine.sessionOver ? 'Next-session estimate' : 'Expected close range'}{' '}
                     {active.engine.closingRange.range
                       ? `${formatCurrency(active.engine.closingRange.range[0])}–${formatCurrency(active.engine.closingRange.range[1])}`
                       : 'n/a'}{' '}

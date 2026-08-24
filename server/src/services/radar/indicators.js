@@ -9,7 +9,7 @@ export function sma(values, period) {
 }
 
 export function ema(values, period) {
-  if (!values.length) return null;
+  if (values.length < period) return null;
   const k = 2 / (period + 1);
   let prev = values[0];
   for (let i = 1; i < values.length; i += 1) {
@@ -18,6 +18,11 @@ export function ema(values, period) {
   return prev;
 }
 
+// Simple-average RSI over a flat `period` window — NOT Wilder's exponential
+// smoothing, which is what most retail charting platforms (and "RSI(14)" as
+// commonly understood) actually use. Values will diverge somewhat from RSI
+// shown elsewhere for the same stock; this is a deliberate, simpler variant,
+// not a bug, but callers displaying it to users should label it as such.
 export function rsi(closes, period = 14) {
   if (closes.length < period + 1) return null;
   let gains = 0;
@@ -49,9 +54,9 @@ export function atr(candles, period = 14) {
 }
 
 export function roc(closes, period) {
-  if (closes.length < period + 1) return 0;
+  if (closes.length < period + 1) return null;
   const prev = closes[closes.length - 1 - period];
-  return prev > 0 ? (closes[closes.length - 1] / prev - 1) * 100 : 0;
+  return prev > 0 ? (closes[closes.length - 1] / prev - 1) * 100 : null;
 }
 
 export function stdDevOfReturns(closes, window = 20) {

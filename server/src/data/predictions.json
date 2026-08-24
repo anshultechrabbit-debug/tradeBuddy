@@ -1,1 +1,64 @@
-[]
+[
+  {
+    "id": "MEESHO-2026-08-24-1787560754163",
+    "date": "2026-08-24",
+    "week": "2026-W35",
+    "symbol": "MEESHO",
+    "sector": "N/A",
+    "predictionPrice": 206.01,
+    "expectedRange": [
+      204.98,
+      209.1
+    ],
+    "baseCase": 207.04,
+    "bullCase": 209.1,
+    "bearCase": 204.98,
+    "entry": [
+      189.5,
+      194.17
+    ],
+    "confirmation": 210.99,
+    "target1": 210.99,
+    "target2": 217.17,
+    "stopLoss": 183.98,
+    "signal": "STRONG BUY",
+    "score": 81,
+    "confidence": "MEDIUM",
+    "confidenceScore": 51,
+    "dataStatus": "STALE",
+    "modelVersion": "tradebuddy-engine-1.0",
+    "status": "OPEN",
+    "createdAt": "2026-08-24T08:39:14.164Z"
+  },
+  {
+    "id": "360ONE-2026-08-24-1787562175658",
+    "date": "2026-08-24",
+    "week": "2026-W35",
+    "symbol": "360ONE",
+    "sector": "N/A",
+    "predictionPrice": 1203,
+    "expectedRange": [
+      1205.41,
+      1229.47
+    ],
+    "baseCase": 1217.44,
+    "bullCase": 1229.47,
+    "bearCase": 1205.41,
+    "entry": [
+      1095.47,
+      1111.06
+    ],
+    "confirmation": 1236.2,
+    "target1": 1236.2,
+    "target2": 1272.29,
+    "stopLoss": 1064.29,
+    "signal": "BUY",
+    "score": 72,
+    "confidence": "MEDIUM",
+    "confidenceScore": 51,
+    "dataStatus": "STALE",
+    "modelVersion": "tradebuddy-engine-1.0",
+    "status": "OPEN",
+    "createdAt": "2026-08-24T09:02:55.658Z"
+  }
+]

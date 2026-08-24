@@ -1,5 +1,6 @@
 import { round2 } from '../utils/helpers.js';
 import { clamp } from './radar/indicators.js';
+import { isPastClose } from './officialClose.js';
 
 const MODEL_VERSION = 'tradebuddy-engine-1.0';
 
@@ -19,11 +20,24 @@ function classify(score) {
   return 'STRONG AVOID';
 }
 
+// `dataSource` is a provider-level constant (e.g. every quote from the real
+// external provider says 'live', whether it's a genuine live tick, a stale
+// cache hit, or — before this fix — a fabricated price). The fields that
+// actually vary per-quote are `source` (real vendor: jugaad/nselib/
+// nse-archives/development) and `stale`/`generated`. Those are what must be
+// inspected to tell real, live, cached and synthetic data apart.
+const SYNTHETIC_SOURCE_RE = /synthetic|mock|demo|fake|test|development/i;
+
 function dataStatusFrom(a) {
-  const ds = a.quote?.dataSource;
-  if (!ds) return 'UNKNOWN';
-  if (/synthetic|mock|demo|fake|test/i.test(String(ds))) return 'UNKNOWN';
-  // We cannot guarantee real-time here; treat a real provider as delayed at best.
+  const q = a.quote;
+  if (!q) return 'UNKNOWN';
+  const source = q.source ?? q.dataSource;
+  if (!source) return 'UNKNOWN';
+  if (q.generated === true || SYNTHETIC_SOURCE_RE.test(String(source))) return 'UNKNOWN';
+  // Either the quote itself or the candle series behind the indicators can be
+  // served stale independently — either one means the picture isn't current.
+  if (q.stale === true || a.technical?.stale === true) return 'STALE';
+  // We cannot guarantee real-time here; treat a real, fresh provider read as delayed at best.
   return 'VERIFIED DELAYED';
 }
 
@@ -65,7 +79,6 @@ export function dedupeArticles(articles) {
 export function buildEngineResult(a) {
   const t = a.technical ?? {};
   const n = a.news ?? {};
-  const f = a.fundamentals ?? {};
   const v = a.valuation ?? {};
   const m = a.market ?? {};
   const e = a.entry ?? {};
@@ -150,10 +163,22 @@ export function buildEngineResult(a) {
     unknown.push('news');
   }
 
-  // 6) Fundamentals — UNKNOWN when missing (never 50)
+  // 6) Fundamentals — UNKNOWN when missing (never 50).
+  // f.score (company-health) is architecturally always UNKNOWN in this app —
+  // only a P/E snapshot exists (see scoreFundamentals in
+  // stockAnalysisService.js), never revenue/margins/ROE/debt data. Averaging
+  // it in with a `num(f.score, 50)` fallback used to silently blend a
+  // phantom neutral 50 into every fundamentals sub-score whenever a P/E was
+  // available — exactly the fabricated-neutral bug this file otherwise
+  // guards against. The sub-score is valuation alone until real
+  // company-health data exists.
   let fundScore = null;
-  if (f.available === true && v.available === true) {
-    fundScore = clamp(Math.round((num(f.score, 50) + num(v.score, 50)) / 2), 0, 100);
+  if (v.available === true) {
+    fundScore = clamp(Math.round(num(v.score)), 0, 100);
+    // A stale P/E snapshot (see MED-1) is still used — it's the best data
+    // available — but it should cost some confidence, not be silently
+    // treated as identical to a same-day read.
+    if (v.stale === true) unknown.push('valuation(stale)');
   } else unknown.push('fundamentals');
 
   // 7) Market / sector
@@ -299,6 +324,7 @@ export function buildEngineResult(a) {
   const dataStatus = dataStatusFrom(a);
   let conf = 72;
   if (dataStatus === 'UNKNOWN') conf -= 28;
+  else if (dataStatus === 'STALE') conf -= 16;
   else if (dataStatus === 'VERIFIED DELAYED') conf -= 6;
   conf -= unknown.length * 5;
   if (newsIndependent != null && newsMaterial === 0) conf -= 12;
@@ -375,6 +401,11 @@ export function buildEngineResult(a) {
     gatesPassed: isBuyClass ? (tradeStatus === 'EXECUTABLE') : null,
     gates,
     buy,
+    // Today's cash session is done by 15:30 IST — a "closing range" past
+    // that point isn't a forecast anymore (the real close already happened
+    // and may have gone the other way), so callers should label it as
+    // carrying into the next session instead of "today".
+    sessionOver: isPastClose(),
     closingRange: {
       bear,
       base: base != null ? round2(base) : null,
@@ -384,7 +415,9 @@ export function buildEngineResult(a) {
       confidence: a.confidence ?? 'LOW',
       confidenceScore,
       probability: 'NOT CALIBRATED',
-      note: 'Model base case. Probabilistic forecast — not a guarantee of the exact close.',
+      note: isPastClose()
+        ? 'Today\'s session is already closed — this range is a next-session estimate (trend + momentum heuristic, capped ±2%), not today\'s forecast anymore.'
+        : 'Experimental model estimate (trend + momentum heuristic, capped ±2%) — not backtested or historically calibrated. Not a guarantee of the exact close.',
     },
     newsIndependentEvents: newsIndependent,
     newsMaterialEvents: newsMaterial,

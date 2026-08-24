@@ -31,7 +31,10 @@ export function mapLimit(items, limit, fn) {
 
 async function getIndexReturn20(provider) {
   const candles = await provider.getCandles('NIFTY', '1d', 30, 'NSE');
-  if (candles.length < 21) return 0;
+  // Insufficient index history is genuinely UNKNOWN, not "the index returned
+  // exactly 0%" — a fabricated 0 would make every stock's relative-strength
+  // score silently collapse to its own absolute return.
+  if (candles.length < 21) return null;
   const closes = candles.map((c) => c.close);
   return (closes[closes.length - 1] / closes[closes.length - 21] - 1) * 100;
 }
@@ -347,15 +350,16 @@ export async function listOpportunities({ page = 1, limit = 20 }) {
 
 export async function getDeepDive(symbol) {
   const provider = getMarketDataProvider();
-  const [candles, volatility, quote] = await Promise.all([
+  const [candles, volatility, quote, indexReturn20] = await Promise.all([
     provider.getCandles(symbol, '1d', 60, 'NSE'),
     provider.getVolatility(symbol, 'NSE'),
     provider.getQuote(symbol, 'NSE').catch(() => null),
+    getIndexReturn20(provider),
   ]);
   if (!candles.length) return null;
   const breadth = await provider.getMarketBreadth();
   const features = computeFeatures(candles, {
-    indexReturn20: 0,
+    indexReturn20,
     breadthPct: breadth.breadthPctAboveSma50,
     livePrice: quote?.lastPrice ?? null,
   });

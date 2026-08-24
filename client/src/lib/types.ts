@@ -386,6 +386,7 @@ export interface EngineOutput {
   signal: string;
   isBuy: boolean;
   tradeStatus: string;
+  sessionOver: boolean;
   gatesPassed: boolean | null;
   gates: {
     riskReward: boolean;
@@ -481,9 +482,15 @@ export interface MarketPrediction {
   reason: string;
   predictedNiftyLevel: number | null;
   predictedNiftyChangePct: number | null;
+  // Set once, after market close, from the official EOD Nifty level — this
+  // is what decides `outcome`. Stays null all day until the session closes.
   actualNiftyLevel: number | null;
   actualChangePct: number | null;
   outcome: 'PENDING' | 'CORRECT' | 'WRONG';
+  // Informational only — the current live Nifty level. Never used to decide
+  // or freeze `outcome` (see CRIT-7 in the pipeline audit).
+  liveNiftyLevel?: number | null;
+  liveChangePct?: number | null;
 }
 
 export interface MarketPredictionTrack {

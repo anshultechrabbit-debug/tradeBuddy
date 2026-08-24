@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../../../config/env.js';
-import { RateLimiter, withRetry } from './client.js';
+import { RateLimiter } from './client.js';
 import { logInfra } from '../../../utils/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -59,38 +59,105 @@ export function pythonBin() {
   return _pythonBin;
 }
 
-function runPython(args, { timeoutMs, retries, rateLimitPerMinute } = {}) {
-  return new Promise((resolve, reject) => {
-    const limiter = new RateLimiter(rateLimitPerMinute ?? config.externalMarketData.rateLimitPerMinute);
-    const doRun = () =>
-      new Promise((res, rej) => {
-        limiter.acquire().then(() => {
-          execFile(
-            pythonBin(),
-            [SCRIPT, ...args],
-            {
-              timeout: timeoutMs ?? config.externalMarketData.timeoutMs,
-              maxBuffer: 64 * 1024 * 1024,
-              windowsHide: true,
-              encoding: 'utf8',
-            },
-            (err, stdout, stderr) => {
-              if (err) {
-                const detail = (stderr || '').trim().split('\n').slice(-4).join(' | ');
-                rej(new Error(`python ${args.join(' ')}: ${err.message}${detail ? ` (${detail})` : ''}`));
-                return;
-              }
-              try {
-                res(JSON.parse(stdout));
-              } catch (parseErr) {
-                rej(new Error(`python output parse failed: ${parseErr.message}`));
-              }
-            },
-          );
-        });
-      });
-    withRetry(doRun, { retries, timeoutMs }).then(resolve, reject);
+// Rate limiters must be shared/persistent across calls to actually throttle
+// anything — a limiter created fresh per call always starts with an empty
+// bucket, so `.acquire()` resolves instantly and the "limit" is a no-op.
+// One limiter per source (nselib/jugaad/nse_archives) so they don't throttle
+// each other.
+const _limiters = new Map();
+function getLimiter(source, perMinute) {
+  let limiter = _limiters.get(source);
+  if (!limiter) {
+    limiter = new RateLimiter(perMinute);
+    _limiters.set(source, limiter);
+  }
+  return limiter;
+}
+
+// Concurrency cap on simultaneous `python market_data.py` spawns. Each call
+// starts a fresh interpreter + NSE session, so firing a burst of them at once
+// (e.g. scoring 10-60 symbols in parallel) makes every single one slow enough
+// to blow past the per-call timeout even though each is fine in isolation.
+// This queues calls past the cap instead of letting them all contend at once.
+const MAX_CONCURRENT_PYTHON = Math.max(1, config.externalMarketData.maxConcurrency);
+let _activeSlots = 0;
+const _slotQueue = [];
+function acquireSlot() {
+  if (_activeSlots < MAX_CONCURRENT_PYTHON) {
+    _activeSlots += 1;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => _slotQueue.push(resolve));
+}
+function releaseSlot() {
+  const next = _slotQueue.shift();
+  if (next) {
+    next();
+  } else {
+    _activeSlots = Math.max(0, _activeSlots - 1);
+  }
+}
+
+// Runs the actual `python market_data.py ...` process. `execFile`'s own
+// `timeout` option bounds this to the real process runtime — it only starts
+// once the process is spawned, so time spent waiting for a concurrency slot
+// (below) never eats into it.
+function spawnPython(args, timeoutMs) {
+  return new Promise((res, rej) => {
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      releaseSlot();
+    };
+    const child = execFile(
+      pythonBin(),
+      [SCRIPT, ...args],
+      {
+        timeout: timeoutMs,
+        maxBuffer: 64 * 1024 * 1024,
+        windowsHide: true,
+        encoding: 'utf8',
+      },
+      (err, stdout, stderr) => {
+        release();
+        if (err) {
+          const detail = (stderr || '').trim().split('\n').slice(-4).join(' | ');
+          rej(new Error(`python ${args.join(' ')}: ${err.message}${detail ? ` (${detail})` : ''}`));
+          return;
+        }
+        try {
+          res(JSON.parse(stdout));
+        } catch (parseErr) {
+          rej(new Error(`python output parse failed: ${parseErr.message}`));
+        }
+      },
+    );
+    child.on('error', release);
   });
+}
+
+// Queueing for rate-limit/concurrency slots is unbounded on purpose — it's
+// just waiting its turn behind other local calls, not a network stall, so it
+// must not burn the same timeout budget used to detect a genuinely hung
+// process (spawnPython's execFile `timeout` already bounds that separately).
+async function runPython(args, { timeoutMs, retries = 0, rateLimitPerMinute } = {}) {
+  const effectiveTimeout = timeoutMs ?? config.externalMarketData.timeoutMs;
+  const limiter = getLimiter(args[0], rateLimitPerMinute ?? config.externalMarketData.rateLimitPerMinute);
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    await limiter.acquire();
+    await acquireSlot();
+    try {
+      return await spawnPython(args, effectiveTimeout);
+    } catch (err) {
+      lastError = err;
+      if (attempt < retries) {
+        await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
+      }
+    }
+  }
+  throw lastError;
 }
 
 export class PythonClient {
