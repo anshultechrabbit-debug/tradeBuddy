@@ -130,10 +130,12 @@ export function AiPicksPage() {
   }, [autoLoaded, defaultSymbols, bySymbol, added, analyzing, dispatch]);
 
   // Real-time refresh: news and market shift constantly, so re-score every 2s.
+  // Cap to the top 10 picks — the server only scores 10 anyway, and a longer
+  // array would be rejected by the request validation.
   useEffect(() => {
     if (!picks.length || analyzing) return;
     const timer = setInterval(() => {
-      dispatch(analyzeMany(picks.map((p) => p.symbol)));
+      dispatch(analyzeMany(picks.slice(0, 10).map((p) => p.symbol)));
     }, 2000);
     return () => clearInterval(timer);
   }, [picks, analyzing, dispatch]);
@@ -169,7 +171,7 @@ export function AiPicksPage() {
   const onSelectSuggestion = (s: { symbol: string }) => onAnalyze(s.symbol);
 
   const onRefresh = () => {
-    const targets = picks.length ? picks.map((p) => p.symbol) : defaultSymbols;
+    const targets = (picks.length ? picks.map((p) => p.symbol) : defaultSymbols).slice(0, 10);
     if (!targets.length) return;
     setAdded((prev) => [...prev, ...targets]);
     dispatch(analyzeMany(targets));

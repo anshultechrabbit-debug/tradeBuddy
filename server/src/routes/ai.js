@@ -78,7 +78,7 @@ router.post(
 
 router.post(
   '/analyze-many',
-  body('symbols').isArray({ min: 1, max: 10 }),
+  body('symbols').isArray({ min: 1, max: 20 }),
   body('symbols.*').trim().isLength({ min: 1, max: 20 }),
   validate,
   async (req, res, next) => {
