@@ -3,6 +3,7 @@ import { prisma } from '../../config/prisma.js';
 import { round2, logInfra } from '../../utils/helpers.js';
 import { INDEX_SYMBOLS } from '../../db/seed-data/universe.js';
 import { getExternalAdapters } from './external/index.js';
+import { YFinanceAdapter } from './external/YFinanceAdapter.js';
 import { dailySeriesStats } from './development/priceGen.js';
 import { config } from '../../config/env.js';
 
@@ -40,6 +41,7 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
     this.primary = primary;
     this.fallback = fallback;
     this.backfill = backfill;
+    this.yfinance = new YFinanceAdapter();
     this.stats = {
       lastSuccessfulFetch: null,
       lastError: null,
@@ -832,6 +834,19 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
   // -------------------------------------------------------------------------
 
   async getFundamentals(symbol, exchange = 'NSE') {
+    // Try yfinance first (richer data: ROE, margins, growth, debt, etc.)
+    try {
+      const yfData = await this.yfinance.getFundamentals(symbol);
+      // yfData is the fundamentals object directly (not wrapped in ok/data)
+      if (yfData && yfData.company_name) {
+        return { ...yfData, symbol, exchange, dataSource: 'yfinance' };
+      }
+    } catch (err) {
+      this._recordError(err, 'getFundamentals:yfinance');
+      logInfra('info', 'market-data-external', `getFundamentals(${symbol}) yfinance failed: ${err.message}`);
+    }
+
+    // Fallback to nselib/jugaad (P/E only)
     const sources = [this.primary, this.fallback];
     for (const source of sources) {
       if (typeof source.getFundamentals !== 'function') continue;

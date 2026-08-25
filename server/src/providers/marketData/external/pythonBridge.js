@@ -205,7 +205,9 @@ export class PythonClient {
     }
     const timeoutMs = opts.timeoutMs ?? (command === 'live_quotes'
       ? config.externalMarketData.liveBatchTimeoutMs
-      : config.externalMarketData.timeoutMs);
+      : (this.source === 'yfinance' && command === 'fundamentals')
+        ? config.externalMarketData.yfFundamentalsTimeoutMs
+        : config.externalMarketData.timeoutMs);
     try {
       const payload = await runPython(argv, { ...config.externalMarketData, timeoutMs, retries: 0 });
       if (!payload.ok) throw new Error(payload.error || 'unknown python error');

@@ -56,6 +56,8 @@ export const config = Object.freeze({
     // Python process + NSE session per call, so it needs headroom once a few
     // calls are queued behind the concurrency cap below.
     timeoutMs: Number(process.env.MARKET_DATA_TIMEOUT_MS || 8000),
+    // yfinance fundamentals takes ~15-20s (full financial statements)
+    yfFundamentalsTimeoutMs: Number(process.env.MARKET_DATA_YF_FUNDAMENTALS_TIMEOUT_MS || 35000),
     // Dedicated timeout for batch live_quotes calls (many symbols, parallel
     // Python fetch). Measured directly: the ~60-symbol universe batch takes
     // ~14.5s with ZERO other load — 15000 gave it essentially no margin, so

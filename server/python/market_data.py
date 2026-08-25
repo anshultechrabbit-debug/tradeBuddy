@@ -618,6 +618,141 @@ def nselib_fundamentals(symbol):
     return None
 
 
+def yf_fundamentals(symbol):
+    """Fetch fundamentals from Yahoo Finance (yfinance).
+
+    Returns a dict with available financial data including:
+    - Quarterly/annual income statement, balance sheet, cash flow
+    - Key ratios: ROE, ROCE, debt/equity, profit margins, revenue growth
+    - Valuation: PE, PB, EV/EBITDA, etc.
+    - Company info: sector, industry, market cap, employees
+
+    Uses .NS suffix for NSE symbols.
+    """
+    try:
+        import yfinance as yf
+    except ImportError:
+        return {"error": "yfinance not installed"}
+
+    # Map NSE symbol to Yahoo Finance format
+    yf_symbol = f"{symbol}.NS"
+
+    try:
+        ticker = yf.Ticker(yf_symbol)
+
+        # Get all financial statements
+        financials = ticker.financials
+        balance_sheet = ticker.balance_sheet
+        cashflow = ticker.cashflow
+        quarterly_financials = ticker.quarterly_financials
+        quarterly_balance_sheet = ticker.quarterly_balance_sheet
+        quarterly_cashflow = ticker.quarterly_cashflow
+        info = ticker.info
+
+        def df_to_dict(df):
+            """Convert DataFrame to JSON-serializable dict."""
+            if df is None or getattr(df, "empty", True):
+                return {}
+            # Convert index (dates) to strings, values to native Python types
+            out = {}
+            for col_name in df.columns:
+                col_data = {}
+                for idx, val in df[col_name].items():
+                    if idx is not None:
+                        date_key = idx.strftime("%Y-%m-%d") if hasattr(idx, 'strftime') else str(idx)
+                        col_data[date_key] = num(val)
+                out[str(col_name)] = col_data
+            return out
+
+        def safe_get(d, *keys, default=None):
+            """Safely get nested dict value."""
+            for k in keys:
+                if isinstance(d, dict) and k in d:
+                    d = d[k]
+                else:
+                    return default
+            return d
+
+        # Extract key metrics from info
+        result = {
+            "symbol": symbol,
+            "yf_symbol": yf_symbol,
+            "company_name": info.get("longName") or info.get("shortName"),
+            "sector": info.get("sector"),
+            "industry": info.get("industry"),
+            "market_cap": num(info.get("marketCap")),
+            "employees": info.get("fullTimeEmployees"),
+            "website": info.get("website"),
+            "summary": info.get("longBusinessSummary"),
+
+            # Valuation ratios
+            "pe_ratio": num(info.get("trailingPE") or info.get("forwardPE")),
+            "pb_ratio": num(info.get("priceToBook")),
+            "ps_ratio": num(info.get("priceToSalesTrailing12Months")),
+            "ev_ebitda": num(info.get("enterpriseToEbitda")),
+            "ev_revenue": num(info.get("enterpriseToRevenue")),
+
+            # Profitability
+            "roe": num(info.get("returnOnEquity")),
+            "roa": num(info.get("returnOnAssets")),
+            "roic": num(info.get("returnOnCapital")) if "returnOnCapital" in info else None,
+            "profit_margin": num(info.get("profitMargins")),
+            "operating_margin": num(info.get("operatingMargins")),
+            "gross_margin": num(info.get("grossMargins")),
+
+            # Growth
+            "revenue_growth": num(info.get("revenueGrowth")),
+            "earnings_growth": num(info.get("earningsGrowth")),
+            "earnings_quarterly_growth": num(info.get("earningsQuarterlyGrowth")),
+            "revenue_quarterly_growth": num(info.get("revenueQuarterlyGrowth")),
+
+            # Financial health
+            "debt_to_equity": num(info.get("debtToEquity")),
+            "current_ratio": num(info.get("currentRatio")),
+            "quick_ratio": num(info.get("quickRatio")),
+            "total_cash": num(info.get("totalCash")),
+            "total_debt": num(info.get("totalDebt")),
+            "free_cashflow": num(info.get("freeCashflow")),
+            "operating_cashflow": num(info.get("operatingCashflow")),
+
+            # Per share
+            "book_value_per_share": num(info.get("bookValue")),
+            "earnings_per_share": num(info.get("trailingEps") or info.get("forwardEps")),
+            "revenue_per_share": num(info.get("revenuePerShare")),
+
+            # Dividends
+            "dividend_yield": num(info.get("dividendYield")),
+            "dividend_rate": num(info.get("dividendRate")),
+            "payout_ratio": num(info.get("payoutRatio")),
+
+            # Analyst estimates
+            "target_mean_price": num(info.get("targetMeanPrice")),
+            "target_high_price": num(info.get("targetHighPrice")),
+            "target_low_price": num(info.get("targetLowPrice")),
+            "recommendation": info.get("recommendationKey"),
+            "number_of_analysts": info.get("numberOfAnalystOpinions"),
+
+            # Full statements (last 4 years annual, last 4 quarters)
+            "annual_income_statement": df_to_dict(financials),
+            "annual_balance_sheet": df_to_dict(balance_sheet),
+            "annual_cashflow": df_to_dict(cashflow),
+            "quarterly_income_statement": df_to_dict(quarterly_financials),
+            "quarterly_balance_sheet": df_to_dict(quarterly_balance_sheet),
+            "quarterly_cashflow": df_to_dict(quarterly_cashflow),
+
+            "source": "yfinance",
+            "fetched_at": datetime.now().isoformat(),
+        }
+
+        # Filter out None values to keep payload smaller
+        result = {k: v for k, v in result.items() if v is not None}
+
+        return {"ok": True, "data": result}
+
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 # ---------------------------------------------------------------------------
 # jugaad-data (fallback)
 # ---------------------------------------------------------------------------
@@ -1123,6 +1258,7 @@ def health(source):
         "nselib": ["nselib"],
         "jugaad": ["jugaad_data"],
         "nse_archives": ["nsedata", "nsedata.nse"],
+        "yfinance": ["yfinance"],
     }
     result = {"source": source, "available": True, "modules": {}}
     for mod in probes[source]:
@@ -1138,11 +1274,11 @@ def health(source):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("source", choices=["nselib", "jugaad", "nse_archives"])
+    parser.add_argument("source", choices=["nselib", "jugaad", "nse_archives", "yfinance"])
     parser.add_argument("command", choices=[
         "quote", "candles", "indices", "option_chain", "fno",
         "instruments", "fundamentals", "bulk_bhav", "live_quotes", "nifty_list", "top_stocks", "intraday", "health",
-        "corporate_actions",
+        "corporate_actions", "yf_fundamentals",
     ])
     parser.add_argument("--symbol", default=None)
     parser.add_argument("--symbols", default=None)
@@ -1231,6 +1367,19 @@ def main():
                 emit({"ok": True, "data": nse_archives_indices()})
             else:
                 emit({"ok": False, "error": f"nse_archives: unsupported command {cmd}"})
+
+        elif src == "yfinance":
+            if cmd == "fundamentals" or cmd == "yf_fundamentals":
+                emit(yf_fundamentals(args.symbol))
+            elif cmd == "health":
+                # Check if yfinance is available
+                try:
+                    import yfinance as yf
+                    emit({"ok": True, "data": {"source": "yfinance", "available": True, "modules": {"yfinance": True}}})
+                except ImportError:
+                    emit({"ok": True, "data": {"source": "yfinance", "available": False, "modules": {"yfinance": False}, "error": "yfinance not installed"}})
+            else:
+                emit({"ok": False, "error": f"yfinance: unsupported command {cmd}"})
 
     except Exception as exc:
         fail(exc)

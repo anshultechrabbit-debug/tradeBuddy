@@ -234,11 +234,135 @@ function scoreTechnical(t) {
 }
 
 function scoreFundamentals(f) {
-  // Only a P/E snapshot is available — no revenue/profit growth, ROE, margins
-  // or balance-sheet data exist in this app, ever. Company-health score is
-  // genuinely UNKNOWN, never a fabricated neutral number.
-  return { score: null, available: Boolean(f?.pe != null) };
-}
+    // Rich fundamentals now available from yfinance:
+    // ROE, ROA, ROIC, profit/operating/gross margins, revenue/earnings growth,
+    // debt/equity, current/quick ratios, cash flow, per-share metrics
+    if (!f) return { score: null, available: false };
+
+    // Extract key metrics (yfinance returns decimals like 0.15 for 15%)
+    const roe = f.roe;           // Return on Equity
+    const roa = f.roa;           // Return on Assets
+    const roic = f.roic;         // Return on Invested Capital
+    const profitMargin = f.profit_margin;
+    const operatingMargin = f.operating_margin;
+    const grossMargin = f.gross_margin;
+    const revenueGrowth = f.revenue_growth;
+    const earningsGrowth = f.earnings_growth;
+    const debtToEquity = f.debt_to_equity;
+    const currentRatio = f.current_ratio;
+    const quickRatio = f.quick_ratio;
+    const freeCashflow = f.free_cashflow;
+    const operatingCashflow = f.operating_cashflow;
+
+    // Check if we have enough data to score
+    const hasProfitability = roe != null || roa != null || profitMargin != null || operatingMargin != null;
+    const hasGrowth = revenueGrowth != null || earningsGrowth != null;
+    const hasHealth = debtToEquity != null || currentRatio != null || freeCashflow != null;
+
+    if (!hasProfitability && !hasGrowth && !hasHealth) {
+      return { score: null, available: false };
+    }
+
+    let score = 50; // Base score
+    const factors = [];
+
+    // --- Profitability (max ±25) ---
+    if (roe != null) {
+      const roePct = roe * 100; // Convert to percentage
+      if (roePct >= 20) { score += 10; factors.push('ROE ≥ 20%'); }
+      else if (roePct >= 15) { score += 7; factors.push('ROE ≥ 15%'); }
+      else if (roePct >= 10) { score += 4; factors.push('ROE ≥ 10%'); }
+      else if (roePct >= 5) { score += 1; }
+      else if (roePct < 0) { score -= 10; factors.push('Negative ROE'); }
+      else { score -= 5; factors.push('Low ROE'); }
+    }
+
+    if (roic != null) {
+      const roicPct = roic * 100;
+      if (roicPct >= 15) { score += 8; factors.push('ROIC ≥ 15%'); }
+      else if (roicPct >= 10) { score += 5; factors.push('ROIC ≥ 10%'); }
+      else if (roicPct < 0) { score -= 5; factors.push('Negative ROIC'); }
+    } else if (roa != null) {
+      const roaPct = roa * 100;
+      if (roaPct >= 10) { score += 5; factors.push('ROA ≥ 10%'); }
+      else if (roaPct >= 5) { score += 2; }
+      else if (roaPct < 0) { score -= 5; factors.push('Negative ROA'); }
+    }
+
+    if (profitMargin != null) {
+      const pmPct = profitMargin * 100;
+      if (pmPct >= 20) { score += 7; factors.push('Profit margin ≥ 20%'); }
+      else if (pmPct >= 10) { score += 4; factors.push('Profit margin ≥ 10%'); }
+      else if (pmPct >= 5) { score += 1; }
+      else if (pmPct < 0) { score -= 8; factors.push('Negative profit margin'); }
+    } else if (operatingMargin != null) {
+      const omPct = operatingMargin * 100;
+      if (omPct >= 20) { score += 5; factors.push('Op margin ≥ 20%'); }
+      else if (omPct >= 10) { score += 2; }
+      else if (omPct < 0) { score -= 5; factors.push('Negative operating margin'); }
+    }
+
+    // --- Growth (max ±15) ---
+    if (revenueGrowth != null) {
+      const rgPct = revenueGrowth * 100;
+      if (rgPct >= 20) { score += 8; factors.push('Revenue growth ≥ 20%'); }
+      else if (rgPct >= 10) { score += 5; factors.push('Revenue growth ≥ 10%'); }
+      else if (rgPct >= 5) { score += 2; }
+      else if (rgPct < 0) { score -= 5; factors.push('Revenue declining'); }
+    }
+
+    if (earningsGrowth != null) {
+      const egPct = earningsGrowth * 100;
+      if (egPct >= 20) { score += 7; factors.push('Earnings growth ≥ 20%'); }
+      else if (egPct >= 10) { score += 4; factors.push('Earnings growth ≥ 10%'); }
+      else if (egPct < 0) { score -= 4; factors.push('Earnings declining'); }
+    }
+
+    // --- Financial Health (max ±20) ---
+    if (debtToEquity != null) {
+      if (debtToEquity <= 0.3) { score += 8; factors.push('Low debt (D/E ≤ 0.3)'); }
+      else if (debtToEquity <= 0.5) { score += 4; factors.push('Moderate debt (D/E ≤ 0.5)'); }
+      else if (debtToEquity <= 1) { score += 1; }
+      else if (debtToEquity <= 2) { score -= 4; factors.push('High debt (D/E > 1)'); }
+      else { score -= 10; factors.push('Very high debt (D/E > 2)'); }
+    }
+
+    if (currentRatio != null) {
+      if (currentRatio >= 2) { score += 5; factors.push('Current ratio ≥ 2'); }
+      else if (currentRatio >= 1.5) { score += 3; factors.push('Current ratio ≥ 1.5'); }
+      else if (currentRatio >= 1) { score += 1; }
+      else { score -= 5; factors.push('Current ratio < 1 (liquidity risk)'); }
+    }
+
+    if (freeCashflow != null && freeCashflow > 0) {
+      score += 5; factors.push('Positive free cash flow');
+    } else if (freeCashflow != null && freeCashflow < 0) {
+      score -= 5; factors.push('Negative free cash flow');
+    }
+
+    if (operatingCashflow != null && operatingCashflow > 0) {
+      score += 2; factors.push('Positive operating cash flow');
+    }
+
+    // Clamp to 0-100
+    score = Math.max(0, Math.min(100, score));
+
+    return {
+      score,
+      available: true,
+      factors: factors.slice(0, 5), // Top 5 contributing factors
+      metrics: {
+        roe: roe != null ? round2(roe * 100) : null,
+        roic: roic != null ? round2(roic * 100) : null,
+        profitMargin: profitMargin != null ? round2(profitMargin * 100) : null,
+        revenueGrowth: revenueGrowth != null ? round2(revenueGrowth * 100) : null,
+        earningsGrowth: earningsGrowth != null ? round2(earningsGrowth * 100) : null,
+        debtToEquity: debtToEquity != null ? round2(debtToEquity) : null,
+        currentRatio: currentRatio != null ? round2(currentRatio) : null,
+        freeCashflow: freeCashflow != null ? round2(freeCashflow / 1e7) : null, // in crores
+      },
+    };
+  }
 
 // NSE's daily P/E snapshot can be up to 12 days old before the fetch gives
 // up (see server/python/market_data.py nselib_fundamentals). Past ~5
@@ -546,7 +670,9 @@ async function computeAnalysis(provider, sym, { includeNews }) {
       : 'We could not fetch news for this stock, so the news score is UNKNOWN.',
     technical: technicalReason(tech),
     fundamentals: fundResult.available
-      ? `We have the earnings multiple (P/E ${fundamentals?.pe}). We do not have growth, profit-margin or debt data from our current sources, so the company-health score is UNKNOWN.`
+      ? (fundResult.metrics
+        ? `Company health score: ${fundResult.score}/100. ROE: ${fundResult.metrics.roe ?? 'n/a'}%, ROIC: ${fundResult.metrics.roic ?? 'n/a'}%, Profit Margin: ${fundResult.metrics.profitMargin ?? 'n/a'}%, Revenue Growth: ${fundResult.metrics.revenueGrowth ?? 'n/a'}%, Earnings Growth: ${fundResult.metrics.earningsGrowth ?? 'n/a'}%, Debt/Equity: ${fundResult.metrics.debtToEquity ?? 'n/a'}, Current Ratio: ${fundResult.metrics.currentRatio ?? 'n/a'}. Key factors: ${fundResult.factors?.join('; ') || 'n/a'}.`
+        : `Company health score: ${fundResult.score}/100. Full financial statements, ratios (ROE, ROIC, margins, growth, debt/equity), and analyst estimates from Yahoo Finance.`)
       : 'We do not have company financials from our current sources, so the company-health score is UNKNOWN.',
     valuation: valResult.available
       ? `The price is ${round2(valResult.pe)}× the company's yearly earnings. Compared to typical NSE stocks, ${valuationLabel(valResult)}.`
@@ -630,8 +756,30 @@ async function computeAnalysis(provider, sym, { includeNews }) {
       pe: fundamentals?.pe ?? null,
       adjustedPe: fundamentals?.adjustedPe ?? null,
       tradeDate: fundamentals?.tradeDate ?? null,
+      roe: fundamentals?.roe ?? null,
+      roic: fundamentals?.roic ?? null,
+      profitMargin: fundamentals?.profit_margin ?? null,
+      operatingMargin: fundamentals?.operating_margin ?? null,
+      grossMargin: fundamentals?.gross_margin ?? null,
+      revenueGrowth: fundamentals?.revenue_growth ?? null,
+      earningsGrowth: fundamentals?.earnings_growth ?? null,
+      debtToEquity: fundamentals?.debt_to_equity ?? null,
+      currentRatio: fundamentals?.current_ratio ?? null,
+      quickRatio: fundamentals?.quick_ratio ?? null,
+      freeCashflow: fundamentals?.free_cashflow ?? null,
+      operatingCashflow: fundamentals?.operating_cashflow ?? null,
+      bookValuePerShare: fundamentals?.book_value_per_share ?? null,
+      earningsPerShare: fundamentals?.earnings_per_share ?? null,
+      revenuePerShare: fundamentals?.revenue_per_share ?? null,
+      dividendYield: fundamentals?.dividend_yield ?? null,
+      dividendRate: fundamentals?.dividend_rate ?? null,
+      payoutRatio: fundamentals?.payout_ratio ?? null,
+      targetMeanPrice: fundamentals?.target_mean_price ?? null,
+      recommendation: fundamentals?.recommendation ?? null,
       note: fundResult.available
-        ? 'P/E snapshot available; revenue growth, margins, ROE and debt data are not available from current sources.'
+        ? (fundResult.metrics
+          ? `Company health scored ${fundResult.score}/100 based on: ${fundResult.metrics.roe != null ? `ROE ${fundResult.metrics.roe}%` : ''}${fundResult.metrics.profitMargin != null ? `, Profit Margin ${fundResult.metrics.profitMargin}%` : ''}${fundResult.metrics.revenueGrowth != null ? `, Rev Growth ${fundResult.metrics.revenueGrowth}%` : ''}${fundResult.metrics.debtToEquity != null ? `, D/E ${fundResult.metrics.debtToEquity}` : ''}${fundResult.metrics.currentRatio != null ? `, Current Ratio ${fundResult.metrics.currentRatio}` : ''}. ${fundResult.factors?.join('; ') || ''}.`
+          : 'Full financial statements, ratios (ROE, margins, growth, debt/equity), and analyst estimates available from Yahoo Finance.')
         : 'Fundamentals data not available from current sources.',
     },
     valuation: {
@@ -957,8 +1105,14 @@ export function simpleLanguageNote(result) {
   // it is NOT a reliable predictor of the exact close price.
   let prediction = '';
   const marketRegime = result.market?.regime ?? 'NEUTRAL';
-  const resistance = result.technical?.primaryResistance;
-  const support = result.technical?.primarySupport;
+  // NOTE: result.technical is the display-formatted object (see the
+  // `technical:` block in computeAnalysis), which renames
+  // primaryResistance/primarySupport to resistance/support — the old
+  // primaryResistance/primarySupport names here meant `resistance` was
+  // always undefined and this branch's "upside to resistance" text never
+  // actually fired.
+  const resistance = result.technical?.resistance;
+  const support = result.technical?.support;
   const entryMid = (Number(entry.zoneLow) + Number(entry.zoneHigh)) / 2;
 
   const sessionOver = isPastClose();

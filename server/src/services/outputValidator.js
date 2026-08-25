@@ -67,7 +67,12 @@ export function validateAnalysis(result) {
   // CHECK 4: UNKNOWN data must never have a numeric score.
   // CHECK 5: a factor marked "data unavailable" must score UNKNOWN.
   const availabilityPairs = [
-    { name: 'fundamentals', available: result.fundamentals?.available === true, score: e.subScores?.fundamentals },
+    // "fundamentals" now has two possible sources: real company-health data
+    // (ROE/margins/growth/debt — result.fundamentals, from scoreFundamentals)
+    // and/or P/E-based valuation (result.valuation, from scoreValuation).
+    // Either one alone is enough evidence to justify a non-null score; only
+    // when BOTH are unavailable must subScores.fundamentals be null.
+    { name: 'fundamentals', available: result.fundamentals?.available === true || result.valuation?.available === true, score: e.subScores?.fundamentals },
     { name: 'market', available: result.market?.available === true, score: e.subScores?.marketSector },
     { name: 'relativeStrength', available: result.market?.available === true, score: e.subScores?.relativeStrength },
     {

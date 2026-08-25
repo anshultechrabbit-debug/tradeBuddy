@@ -230,20 +230,37 @@ export function buildEngineResult(a) {
     unknown.push('news');
   }
 
-  // ---- 6) Fundamentals — UNKNOWN when missing (never 50) ---- (unchanged)
-  // f.score (company-health) is architecturally always UNKNOWN in this app —
-  // only a P/E snapshot exists (see scoreFundamentals in
-  // stockAnalysisService.js), never revenue/margins/ROE/debt data. The
-  // sub-score is valuation alone until real company-health data exists.
+  // ---- 6) Fundamentals & valuation (10) ----
+  // Two independent sources feed this factor: real company-health data
+  // (ROE/ROIC/margins/growth/debt — see scoreFundamentals in
+  // stockAnalysisService.js, backed by a fundamentals data source) and P/E-
+  // based valuation (see scoreValuation). Blend both when available — this
+  // matches how the factor is already labeled everywhere else in the app
+  // ("company fundamentals & valuation", see phraseFactor below). Previously
+  // only P/E ever existed, so this always read valuation alone with company
+  // health hardcoded to UNKNOWN; that assumption is now stale now that real
+  // company-health scoring exists, and left it silently unused (visible as
+  // "Company health: UNKNOWN" even when real data was available).
   // This factor deliberately has NO influence on directionalScore (§5) — a
-  // cheap or expensive P/E doesn't move a stock's price today.
+  // cheap/expensive P/E or a strong/weak balance sheet doesn't move a
+  // stock's price today.
+  const companyHealthScore = a.fundamentals?.available === true && num(a.scores?.fundamentals) != null
+    ? clamp(Math.round(num(a.scores.fundamentals)), 0, 100)
+    : null;
+  const valuationScore = v.available === true ? clamp(Math.round(num(v.score)), 0, 100) : null;
   let fundScore = null;
-  if (v.available === true) {
-    fundScore = clamp(Math.round(num(v.score)), 0, 100);
-    // A stale P/E snapshot is still used — it's the best data available —
-    // but it should cost some evidence quality, not be treated as fresh.
-    if (v.stale === true) unknown.push('valuation(stale)');
-  } else unknown.push('fundamentals');
+  if (companyHealthScore != null && valuationScore != null) {
+    fundScore = clamp(Math.round((companyHealthScore + valuationScore) / 2), 0, 100);
+  } else if (companyHealthScore != null) {
+    fundScore = companyHealthScore;
+  } else if (valuationScore != null) {
+    fundScore = valuationScore;
+  } else {
+    unknown.push('fundamentals');
+  }
+  // A stale P/E snapshot is still used — it's the best data available — but
+  // it should cost some evidence quality, not be treated as fresh.
+  if (v.stale === true) unknown.push('valuation(stale)');
 
   // ---- 7) Market / sector ---- (unchanged)
   let marketScore = null;
@@ -341,8 +358,14 @@ export function buildEngineResult(a) {
   }
   const confirmationPrice = resistance != null ? round2(resistance) : round2(entryHigh + (atr != null ? atr * 0.5 : 0));
 
-  // Entry sanity: deep pullback if entry >10% below current price.
-  const deepPullback = price != null && entryMid != null && entryMid < price * 0.9;
+  // Entry sanity: deep pullback if entry >10% below current price. Only
+  // meaningful for a buy-class stock — a beaten-down AVOID/HOLD name will
+  // naturally have its support-based entry zone sitting far below price
+  // with no buy plan ever being considered, and CHECK_6 checks this flag
+  // against buy.entryNote specifically (null when not buy-class), so
+  // leaving this ungated failed validation for stocks that were never
+  // being offered as a buy in the first place.
+  const deepPullback = isBuyClass && price != null && entryMid != null && entryMid < price * 0.9;
   const entryNote = deepPullback
     ? `DEEP PULLBACK / WAIT — entry ≈ ${round2(((entryMid - price) / price) * 100)}% below current price`
     : null;
@@ -655,6 +678,16 @@ export function buildEngineResult(a) {
       bull,
       range: bear != null && bull != null ? [bear, bull] : null,
       expectedMovePct: sessionExpectedMovePct,
+      // `confidence`/`confidenceScore` are the original field names — kept
+      // numeric/populated because outputValidator.js's CHECK_12 requires
+      // confidenceScore specifically to be a number, and the client UI
+      // (AiPicksPage.tsx) reads closingRange.confidenceScore directly. A
+      // prior edit here renamed this to evidenceQualityScore-only and
+      // dropped the old field, which failed CHECK_12 for every symbol
+      // (visible as the RELIANCE validation error). Both names now point at
+      // the same number — pick whichever reads better going forward.
+      confidence: a.confidence ?? 'LOW',
+      confidenceScore,
       // dataQuality: input data completeness. NOT a forecast accuracy metric.
       dataQuality: a.dataQuality ?? 'LOW',
       // evidenceQualityScore: data freshness/coverage 0–100. NOT prediction confidence.
