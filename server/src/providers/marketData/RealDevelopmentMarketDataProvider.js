@@ -33,6 +33,21 @@ import { config } from '../../config/env.js';
 
 const EXTERNAL_SOURCES = ['nselib', 'jugaad', 'nse-archives'];
 
+function mapLimit(items, limit, fn) {
+  const results = [];
+  let index = 0;
+  async function worker() {
+    while (index < items.length) {
+      const current = index;
+      index += 1;
+      results[current] = await fn(items[current], current);
+    }
+  }
+  return Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker)).then(
+    () => results,
+  );
+}
+
 export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
   constructor() {
     super('real-development', 'development');
@@ -389,14 +404,24 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
       out.push(null);
     }
 
-    // Refresh missing symbols from the NSE live API in one batch.
+    // Refresh missing symbols from the NSE live API. A single Python call
+    // covering hundreds/thousands of symbols at once (e.g. a full-universe
+    // radar scan) is exactly the load pattern that makes NSE start returning
+    // empty/malformed responses (see _pollLiveSnapshot's chunking, which this
+    // mirrors) and also risks blowing the per-call timeout outright. Chunk
+    // sequentially so one bad chunk has a small blast radius and never
+    // balloons into a single giant request.
     if (need.length) {
-      let live = {};
-      try {
-        live = await this.primary.getLiveQuotes(need, exchange);
-      } catch (err) {
-        this._recordError(err, 'getQuotes:jugaad-live');
-        logInfra('info', 'market-data-external', `getQuotes live batch failed: ${err.message}`);
+      const live = {};
+      const CHUNK_SIZE = 20;
+      for (let i = 0; i < need.length; i += CHUNK_SIZE) {
+        const chunk = need.slice(i, i + CHUNK_SIZE);
+        try {
+          Object.assign(live, await this.primary.getLiveQuotes(chunk, exchange));
+        } catch (err) {
+          this._recordError(err, 'getQuotes:jugaad-live');
+          logInfra('info', 'market-data-external', `getQuotes live chunk failed: ${err.message}`);
+        }
       }
       for (const symbol of need) {
         // Re-compute index from original symbols array (out has nulls at miss positions).
@@ -519,7 +544,10 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
 
     const cachedMem = this._candleFromCache(cacheKey);
     if (cachedMem && cachedMem.length >= Math.min(limit, 310) - 20) {
-      await this._audit('getCandles', 'success', 'memory cache', cachedMem.length, start);
+      // Fire-and-forget: a cache hit shouldn't block on an audit-log DB
+      // round trip, especially under a full-universe scan calling this
+      // thousands of times per tick.
+      this._audit('getCandles', 'success', 'memory cache', cachedMem.length, start);
       return cachedMem.slice(-limit).map((c) => this._toCandle(c));
     }
 
@@ -532,7 +560,7 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
     if (candleFresh && !needDeep) {
       const sliced = cached.slice(-limit);
       this._setCandleCache(cacheKey, cached);
-      await this._audit('getCandles', 'success', 'cache', sliced.length, start);
+      this._audit('getCandles', 'success', 'cache', sliced.length, start);
       return sliced.map((c) => this._toCandle(c));
     }
 
@@ -772,6 +800,34 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
       orderBy: { priority: 'asc' },
       take: config.maxScanSymbols,
     });
+
+    // Same two problems this had for a long time: (1) a plain sequential
+    // for-loop over the whole (multi-thousand-symbol) universe — one
+    // getCandles await after another, zero concurrency — and (2) calling
+    // getCandles directly means any symbol with no/stale cached data falls
+    // through to an external historical fetch right here, inline, blocking
+    // this request. Restrict to symbols already fresh in the DB (cache-only,
+    // like computeScan's own universe scoring) and fan the reads out
+    // concurrently — staleness for the rest gets backfilled by the
+    // decoupled radar candle-backfill loop, never by this call.
+    const staleAfterMs = config.externalMarketData.staleAfterMs;
+    const freshnessRows = await prisma.marketCandle.groupBy({
+      by: ['symbol'],
+      where: { symbol: { in: universe.map((u) => u.symbol) }, timeframe: '1d' },
+      _max: { ts: true },
+      _count: { _all: true },
+    });
+    const freshBySymbol = new Map(freshnessRows.map((r) => [r.symbol, r]));
+    const now = Date.now();
+    const freshUniverse = universe.filter((entry) => {
+      const r = freshBySymbol.get(entry.symbol);
+      return !!r && r._count._all >= 21 && now - new Date(r._max.ts).getTime() <= staleAfterMs;
+    });
+
+    const candlesList = await mapLimit(freshUniverse, 20, (entry) =>
+      this.getCandles(entry.symbol, '1d', 60, entry.exchange),
+    );
+
     let aboveSma20 = 0;
     let aboveSma50 = 0;
     let advancing = 0;
@@ -780,9 +836,8 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
     let sumChangePct = 0;
     let covered = 0;
 
-    for (const entry of universe) {
-      const candles = await this.getCandles(entry.symbol, '1d', 60, entry.exchange);
-      if (candles.length < 21) continue;
+    for (const candles of candlesList) {
+      if (!candles || candles.length < 21) continue;
       covered += 1;
       const closes = candles.map((c) => c.close);
       const sma20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;

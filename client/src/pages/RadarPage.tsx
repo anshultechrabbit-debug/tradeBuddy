@@ -69,7 +69,13 @@ export function RadarPage() {
     dispatch(fetchSignals({ page: sigPage, limit: 10 }));
   }, [dispatch, sigPage]);
 
-  // Live radar: poll the cached latest scan like the market page polls quotes.
+  // Live radar: SSE pushes a fresh scan the moment one completes server-side
+  // (background scan now runs at most every 30s, market hours only), so the
+  // interval polls below are only a fallback in case a push is missed — not
+  // the primary update path. Previously these ran every 2s regardless of SSE,
+  // which meant 3 full requests/second per open tab (one of them,
+  // fetchAllQuotes, a full-universe DB query) — the main cause of the
+  // request flood on this page.
   useEffect(() => {
     dispatch(fetchLatestScan());
     dispatch(fetchIndices());
@@ -78,11 +84,12 @@ export function RadarPage() {
     const timer = setInterval(() => {
       dispatch(fetchLatestScan());
       dispatch(fetchIndices());
-      dispatch(fetchAllQuotes());
-    }, 2000);
-    const breadthTimer = setInterval(() => dispatch(fetchBreadth()), 10000);
+    }, 30000);
+    const quotesTimer = setInterval(() => dispatch(fetchAllQuotes()), 60000);
+    const breadthTimer = setInterval(() => dispatch(fetchBreadth()), 60000);
     return () => {
       clearInterval(timer);
+      clearInterval(quotesTimer);
       clearInterval(breadthTimer);
     };
   }, [dispatch]);

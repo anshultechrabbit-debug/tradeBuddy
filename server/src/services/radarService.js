@@ -84,42 +84,59 @@ async function computeScan({ userId = null, limit = 15 }) {
 
   const breadthPct = breadth.breadthPctAboveSma50;
 
-  const candlesList = await mapLimit(universe, 3, (entry) =>
+  // Not every symbol has usable cached candles yet (e.g. right after a DB
+  // seed, or a symbol nobody has ever analyzed) — for those, getCandles
+  // would otherwise fall through to an external historical fetch. An
+  // interactive scan must never do that inline: even a bounded batch of
+  // external fetches is enough to stall the request for minutes and starve
+  // every other page's requests behind the same shared rate limiter. So this
+  // scan only ever scores symbols that are ALREADY fresh in the DB — a
+  // cheap, purely local read — and skips the rest for this pass. Coverage
+  // still improves over time via a fully decoupled background loop (see
+  // startCandleBackfillLoop) that fetches stale/missing symbols without
+  // ever blocking a user request.
+  const staleAfterMs = config.externalMarketData.staleAfterMs;
+  const freshnessRows = await prisma.marketCandle.groupBy({
+    by: ['symbol'],
+    where: { symbol: { in: universe.map((u) => u.symbol) }, timeframe: '1d' },
+    _max: { ts: true },
+    _count: { _all: true },
+  });
+  const freshBySymbol = new Map(freshnessRows.map((r) => [r.symbol, r]));
+  const now = Date.now();
+  const isFresh = (symbol) => {
+    const r = freshBySymbol.get(symbol);
+    return !!r && r._count._all >= 30 && now - new Date(r._max.ts).getTime() <= staleAfterMs;
+  };
+
+  const universeToScan = [];
+  const failures = [];
+  for (const entry of universe) {
+    if (isFresh(entry.symbol)) universeToScan.push(entry);
+    else failures.push(entry.symbol);
+  }
+
+  // Cache-only reads from here — every symbol in universeToScan is already
+  // fresh, so this never triggers an external fetch. Concurrency can be much
+  // higher than the external-call paths elsewhere (those are capped low to
+  // avoid tripping NSE's rate limiting) since this is pure Postgres I/O.
+  const candlesList = await mapLimit(universeToScan, 20, (entry) =>
     provider.getCandles(entry.symbol, '1d', 60, entry.exchange),
   );
 
-  const liveQuotes = await provider.getQuotes({
-    symbols: universe.map((e) => e.symbol),
-    exchange: 'NSE',
-  });
-  const livePriceMap = new Map();
-  for (let i = 0; i < universe.length; i += 1) {
-    const q = liveQuotes[i];
-    if (q && Number(q.lastPrice) > 0) livePriceMap.set(universe[i].symbol, q.lastPrice);
-  }
-
-  const scanned = [];
-  const failures = [];
-  for (let i = 0; i < universe.length; i += 1) {
-    const entry = universe[i];
-    const candles = candlesList[i];
-    if (!candles || candles.length < 30) {
-      failures.push(entry.symbol);
-      continue;
-    }
-    const features = computeFeatures(candles, {
-      indexReturn20,
-      breadthPct,
-      livePrice: livePriceMap.get(entry.symbol) ?? null,
-    });
-    if (!features) {
-      failures.push(entry.symbol);
-      continue;
-    }
+  // Phase 1: score every already-fresh symbol off cached candle closes only
+  // — no live quotes yet. Live-quoting every symbol up front used to be the
+  // dominant cost here: a single scan could mean a live-quote fetch for the
+  // entire multi-thousand-symbol universe, which — even chunked — is many
+  // minutes of sequential external calls before the request could respond.
+  function scoreEntry(entry, candles, livePrice) {
+    if (!candles || candles.length < 30) return null;
+    const features = computeFeatures(candles, { indexReturn20, breadthPct, livePrice });
+    if (!features) return null;
     const conviction = computeConviction(features);
     const signal = generateSignal({ conviction, regime, features });
     const reason = buildReason(features, regime, conviction);
-    scanned.push({
+    return {
       instrumentId: entry.instrumentId,
       symbol: entry.symbol,
       exchange: entry.exchange,
@@ -130,10 +147,51 @@ async function computeScan({ userId = null, limit = 15 }) {
       reason,
       features,
       priority: entry.priority,
-    });
+      candles,
+    };
+  }
+
+  const scanned = [];
+  for (let i = 0; i < universeToScan.length; i += 1) {
+    const entry = universeToScan[i];
+    const scored = scoreEntry(entry, candlesList[i], null);
+    if (!scored) {
+      failures.push(entry.symbol);
+      continue;
+    }
+    scanned.push(scored);
   }
 
   scanned.sort((a, b) => b.convictionScore - a.convictionScore);
+
+  // Phase 2: refresh live price/intraday-momentum for a bounded candidate
+  // pool only — the symbols that could plausibly make the final cut — rather
+  // than the whole universe. computeFeatures already treats a missing
+  // livePrice as "use the last candle close", so anything outside this pool
+  // is still scored, just without today's intraday move factored in. Only
+  // worth attempting during market hours: NSE's live-quote API has nothing
+  // to serve once trading has closed, and every failed attempt still pays
+  // the full per-call timeout (30s) before giving up — three of those in a
+  // row (before the circuit breaker opens) is what made an after-hours scan
+  // take 90+ seconds for zero benefit.
+  const CANDIDATE_POOL = Math.min(scanned.length, limit > 0 ? Math.max(limit * 8, 100) : 150);
+  const candidates = scanned.slice(0, CANDIDATE_POOL);
+  if (candidates.length && isMarketOpen()) {
+    const liveQuotes = await provider.getQuotes({
+      symbols: candidates.map((c) => c.symbol),
+      exchange: 'NSE',
+    });
+    for (let i = 0; i < candidates.length; i += 1) {
+      const q = liveQuotes[i];
+      const livePrice = q && Number(q.lastPrice) > 0 ? q.lastPrice : null;
+      if (livePrice == null) continue;
+      const entry = { instrumentId: candidates[i].instrumentId, symbol: candidates[i].symbol, exchange: candidates[i].exchange, priority: candidates[i].priority };
+      const rescored = scoreEntry(entry, candidates[i].candles, livePrice);
+      if (rescored) candidates[i] = rescored;
+    }
+    scanned.splice(0, CANDIDATE_POOL, ...candidates);
+    scanned.sort((a, b) => b.convictionScore - a.convictionScore);
+  }
 
   const top = limit > 0 ? scanned.slice(0, limit) : scanned;
 
@@ -228,6 +286,60 @@ export function getLatestScan() {
   return lastScanResult;
 }
 
+// -------------------------------------------------------------------------
+// Candle backfill loop — decoupled from any interactive request. Steadily
+// refreshes stale/missing candle data for a small batch of universe symbols
+// each tick, so computeScan's cache-only reads keep finding more of the
+// universe fresh over time without ever making a user request wait on an
+// external fetch.
+// -------------------------------------------------------------------------
+let backfillTimer = null;
+let backfillRunning = false;
+
+async function backfillStaleCandles(batchSize = 20) {
+  if (backfillRunning) return;
+  backfillRunning = true;
+  try {
+    const provider = getMarketDataProvider();
+    const universe = await prisma.scanUniverse.findMany({
+      where: { enabled: true, excluded: false, instrumentType: 'EQUITY' },
+      orderBy: { priority: 'asc' },
+      take: config.maxScanSymbols,
+      select: { symbol: true, exchange: true },
+    });
+    const staleAfterMs = config.externalMarketData.staleAfterMs;
+    const freshnessRows = await prisma.marketCandle.groupBy({
+      by: ['symbol'],
+      where: { symbol: { in: universe.map((u) => u.symbol) }, timeframe: '1d' },
+      _max: { ts: true },
+      _count: { _all: true },
+    });
+    const freshBySymbol = new Map(freshnessRows.map((r) => [r.symbol, r]));
+    const now = Date.now();
+    const stale = universe.filter((u) => {
+      const r = freshBySymbol.get(u.symbol);
+      return !r || r._count._all < 30 || now - new Date(r._max.ts).getTime() > staleAfterMs;
+    });
+    if (!stale.length) return;
+    const batch = stale.slice(0, batchSize);
+    await mapLimit(batch, 3, (entry) => provider.getCandles(entry.symbol, '1d', 60, entry.exchange));
+    logInfra('debug', 'radar', `Candle backfill: refreshed ${batch.length}/${stale.length} stale symbols`);
+  } catch (err) {
+    logInfra('error', 'radar', `Candle backfill failed: ${err.message}`);
+  } finally {
+    backfillRunning = false;
+  }
+}
+
+/** Starts the background candle-backfill loop. Safe to call multiple times — only one timer runs. */
+export function startCandleBackfillLoop(intervalMs = 20000) {
+  if (backfillTimer) return backfillTimer;
+  backfillStaleCandles();
+  backfillTimer = setInterval(() => backfillStaleCandles(), intervalMs);
+  if (typeof backfillTimer.unref === 'function') backfillTimer.unref();
+  return backfillTimer;
+}
+
 /**
  * Falls back to the most recent persisted scan group when the in-memory
  * snapshot was lost (e.g. server restart). Keeps the radar page populated.
@@ -276,6 +388,10 @@ export function startRadarScheduler(intervalMs = 60000) {
   if (schedulerTimer) return schedulerTimer;
   const run = async () => {
     if (schedulerRunning) return;
+    // A full-universe scan (thousands of symbols) is expensive against a
+    // rate-sensitive external source — only run it while NSE is actually
+    // open, not continuously 24/7.
+    if (!isMarketOpen()) return;
     schedulerRunning = true;
     try {
       await runLiveScan(0);

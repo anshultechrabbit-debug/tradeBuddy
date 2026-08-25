@@ -11,6 +11,14 @@ export default defineConfig({
         changeOrigin: true,
         proxyTimeout: 300000,
         timeout: 300000,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('[vite-proxy] error:', err.code);
+          });
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            proxyReq.setHeader('x-forwarded-for', req.socket.remoteAddress);
+          });
+        },
       },
     },
   },

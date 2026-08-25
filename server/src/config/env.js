@@ -94,7 +94,10 @@ export const config = Object.freeze({
     baseUrl: process.env.AI_BASE_URL || 'https://api.groq.com/openai/v1',
   },
   radar: {
-    liveIntervalMs: Number(process.env.RADAR_LIVE_INTERVAL_MS || 15000),
+    // Full-universe (thousands of symbols) background rescans are expensive
+    // against a rate-sensitive external source — 15s was too aggressive for
+    // that scope; the frontend also gets live pushes via SSE in between ticks.
+    liveIntervalMs: Number(process.env.RADAR_LIVE_INTERVAL_MS || 30000),
   },
   email: {
     provider: process.env.EMAIL_PROVIDER || '',

@@ -6,5 +6,6 @@
     "src/data/**",
     ".cache/*",
     ".cache/**"
-  ]
+  ],
+  "delay": 1500
 }
