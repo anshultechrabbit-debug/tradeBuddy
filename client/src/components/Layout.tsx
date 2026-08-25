@@ -83,6 +83,16 @@ export function Layout({ children }: { children: ReactNode }) {
           </div>
         ) : null}
       </header>
+      <div className="disclaimer-banner">
+        <div className="disclaimer-banner-inner">
+          <strong>🧠 Smart, Not Psychic —</strong>
+          <span>
+            We crunch the numbers; the market makes the rules. AI predictions can be wrong, delayed, or overturned by
+            unexpected events. Treat every signal as information—not a promise. Check the data, understand the risk,
+            and make your own informed decision.
+          </span>
+        </div>
+      </div>
       <main className="main">{children}</main>
     </div>
   );

@@ -296,7 +296,7 @@ export function getLatestScan() {
 let backfillTimer = null;
 let backfillRunning = false;
 
-async function backfillStaleCandles(batchSize = 20) {
+async function backfillStaleCandles(batchSize = 150) {
   if (backfillRunning) return;
   backfillRunning = true;
   try {
@@ -331,8 +331,20 @@ async function backfillStaleCandles(batchSize = 20) {
   }
 }
 
-/** Starts the background candle-backfill loop. Safe to call multiple times — only one timer runs. */
-export function startCandleBackfillLoop(intervalMs = 20000) {
+/**
+ * Starts the background candle-backfill loop. Safe to call multiple times —
+ * only one timer runs. batchSize/intervalMs were tuned up from an earlier,
+ * much slower pass (20 symbols/20s) that left hundreds of universe symbols
+ * without any signal for a long stretch after each restart — computeScan
+ * only scores symbols that are already fresh, so incomplete backfill showed
+ * up to users as "signals don't generate for everything" and a set of
+ * opportunities that kept changing scan to scan as coverage slowly shifted.
+ * The `backfillRunning` guard means a short interval just lets the next
+ * batch start the moment the previous one finishes — it does not raise peak
+ * concurrent NSE load, which stays capped by mapLimit's concurrency (3) and
+ * the shared Python-process semaphore regardless of batch size.
+ */
+export function startCandleBackfillLoop(intervalMs = 5000) {
   if (backfillTimer) return backfillTimer;
   backfillStaleCandles();
   backfillTimer = setInterval(() => backfillStaleCandles(), intervalMs);

@@ -33,6 +33,14 @@ import { config } from '../../config/env.js';
 
 const EXTERNAL_SOURCES = ['nselib', 'jugaad', 'nse-archives'];
 
+function isMarketOpen() {
+  const ist = new Date(Date.now() + 5.5 * 3600 * 1000);
+  const day = ist.getUTCDay();
+  if (day === 0 || day === 6) return false;
+  const t = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+  return t >= 9 * 60 + 15 && t <= 15 * 60 + 30;
+}
+
 function mapLimit(items, limit, fn) {
   const results = [];
   let index = 0;
@@ -149,6 +157,12 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
    */
   async _pollLiveSnapshot() {
     if (this._pollerRunning) return; // Skip if previous tick still running.
+    // Nothing to refresh once trading has closed, and NSE's live-quote
+    // endpoint gets noticeably slower/less responsive after hours — a cycle
+    // that normally takes ~14.5s can stretch to 60-100s+, during which it
+    // monopolizes the shared Python-process concurrency pool and starves
+    // every other background job (candle backfill, etc.) of a slot.
+    if (!isMarketOpen()) return;
     this._pollerRunning = true;
     const start = Date.now();
     try {
