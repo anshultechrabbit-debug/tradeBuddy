@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { analyzeMany, analyzeSymbol, searchSymbols, suggestMarket } from '../store/aiSlice';
 import { fetchWatchlist } from '../store/watchlistSlice';
@@ -114,6 +114,22 @@ export function AiPicksPage() {
       clearInterval(timer);
     };
   }, [dispatch]);
+
+  const [searchParams] = useSearchParams();
+  const urlSymbol = searchParams.get('symbol')?.trim().toUpperCase();
+
+  useEffect(() => {
+    if (!urlSymbol) return;
+    if (bySymbol[urlSymbol]) {
+      setSelected(urlSymbol);
+      setSearched(urlSymbol);
+    } else {
+      dispatch(analyzeSymbol(urlSymbol)).then(() => {
+        setSelected(urlSymbol);
+        setSearched(urlSymbol);
+      });
+    }
+  }, [urlSymbol, bySymbol, dispatch]);
 
   const defaultSymbols = useMemo(() => {
     const symbols: string[] = [];

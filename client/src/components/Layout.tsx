@@ -5,11 +5,10 @@ import { useAppSelector } from '../store/hooks';
 const NAV_LINKS = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/radar', label: 'Opportunity Radar' },
-  { to: '/ai-picks', label: 'AI Picks' },
+  { to: '/ai-picks', label: 'AI Strategy' },
   { to: '/portfolio', label: 'Portfolio' },
   { to: '/watchlist', label: 'Watchlist' },
   { to: '/market', label: 'Market' },
-  { to: '/strategy', label: 'Strategy' },
   { to: '/alerts', label: 'Alerts' },
   { to: '/journal', label: 'Trade Journal' },
   { to: '/settings', label: 'Settings' },

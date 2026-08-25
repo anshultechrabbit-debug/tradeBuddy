@@ -109,7 +109,7 @@ export function DashboardPage() {
           ) : (
             <>
               <Link to="/ai-picks" className="btn btn-outline btn-sm">
-                AI Picks
+                AI Strategy
               </Link>
               <button type="button" className="btn btn-primary btn-sm" onClick={runAiPicks} style={{ marginLeft: 8 }}>
                 Get Suggestions

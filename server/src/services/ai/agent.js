@@ -11,6 +11,20 @@ import { prisma } from '../../config/prisma.js';
 // Key: userId, Value: { review, timestamp, holdingsHash }
 const reviewCache = new Map();
 
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      results[index] = await fn(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 function generateHoldingsHash(holdings) {
   return holdings
     .map((h) => `${h.symbol}:${h.quantity}:${Number(h.averagePrice).toFixed(2)}`)
@@ -394,6 +408,50 @@ ${holdingLines}`;
   const review = parsedReview || buildDeterministicReview();
   if (!parsedReview) {
     console.log('[AI Review] Using deterministic fallback review');
+  }
+
+  // Mandatory alignment step: Force every holding recommendation in the portfolio review
+  // to strictly match analyzeStock(symbol) — the single authority prediction engine.
+  // This prevents any contradiction between Portfolio page recommendations and AI Strategy page signals.
+  if (review.holdings && Array.isArray(review.holdings) && review.holdings.length > 0) {
+    const userHoldingsMap = new Map(holdings.map((h) => [String(h.symbol).toUpperCase(), h]));
+    review.holdings = await mapLimit(review.holdings, 4, async (item) => {
+        const sym = String(item.symbol).toUpperCase();
+        const analysis = await analyzeStock(sym, { includeNews: false }).catch(() => null);
+        if (!analysis || !analysis.ok || !analysis.engine) {
+          return item;
+        }
+
+        const sig = analysis.finalSignal; // 'STRONG BUY', 'BUY', 'WATCH', 'NO TRADE', 'HOLD', 'AVOID'
+        const userHolding = userHoldingsMap.get(sym);
+        const pnlPct = Number(userHolding?.pnlPct) || 0;
+
+        let action = 'HOLD';
+        if (sig === 'STRONG BUY' || sig === 'BUY') {
+          action = 'BUY_MORE';
+        } else if (sig === 'AVOID') {
+          action = pnlPct < -5 ? 'SELL' : 'TRIM';
+        } else {
+          // WATCH, NO TRADE, HOLD
+          if (pnlPct > 15) action = 'TRIM';
+          else action = 'HOLD';
+        }
+
+        let reason = item.reason;
+        if (sig === 'STRONG BUY' || sig === 'BUY') {
+          reason = `Buy signal with score ${analysis.overallScore}/100 and confirmed momentum.`;
+        } else if (sig === 'AVOID') {
+          reason = `Avoid signal with score ${analysis.overallScore}/100 — weak momentum and trend.`;
+        } else {
+          reason = `Watch signal with score ${analysis.overallScore}/100 — neutral momentum, hold position.`;
+        }
+
+        return {
+          symbol: sym,
+          action,
+          reason,
+        };
+      });
   }
 
   // Save to cache before returning

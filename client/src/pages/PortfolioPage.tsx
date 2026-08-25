@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import {
   fetchSummary,
@@ -218,6 +219,19 @@ export function PortfolioPage() {
                       <p className="muted small" style={{ margin: 0, lineHeight: 1.4 }}>
                         {h.reason}
                       </p>
+                      <div style={{ marginTop: 6, display: 'flex', justifyContent: 'flex-end' }}>
+                        <Link
+                          to={`/ai-picks?symbol=${h.symbol}`}
+                          className="btn btn-outline btn-sm"
+                          style={{ fontSize: 11, padding: '3px 8px' }}
+                        >
+                          {h.action === 'SELL' || h.action === 'TRIM'
+                            ? `Why Sell ${h.symbol}? →`
+                            : h.action === 'BUY_MORE'
+                            ? `Why Buy ${h.symbol}? →`
+                            : `Why Hold ${h.symbol}? →`}
+                        </Link>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -286,7 +300,7 @@ export function PortfolioPage() {
           {loading ? (
             <Spinner />
           ) : holdings.length > 0 ? (
-            <Table headers={['Symbol', 'Sector', 'Qty', 'Avg', 'LTP', 'Invested', 'Value', 'P&L', 'P&L %']}>
+            <Table headers={['Symbol', 'Sector', 'Qty', 'Avg', 'LTP', 'Invested', 'Value', 'P&L', 'P&L %', 'AI Strategy']}>
               {holdings.map((h) => (
                 <tr key={h.id}>
                   <td className="strong">{h.symbol}</td>
@@ -298,6 +312,15 @@ export function PortfolioPage() {
                   <td>{formatCurrency(h.currentValue)}</td>
                   <td className={pnlClass(h.pnl)}>{formatCurrency(h.pnl)}</td>
                   <td className={pnlClass(h.pnlPct)}>{formatPct(h.pnlPct)}</td>
+                  <td>
+                    <Link
+                      to={`/ai-picks?symbol=${h.symbol}`}
+                      className="btn btn-outline btn-sm"
+                      style={{ fontSize: 11, padding: '2px 6px' }}
+                    >
+                      View Breakdown →
+                    </Link>
+                  </td>
                 </tr>
               ))}
             </Table>
