@@ -6,6 +6,7 @@ import { fetchLatestScan } from '../store/radarSlice';
 import { fetchIndices, fetchBreadth, fetchTopStocks } from '../store/marketSlice';
 import { fetchWatchlist } from '../store/watchlistSlice';
 import { analyzeMany } from '../store/aiSlice';
+import { AiAssistant } from '../components/AiAssistant';
 import { Card, StatCard, Badge, ProgressBar, Spinner, EmptyState } from '../components/ui';
 import { formatCurrency, formatPct, formatNumber, formatTimeAgo, signalBadgeClass, regimeBadgeClass } from '../lib/format';
 
@@ -79,6 +80,8 @@ export function DashboardPage() {
         <h1>Dashboard</h1>
         <p className="muted">Welcome back, {user?.fullName ?? user?.email}</p>
       </header>
+
+      <AiAssistant />
 
       <div className="stat-grid">
         <StatCard label="Invested" value={formatCurrency(summary?.invested)} />

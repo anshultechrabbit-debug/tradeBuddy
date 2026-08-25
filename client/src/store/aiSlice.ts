@@ -148,6 +148,9 @@ export interface AiState {
   lastUpdated: number | null;
   suggestions: InstrumentSuggestion[];
   searching: boolean;
+  assistantAnswer: string | null;
+  assistantLoading: boolean;
+  assistantError: string | null;
 }
 
 const initialState: AiState = {
@@ -158,6 +161,9 @@ const initialState: AiState = {
   lastUpdated: null,
   suggestions: [],
   searching: false,
+  assistantAnswer: null,
+  assistantLoading: false,
+  assistantError: null,
 };
 
 export const searchSymbols = createAsyncThunk<InstrumentSuggestion[], string>('ai/searchSymbols', async (q) => {
@@ -183,6 +189,11 @@ export const analyzeMany = createAsyncThunk<AiAnalysis[], string[]>('ai/analyzeM
 export const suggestMarket = createAsyncThunk<AiAnalysis[], number>('ai/suggestMarket', async (n) => {
   const { data } = await apiClient.post<AiAnalyzeManyResponse>('/ai/suggest-market', { n });
   return data.results.map((r) => (r?.analysis ? normalizeAnalysis(r.analysis) : undefined)).filter((a): a is AiAnalysis => Boolean(a));
+});
+
+export const askAssistant = createAsyncThunk<string, string>('ai/askAssistant', async (question) => {
+  const { data } = await apiClient.post<{ answer: string }>('/ai/ask', { question });
+  return data.answer;
 });
 
 function mergeAnalyses(state: AiState, payload: AiAnalysis[]) {
@@ -268,6 +279,18 @@ const aiSlice = createSlice({
       .addCase(searchSymbols.rejected, (state) => {
         state.searching = false;
         state.suggestions = [];
+      })
+      .addCase(askAssistant.pending, (state) => {
+        state.assistantLoading = true;
+        state.assistantError = null;
+      })
+      .addCase(askAssistant.fulfilled, (state, action) => {
+        state.assistantLoading = false;
+        state.assistantAnswer = action.payload;
+      })
+      .addCase(askAssistant.rejected, (state, action) => {
+        state.assistantLoading = false;
+        state.assistantError = apiErrorMessage(action.error) ?? 'Buddy couldn\'t answer that — try again';
       });
   },
 });

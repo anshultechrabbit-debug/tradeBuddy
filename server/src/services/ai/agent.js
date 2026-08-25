@@ -79,10 +79,43 @@ async function callTools(question) {
   // "TCS is not in the top radar list" used as a bearish signal) — absence
   // from an arbitrary top-5 says nothing about that stock on its own; its
   // own live quote/structured analysis below is the real signal to use.
-  const topOpps = wantsTop && !symbols.length ? await topOpportunities(5).catch(() => []) : [];
+  //
+  // "Best stock" needs to mean the whole market, not a narrow shortlist —
+  // radar's scan already ranks the ENTIRE universe (~2500+ symbols) by
+  // technical conviction, so pulling a wider slice of that ranking (20, not
+  // 5) is what makes this a genuine market-wide answer rather than a
+  // coin-flip between five names.
+  const topOpps = wantsTop && !symbols.length ? await topOpportunities(20).catch(() => []) : [];
   if (topOpps.length) {
-    extra.push('LIVE RADAR SCAN RESULTS:');
-    for (const o of topOpps) extra.push(`- ${o.symbol}: score ${o.convictionScore}, signal ${o.signal} - ${o.explanation}`);
+    // Radar's convictionScore/signal is a cheap, technical-only pre-screen
+    // used to shortlist candidates out of the full universe — it is NOT
+    // this app's authoritative verdict on a stock (predictionEngine.js's
+    // buildEngineResult is; see outputValidator.js). Handing the LLM
+    // radar's raw score/signal here used to let it state a firm "X is the
+    // best buy" opinion that could straight-up contradict the AI
+    // Suggestions/AI Strategy pages' verdict for that same stock — two
+    // different scores, two different signals, same symbol, shown on the
+    // same dashboard. Re-run every shortlisted candidate through the SAME
+    // authoritative pipeline those pages use, then rank by ITS score (not
+    // radar's), so Buddy's "best stock in the market" pick is both broad
+    // and never disagrees with what the rest of the app already says.
+    // Concurrency-bounded like every other external-data fan-out in this
+    // codebase — 20 at once would contend for the same limited NSE-facing
+    // resources that the rest of the app is careful to throttle.
+    const analyses = await mapLimit(topOpps, 4, (o) => analyzeStock(o.symbol).catch(() => null));
+    const ranked = topOpps
+      .map((o, i) => ({ symbol: o.symbol, analysis: analyses[i] }))
+      .sort((a, b) => (b.analysis?.overallScore ?? -1) - (a.analysis?.overallScore ?? -1));
+    extra.push(
+      'AUTHORITATIVE ANALYSIS across a broad scan of the market (this is the single source of truth for signal/score across the whole app — always use these numbers, never invent or infer a different score; listed strongest-first by overallScore):',
+    );
+    for (const { symbol, analysis: a } of ranked) {
+      if (a?.ok && a.finalValidation?.passed) {
+        extra.push(`- ${symbol}:`, formatAnalysis(a));
+      } else {
+        extra.push(`- ${symbol}: radar flagged this for a closer look, but full analysis is unavailable right now — do not state a firm buy/avoid verdict for it.`);
+      }
+    }
   }
 
   // symbol(s) mentioned → live quote + recent daily candles (or full
