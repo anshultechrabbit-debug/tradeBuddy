@@ -1,16 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { analyzeMany, analyzeSymbol, searchSymbols, suggestMarket, fetchMarketPrediction, fetchPredictedRisers, fetchPredictionPerformance } from '../store/aiSlice';
+import { analyzeMany, analyzeSymbol, searchSymbols, suggestMarket } from '../store/aiSlice';
 import { fetchWatchlist } from '../store/watchlistSlice';
 import { fetchLatestScan } from '../store/radarSlice';
 import { fetchAllQuotes } from '../store/marketSlice';
 import { Card, Spinner, EmptyState, ErrorBox } from '../components/ui';
 import { formatCurrency, formatPct, formatTimeAgo } from '../lib/format';
 import { CandleChart } from '../components/CandleChart';
-import MarketPredictionCard from '../components/MarketPredictionCard';
-import TopRisersCard from '../components/TopRisersCard';
-import PredictionTrackerCard from '../components/PredictionTrackerCard';
 import type { AiAnalysis } from '../lib/types';
 
 function signalTone(signal: string): 'buy' | 'watch' | 'avoid' {
@@ -95,7 +92,7 @@ function FactorRow({ factor, score, reason }: { factor: (typeof FACTORS)[number]
 
 export function AiPicksPage() {
   const dispatch = useAppDispatch();
-  const { picks, bySymbol, analyzing, error, lastUpdated, suggestions, searching, marketPrediction, predictedRisers, predictionPerformance } = useAppSelector((s) => s.ai);
+  const { picks, bySymbol, analyzing, error, lastUpdated, suggestions, searching } = useAppSelector((s) => s.ai);
   const { watchlist } = useAppSelector((s) => s.watchlist);
   const { scanResult } = useAppSelector((s) => s.radar);
   const { allQuotes } = useAppSelector((s) => s.market);
@@ -105,21 +102,15 @@ export function AiPicksPage() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [searched, setSearched] = useState<string | null>(null);
   const [suggestCount, setSuggestCount] = useState(5);
+  const [showWhy, setShowWhy] = useState(false);
 
   useEffect(() => {
     dispatch(fetchWatchlist());
     dispatch(fetchLatestScan());
     dispatch(fetchAllQuotes());
-    dispatch(fetchMarketPrediction());
-    dispatch(fetchPredictedRisers());
-    dispatch(fetchPredictionPerformance());
-    const marketTimer = setInterval(() => dispatch(fetchMarketPrediction()), 30000);
-    const risersTimer = setInterval(() => dispatch(fetchPredictedRisers()), 60000);
     const timer = setInterval(() => dispatch(fetchAllQuotes()), 60000);
     return () => {
       clearInterval(timer);
-      clearInterval(marketTimer);
-      clearInterval(risersTimer);
     };
   }, [dispatch]);
 
@@ -157,16 +148,32 @@ export function AiPicksPage() {
     }
   }, [autoLoaded, defaultSymbols, bySymbol, added, analyzing, dispatch]);
 
-  // Real-time refresh: news and market shift constantly, so re-score every 2s.
+  // Re-score periodically so news/market shifts show up without a manual
+  // refresh. This used to fire every 2s — each tick re-runs a full 7-factor
+  // analysis (quote + 280 candles + news + fundamentals) for up to 10 stocks,
+  // which saturates the same limited Python-bridge/DB capacity that page
+  // load, search, and candle requests all share too. 20s still feels live
+  // for a research tool without constantly starving everything else on the
+  // page (and matches analyzeStock's own server-side cache window better —
+  // 2s was tight enough to miss its cache almost every single tick).
   // Cap to the top 10 picks — the server only scores 10 anyway, and a longer
   // array would be rejected by the request validation.
   useEffect(() => {
     if (!picks.length || analyzing) return;
     const timer = setInterval(() => {
       dispatch(analyzeMany(picks.slice(0, 10).map((p) => p.symbol)));
-    }, 2000);
+    }, 20000);
     return () => clearInterval(timer);
   }, [picks, analyzing, dispatch]);
+
+  useEffect(() => {
+    if (!showWhy) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowWhy(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showWhy]);
 
   // Debounced live symbol search (as you type).
   useEffect(() => {
@@ -317,16 +324,6 @@ export function AiPicksPage() {
         )
       ) : active ? (
         <>
-          {marketPrediction ? (
-            <MarketPredictionCard today={marketPrediction.today} track={marketPrediction.track} />
-          ) : null}
-          <TopRisersCard
-            candidates={predictedRisers?.candidates ?? []}
-            actionable={predictedRisers?.actionable ?? []}
-          />
-          {predictionPerformance ? (
-            <PredictionTrackerCard performance={predictionPerformance} />
-          ) : null}
           {searched ? (
             <div className="sg-search-view-head">
               <span className="sg-live-badge">
@@ -402,6 +399,12 @@ export function AiPicksPage() {
 
               <p className="sg-oneliner">{active.oneLiner}</p>
 
+              <button type="button" className="why-cta" onClick={() => setShowWhy(true)}>
+                <span className="why-cta-dot" />
+                What this signal?
+                <span className="why-cta-arrow">→</span>
+              </button>
+
               {active.simpleNote ? (
                 <div className="sg-plaintalk">
                   <span className="sg-plaintalk-label">In plain language</span>
@@ -471,63 +474,90 @@ export function AiPicksPage() {
           </div>
 
           <div className="grid-2">
-            <Card title="Why this signal? — factor breakdown">
+            <Card title="Action plan">
+              <div className="sg-plan">
+                <div className="sg-plan-row">
+                  <span className="muted small">Entry</span>
+                  <span className="strong">
+                    {formatCurrency(active.entry.zoneLow)} – {formatCurrency(active.entry.zoneHigh)}
+                  </span>
+                </div>
+                <div className="sg-plan-row">
+                  <span className="muted small">Stop-loss</span>
+                  <span className="strong text-negative">{formatCurrency(active.entry.stopLoss)}</span>
+                </div>
+                <div className="sg-plan-row">
+                  <span className="muted small">Support (buy zone floor)</span>
+                  <span className="strong">{formatCurrency(active.technical.primarySupport)}</span>
+                </div>
+                <div className="sg-plan-row">
+                  <span className="muted small">Resistance (sell ceiling)</span>
+                  <span className="strong">{formatCurrency(active.technical.primaryResistance)}</span>
+                </div>
+                <div className="sg-plan-row">
+                  <span className="muted small">Trend</span>
+                  <span className="strong">{active.technical.trend}</span>
+                </div>
+                <div className="sg-plan-row">
+                  <span className="muted small">Buying pressure</span>
+                  <span className="strong">{active.technical.rsi?.toFixed(1) ?? '—'}/100</span>
+                </div>
+                <p className="sg-plan-reason muted small">{active.entry.note || active.entry.reason}</p>
+              </div>
+            </Card>
+
+            <Card title="Key factors">
+              <div className="sg-keyfactors">
+                {active.positiveFactors.map((f) => (
+                  <div key={f} className="sg-kf sg-kf-good">
+                    ▲ {f}
+                  </div>
+                ))}
+                {active.negativeFactors.map((f) => (
+                  <div key={f} className="sg-kf sg-kf-bad">
+                    ▼ {f}
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </div>
+
+          <Card title="Why this signal? — in plain language">
+            {active.engineWhy ? (
+              <div className="why-section">
+                <p className="why-summary-text">{active.engineWhy.summary}</p>
+                <div className="why-cols">
+                  <div className="why-col why-invest">
+                    <h4>Why you might invest</h4>
+                    <ul>
+                      {active.engineWhy.investReasons.map((r, i) => (
+                        <li key={i}>{r}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="why-col why-loss">
+                    <h4>Why it could go to a loss</h4>
+                    <ul>
+                      {active.engineWhy.lossReasons.map((r, i) => (
+                        <li key={i}>{r}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+                <div className="sg-factors">
+                  {FACTORS.map((f) => (
+                    <FactorRow key={f.key} factor={f} score={active.factorScores[f.key]} reason={active.reasons[f.key]} />
+                  ))}
+                </div>
+              </div>
+            ) : (
               <div className="sg-factors">
                 {FACTORS.map((f) => (
                   <FactorRow key={f.key} factor={f} score={active.factorScores[f.key]} reason={active.reasons[f.key]} />
                 ))}
               </div>
-            </Card>
-
-            <div>
-              <Card title="Action plan">
-                <div className="sg-plan">
-                  <div className="sg-plan-row">
-                    <span className="muted small">Entry</span>
-                    <span className="strong">
-                      {formatCurrency(active.entry.zoneLow)} – {formatCurrency(active.entry.zoneHigh)}
-                    </span>
-                  </div>
-                  <div className="sg-plan-row">
-                    <span className="muted small">Stop-loss</span>
-                    <span className="strong text-negative">{formatCurrency(active.entry.stopLoss)}</span>
-                  </div>
-                  <div className="sg-plan-row">
-                    <span className="muted small">Support (buy zone floor)</span>
-                    <span className="strong">{formatCurrency(active.technical.primarySupport)}</span>
-                  </div>
-                  <div className="sg-plan-row">
-                    <span className="muted small">Resistance (sell ceiling)</span>
-                    <span className="strong">{formatCurrency(active.technical.primaryResistance)}</span>
-                  </div>
-                  <div className="sg-plan-row">
-                    <span className="muted small">Trend</span>
-                    <span className="strong">{active.technical.trend}</span>
-                  </div>
-                  <div className="sg-plan-row">
-                    <span className="muted small">Buying pressure</span>
-                    <span className="strong">{active.technical.rsi?.toFixed(1) ?? '—'}/100</span>
-                  </div>
-                  <p className="sg-plan-reason muted small">{active.entry.note || active.entry.reason}</p>
-                </div>
-              </Card>
-
-              <Card title="Key factors">
-                <div className="sg-keyfactors">
-                  {active.positiveFactors.map((f) => (
-                    <div key={f} className="sg-kf sg-kf-good">
-                      ▲ {f}
-                    </div>
-                  ))}
-                  {active.negativeFactors.map((f) => (
-                    <div key={f} className="sg-kf sg-kf-bad">
-                      ▼ {f}
-                    </div>
-                  ))}
-                </div>
-              </Card>
-            </div>
-          </div>
+            )}
+          </Card>
 
           <Card title="News">
             <div className="sg-news-head">
@@ -575,6 +605,47 @@ export function AiPicksPage() {
             </div>
           ) : null}
         </>
+      ) : null}
+
+      {showWhy && active ? (
+        <div className="modal-backdrop" onClick={() => setShowWhy(false)}>
+          <div className="modal-card" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="modal-close" onClick={() => setShowWhy(false)} aria-label="Close">
+              ×
+            </button>
+            <h3 className="modal-title">Why this signal? — factor breakdown</h3>
+
+            {active.engineWhy ? (
+              <div className="why-modal-summary">
+                <p className="why-modal-summary-text">{active.engineWhy.summary}</p>
+                <div className="why-modal-cols">
+                  <div className="why-modal-col why-invest">
+                    <h4>Why you might invest</h4>
+                    <ul>
+                      {active.engineWhy.investReasons.map((r, i) => (
+                        <li key={i}>{r}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="why-modal-col why-loss">
+                    <h4>Why it could go to a loss</h4>
+                    <ul>
+                      {active.engineWhy.lossReasons.map((r, i) => (
+                        <li key={i}>{r}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="sg-factors">
+              {FACTORS.map((f) => (
+                <FactorRow key={f.key} factor={f} score={active.factorScores[f.key]} reason={active.reasons[f.key]} />
+              ))}
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );

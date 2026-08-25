@@ -1,6 +1,6 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import { apiClient, apiErrorMessage } from '../api/client';
-import type { AiAnalysis, AiAnalyzeManyResponse, AiAnalyzeResponse, MarketPredictionResponse, PredictedRisersResponse, PredictionPerformance } from '../lib/types';
+import type { AiAnalysis, AiAnalyzeManyResponse, AiAnalyzeResponse } from '../lib/types';
 
 type RawAnalysis = Record<string, any>;
 
@@ -128,6 +128,7 @@ export function normalizeAnalysis(raw: RawAnalysis): AiAnalysis {
     expectedClose: raw.expectedClose ?? null,
     expectedPct: raw.expectedPct ?? null,
     engine: raw.engine ?? null,
+    engineWhy: raw.engineWhy ?? null,
     dataTimestamp: raw.dataTimestamp ?? new Date().toISOString(),
     disclaimer: raw.disclaimer ?? '',
   };
@@ -147,9 +148,6 @@ export interface AiState {
   lastUpdated: number | null;
   suggestions: InstrumentSuggestion[];
   searching: boolean;
-  marketPrediction: MarketPredictionResponse | null;
-  predictedRisers: PredictedRisersResponse | null;
-  predictionPerformance: PredictionPerformance | null;
 }
 
 const initialState: AiState = {
@@ -160,9 +158,6 @@ const initialState: AiState = {
   lastUpdated: null,
   suggestions: [],
   searching: false,
-  marketPrediction: null,
-  predictedRisers: null,
-  predictionPerformance: null,
 };
 
 export const searchSymbols = createAsyncThunk<InstrumentSuggestion[], string>('ai/searchSymbols', async (q) => {
@@ -188,21 +183,6 @@ export const analyzeMany = createAsyncThunk<AiAnalysis[], string[]>('ai/analyzeM
 export const suggestMarket = createAsyncThunk<AiAnalysis[], number>('ai/suggestMarket', async (n) => {
   const { data } = await apiClient.post<AiAnalyzeManyResponse>('/ai/suggest-market', { n });
   return data.results.map((r) => (r?.analysis ? normalizeAnalysis(r.analysis) : undefined)).filter((a): a is AiAnalysis => Boolean(a));
-});
-
-export const fetchMarketPrediction = createAsyncThunk<MarketPredictionResponse>('ai/marketPrediction', async () => {
-  const { data } = await apiClient.get<MarketPredictionResponse>('/ai/market-prediction');
-  return data;
-});
-
-export const fetchPredictedRisers = createAsyncThunk<PredictedRisersResponse>('ai/predictedRisers', async () => {
-  const { data } = await apiClient.post<PredictedRisersResponse>('/ai/predicted-risers', { limit: 5 });
-  return data;
-});
-
-export const fetchPredictionPerformance = createAsyncThunk<PredictionPerformance>('ai/predictionPerformance', async () => {
-  const { data } = await apiClient.get<PredictionPerformance>('/ai/prediction-performance');
-  return data;
 });
 
 function mergeAnalyses(state: AiState, payload: AiAnalysis[]) {
@@ -288,15 +268,6 @@ const aiSlice = createSlice({
       .addCase(searchSymbols.rejected, (state) => {
         state.searching = false;
         state.suggestions = [];
-      })
-      .addCase(fetchMarketPrediction.fulfilled, (state, action) => {
-        state.marketPrediction = action.payload;
-      })
-      .addCase(fetchPredictedRisers.fulfilled, (state, action) => {
-        state.predictedRisers = action.payload;
-      })
-      .addCase(fetchPredictionPerformance.fulfilled, (state, action) => {
-        state.predictionPerformance = action.payload;
       });
   },
 });

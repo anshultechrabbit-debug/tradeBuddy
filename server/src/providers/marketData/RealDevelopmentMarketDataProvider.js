@@ -144,7 +144,29 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
       const symbols = universe.map((u) => u.symbol);
       if (!symbols.length) return;
 
-      const live = await this.primary.getLiveQuotes(symbols, 'NSE');
+      // One 60-symbol call in a single Python process measured at ~14.5s
+      // with ZERO contention, and losing that one call means losing ALL 60
+      // symbols' live prices at once. Splitting into smaller chunks gives a
+      // failure smaller blast radius — BUT running those chunks concurrently
+      // (tried first) was worse, not better: it means 3 simultaneous NSE
+      // sessions instead of 1, and NSE itself started rate-limiting/blocking
+      // under that (empty response bodies, malformed JSON, missing fields —
+      // classic anti-scraping symptoms — across every source at once, gone
+      // the moment the load dropped). Sequential chunks keep the smaller-
+      // blast-radius benefit without multiplying simultaneous NSE load.
+      const CHUNK_SIZE = 20;
+      const chunks = [];
+      for (let i = 0; i < symbols.length; i += CHUNK_SIZE) chunks.push(symbols.slice(i, i + CHUNK_SIZE));
+
+      const live = {};
+      let failedChunks = 0;
+      for (const chunk of chunks) {
+        try {
+          Object.assign(live, await this.primary.getLiveQuotes(chunk, 'NSE'));
+        } catch {
+          failedChunks += 1;
+        }
+      }
       const count = Object.keys(live).length;
       if (count > 0) {
         for (const [sym, quote] of Object.entries(live)) {
@@ -157,7 +179,11 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
         this._snapshotAt = Date.now();
         this._recordSuccess('quote');
         const elapsed = Date.now() - start;
-        logInfra('info', 'market-data-external', `live-quote snapshot refreshed: ${count}/${symbols.length} symbols in ${elapsed}ms`);
+        logInfra(
+          'info',
+          'market-data-external',
+          `live-quote snapshot refreshed: ${count}/${symbols.length} symbols in ${elapsed}ms${failedChunks ? ` (${failedChunks}/${chunks.length} chunks failed)` : ''}`,
+        );
       } else {
         logInfra('info', 'market-data-external', 'live-quote snapshot: batch returned 0 quotes (market may be closed)');
       }

@@ -56,8 +56,14 @@ export const config = Object.freeze({
     // Python process + NSE session per call, so it needs headroom once a few
     // calls are queued behind the concurrency cap below.
     timeoutMs: Number(process.env.MARKET_DATA_TIMEOUT_MS || 8000),
-    // Dedicated timeout for batch live_quotes calls (many symbols, parallel Python fetch).
-    liveBatchTimeoutMs: Number(process.env.MARKET_DATA_LIVE_BATCH_TIMEOUT_MS || 15000),
+    // Dedicated timeout for batch live_quotes calls (many symbols, parallel
+    // Python fetch). Measured directly: the ~60-symbol universe batch takes
+    // ~14.5s with ZERO other load — 15000 gave it essentially no margin, so
+    // it failed outright under any real contention (which then trips the
+    // circuit breaker and blocks every OTHER quote/candle/fundamentals call
+    // for 5 minutes too, since the breaker is global). This is almost
+    // certainly the single biggest cause of app-wide slowness/fallback data.
+    liveBatchTimeoutMs: Number(process.env.MARKET_DATA_LIVE_BATCH_TIMEOUT_MS || 30000),
     retries: Number(process.env.MARKET_DATA_RETRIES || 0),
     rateLimitPerMinute: Number(process.env.MARKET_DATA_RATE_LIMIT_PER_MINUTE || 30),
     // Max Python CLI processes spawned at once. Each call shells out to a new
@@ -65,6 +71,12 @@ export const config = Object.freeze({
     // symbols in parallel) makes every one of them slow enough to blow past
     // timeoutMs even though each is individually fine — this caps the burst so
     // calls queue briefly instead of all contending for CPU/network at once.
+    // Tried bumping this to 6 to speed up batch endpoints, but the real
+    // constraint turned out to be NSE's OWN rate-limiting, not local CPU —
+    // more simultaneous NSE sessions triggered empty/malformed responses
+    // (classic anti-scraping behavior) across every source at once, which
+    // went away the moment concurrency dropped back down. Local capacity
+    // isn't the bottleneck here; staying gentle with the upstream is.
     maxConcurrency: Number(process.env.MARKET_DATA_MAX_CONCURRENCY || 4),
     cacheTtlMs: Number(process.env.MARKET_DATA_CACHE_TTL_MS || 60 * 60 * 1000),
     staleAfterMs: Number(process.env.MARKET_DATA_STALE_AFTER_MS || 72 * 60 * 60 * 1000),

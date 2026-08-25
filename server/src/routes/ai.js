@@ -8,7 +8,6 @@ import { recommend } from '../services/ai/recommender.js';
 import { topOpportunities } from '../services/radarService.js';
 import { analyzeStock, formatAnalysis } from '../services/stockAnalysisService.js';
 import { formatValidationFailure } from '../services/outputValidator.js';
-import { getTodayPrediction, getTrackRecord } from '../services/marketPredictionService.js';
 import { recordFromAnalysis, evaluatePredictions, getPredictions, weeklyStats } from '../services/predictionTracker.js';
 
 const CONCURRENCY = 4;
@@ -106,91 +105,6 @@ router.post(
         return { symbol, analysis: result, formatted: formatAnalysis(result) };
       });
       res.json({ results: out.filter((r) => r.analysis), errors: out.filter((r) => !r.analysis) });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
-router.get(
-  '/market-prediction',
-  async (req, res, next) => {
-    try {
-      const today = await getTodayPrediction();
-      const track = getTrackRecord(10);
-      res.json({ today, track });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
-router.post(
-  '/predicted-risers',
-  body('limit').optional().isInt({ min: 1, max: 20 }),
-  validate,
-  async (req, res, next) => {
-    try {
-      const { topOpportunities } = await import('../services/radarService.js');
-      const wanted = Number(req.body.limit ?? 5);
-      // Wider candidate pool than the AI Picks watchlist so we can rank candidates.
-      const opps = await topOpportunities(40);
-      const symbols = [...new Set(opps.map((o) => o.symbol))].slice(0, 40);
-      const analyzed = (await mapLimit(symbols, CONCURRENCY, async (sym) => {
-        const r = await analyzeStock(sym).catch(() => null);
-        // Never publish a result that fails the mandatory final consistency
-        // gate — drop it from the candidate pool rather than surface it.
-        return r && r.ok && r.engine && r.finalValidation?.passed ? r : null;
-      })).filter(Boolean);
-
-      // TOP 5 CANDIDATES — the highest-scoring names, by signal (not forced BUY).
-      const candidates = analyzed
-        .sort((a, b) => (b.engine.totalScore ?? 0) - (a.engine.totalScore ?? 0))
-        .slice(0, wanted)
-        .map((r) => ({
-          symbol: r.symbol,
-          companyName: r.companyName,
-          price: r.price ?? null,
-          score: r.engine.totalScore,
-          signal: r.engine.signal,
-          tradeStatus: r.engine.tradeStatus,
-          expectedClose: r.expectedClose,
-          expectedPct: r.expectedPct,
-        }));
-
-      const executable = analyzed.filter((r) => r.engine?.tradeStatus === 'EXECUTABLE' && r.engine?.isBuy);
-
-      // Freeze every executable BUY as a trackable prediction, once per
-      // symbol per trading day — this is what lets /prediction-performance
-      // ever accumulate real out-of-sample records instead of sitting empty
-      // (CRIT-6 in the pipeline audit: this loop used to not exist at all).
-      for (const r of executable) {
-        try {
-          recordFromAnalysis(r);
-        } catch (err) {
-          // Never let tracking failures break the candidate response.
-        }
-      }
-
-      // ACTIONABLE BUY SETUPS — only names that passed ALL tradeability gates.
-      const actionable = executable
-        .sort((a, b) => (b.engine.totalScore ?? 0) - (a.engine.totalScore ?? 0))
-        .slice(0, wanted)
-        .map((r) => ({
-          symbol: r.symbol,
-          companyName: r.companyName,
-          price: r.price ?? null,
-          score: r.engine.totalScore,
-          entry: r.engine.buy?.preferredEntryRange ?? null,
-          confirmation: r.engine.buy?.confirmationPrice ?? null,
-          target1: r.engine.buy?.target1 ?? null,
-          target2: r.engine.buy?.target2 ?? null,
-          stopLoss: r.engine.buy?.stopLoss ?? null,
-          riskReward: r.engine.buy?.riskReward ?? null,
-          expectedClose: r.expectedClose,
-        }));
-
-      res.json({ candidates, actionable });
     } catch (err) {
       next(err);
     }
@@ -318,18 +232,6 @@ router.post(
       const closes = req.body.closes ?? {};
       const { updated } = evaluatePredictions(closes);
       res.json({ updated, performance: weeklyStats() });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
-// Permanent prediction table + weekly performance summary.
-router.get(
-  '/prediction-performance',
-  async (req, res, next) => {
-    try {
-      res.json({ predictions: getPredictions(), performance: weeklyStats() });
     } catch (err) {
       next(err);
     }

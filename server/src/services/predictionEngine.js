@@ -438,3 +438,72 @@ const WEIGHTS = {
   fundamentals: 10,
   market: 10,
 };
+
+function phraseFactor(label, score) {
+  if (score == null) {
+    return { label, score: null, text: 'UNKNOWN — we have no verified data for this factor, so it is excluded from the score (never assumed neutral).' };
+  }
+  const word = score >= 70 ? 'strong' : score >= 50 ? 'moderate' : score >= 30 ? 'weak' : 'very weak';
+  const extra = {
+    technicalMomentum: 'price momentum',
+    trend: 'price trend',
+    volumeConfirmation: 'volume confirmation of the move',
+    relativeStrength: 'strength versus the Nifty',
+    news: 'recent news sentiment',
+    fundamentals: 'company fundamentals & valuation',
+    marketSector: 'broad market conditions',
+  }[label] ?? label;
+  return { label, score, text: `${extra.charAt(0).toUpperCase() + extra.slice(1)} is ${word} (${score}/100).` };
+}
+
+// Plain-language "Why this signal?" breakdown — factor scores, plus the two
+// questions a user actually asks: "why invest?" and "why could this be a loss?".
+export function buildWhySection(a) {
+  const e = a.engine;
+  if (!e) {
+    return { factorBreakdown: [], investReasons: [], lossReasons: [], summary: 'Engine not available.' };
+  }
+  const factorBreakdown = [
+    phraseFactor('technicalMomentum', e.subScores?.technicalMomentum ?? null),
+    phraseFactor('trend', e.subScores?.trend ?? null),
+    phraseFactor('volumeConfirmation', e.subScores?.volumeConfirmation ?? null),
+    phraseFactor('relativeStrength', e.subScores?.relativeStrength ?? null),
+    phraseFactor('news', e.subScores?.news ?? null),
+    phraseFactor('fundamentals', e.subScores?.fundamentals ?? null),
+    phraseFactor('marketSector', e.subScores?.marketSector ?? null),
+  ];
+
+  const investReasons = [];
+  (a.positiveFactors ?? []).slice(0, 4).forEach((p) => investReasons.push(p));
+  if (e.isBuy && e.buy) {
+    investReasons.push(
+      `If you enter, the structured plan is: buy near ₹${e.buy.preferredEntryRange?.[0]}–₹${e.buy.preferredEntryRange?.[1]}, target ₹${e.buy.target1}, stop-loss ₹${e.buy.stopLoss}.`,
+    );
+  }
+
+  const lossReasons = [];
+  (a.negativeFactors ?? []).slice(0, 4).forEach((p) => lossReasons.push(p));
+  if (e.buy?.reasonSetupCouldFail) lossReasons.push(`Main reason it could fail: ${e.buy.reasonSetupCouldFail}`);
+  if (e.gates?.deepPullback) lossReasons.push('Entry is far below the current price (deep pullback) — wait for the dip, do not chase it.');
+  if (e.tradeStatus === 'WAIT') {
+    lossReasons.push('The setup is not yet actionable — risk/reward or volume confirmation is still short of the required bar.');
+  }
+  const unknown = e.coverage?.unknownFactors ?? [];
+  if (unknown.length) {
+    lossReasons.push(`We could not verify: ${unknown.join(', ')}. The view is incomplete, so size positions small and stay cautious.`);
+  }
+
+  const summary = (() => {
+    const head = `${e.classification} (score ${e.totalScore}/100), trade status: ${e.tradeStatus}.`;
+    const body =
+      e.tradeStatus === 'EXECUTABLE'
+        ? 'The setup is actionable now — it clears every discipline gate.'
+        : e.tradeStatus === 'WAIT'
+          ? 'Wait for confirmation (e.g., better volume or a cleaner risk/reward) before entering.'
+          : 'No trade — the evidence does not support taking a position today.';
+    const tail = unknown.length ? ' Some data is UNKNOWN, so confidence is limited.' : '';
+    return `${head} ${body}${tail}`;
+  })();
+
+  return { factorBreakdown, investReasons, lossReasons, summary };
+}

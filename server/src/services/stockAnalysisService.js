@@ -16,7 +16,7 @@
 import { getMarketDataProvider } from '../providers/marketData/index.js';
 import { sma, ema, rsi, atr, roc, clamp } from './radar/indicators.js';
 import { fetchStockNews } from './newsService.js';
-import { buildEngineResult } from './predictionEngine.js';
+import { buildEngineResult, buildWhySection } from './predictionEngine.js';
 import { validateAnalysis } from './outputValidator.js';
 import { round2 } from '../utils/helpers.js';
 import { isPastClose } from './officialClose.js';
@@ -474,11 +474,13 @@ async function computeAnalysis(provider, sym, { includeNews }) {
     return failed;
   }
 
-  const [news, fundamentals] = await Promise.all([
+  // market only needs `tech` (already available) and fetches NIFTY data
+  // independently of news/fundamentals — no reason to wait for those first.
+  const [news, fundamentals, market] = await Promise.all([
     includeNews ? fetchNewsCached(provider, sym) : Promise.resolve(null),
     getFundamentalsCached(provider, sym),
+    gatherMarket(provider, tech),
   ]);
-  const market = await gatherMarket(provider, tech);
 
   const newsResult = news ? scoreNews(news) : { score: null, articles: [], positive: 0, neutral: 0, negative: 0, overall: 'Neutral', available: false };
   const techScore = scoreTechnical(tech);
@@ -676,6 +678,7 @@ async function computeAnalysis(provider, sym, { includeNews }) {
   // forecast. This is the SINGLE authority for the published overall score
   // and signal — nothing above this line is user-facing yet.
   result.engine = buildEngineResult(result);
+  result.engineWhy = buildWhySection(result);
   result.overallScore = result.engine.totalScore;
   result.finalSignal = result.engine.signal;
 

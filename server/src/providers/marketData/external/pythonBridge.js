@@ -18,32 +18,48 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const SCRIPT = path.resolve(__dirname, '../../../../python/market_data.py');
 
-// Circuit breaker: once the external data source fails a few times in a row,
-// stop shelling out to Python for a cooldown window. This avoids hanging on
-// 10s timeouts (now capped) and spamming error logs every poll. The provider
-// falls back to synthetic data while the circuit is open.
+// Circuit breaker: once an external data source fails a few times in a row,
+// stop shelling out to Python for that source for a cooldown window. This
+// avoids hanging on timeouts and spamming error logs every poll.
+//
+// Per-source, not global: nselib is currently broken outright (NSE changed
+// its response schema and the nselib package hasn't caught up — a real bug
+// in that package, not something transient) and fails on essentially every
+// call. With one shared breaker, nselib's constant failures kept tripping
+// the circuit for jugaad and nse-archives too, even though those work fine
+// — one broken source was taking two working ones down with it every few
+// minutes. Each source now trips (and recovers) independently.
 const CIRCUIT_THRESHOLD = 3;
 const CIRCUIT_COOLDOWN_MS = 5 * 60 * 1000;
-let _circuitFails = 0;
-let _circuitOpenUntil = 0;
+const _circuits = new Map(); // source → { fails, openUntil }
 
-function circuitOpen() {
-  return Date.now() < _circuitOpenUntil;
+function circuitFor(source) {
+  let c = _circuits.get(source);
+  if (!c) {
+    c = { fails: 0, openUntil: 0 };
+    _circuits.set(source, c);
+  }
+  return c;
 }
-function circuitNoteFailure() {
-  _circuitFails += 1;
-  if (_circuitFails >= CIRCUIT_THRESHOLD && _circuitOpenUntil === 0) {
-    _circuitOpenUntil = Date.now() + CIRCUIT_COOLDOWN_MS;
+function circuitOpen(source) {
+  return Date.now() < circuitFor(source).openUntil;
+}
+function circuitNoteFailure(source) {
+  const c = circuitFor(source);
+  c.fails += 1;
+  if (c.fails >= CIRCUIT_THRESHOLD && c.openUntil === 0) {
+    c.openUntil = Date.now() + CIRCUIT_COOLDOWN_MS;
     logInfra(
       'info',
       'market-data-external',
-      `circuit opened after ${_circuitFails} consecutive failures; using synthetic fallback for ${CIRCUIT_COOLDOWN_MS / 60000}min`,
+      `${source} circuit opened after ${c.fails} consecutive failures; using fallback for ${CIRCUIT_COOLDOWN_MS / 60000}min`,
     );
   }
 }
-function circuitNoteSuccess() {
-  _circuitFails = 0;
-  _circuitOpenUntil = 0;
+function circuitNoteSuccess(source) {
+  const c = circuitFor(source);
+  c.fails = 0;
+  c.openUntil = 0;
 }
 
 let _pythonBin = null;
@@ -179,8 +195,8 @@ export class PythonClient {
 
   async call(command, args = {}, opts = {}) {
     // Circuit open → fail fast without shelling out (no hang, no log spam).
-    if (circuitOpen()) {
-      throw new Error('external circuit open (cooldown) — using fallback');
+    if (circuitOpen(this.source)) {
+      throw new Error(`external circuit open (cooldown) — using fallback [${this.source}]`);
     }
     const argv = [this.source, command];
     for (const [k, v] of Object.entries(args)) {
@@ -193,11 +209,11 @@ export class PythonClient {
     try {
       const payload = await runPython(argv, { ...config.externalMarketData, timeoutMs, retries: 0 });
       if (!payload.ok) throw new Error(payload.error || 'unknown python error');
-      circuitNoteSuccess();
+      circuitNoteSuccess(this.source);
       this._recordSuccess();
       return payload.data;
     } catch (err) {
-      circuitNoteFailure();
+      circuitNoteFailure(this.source);
       this._recordError(err, command);
       logInfra('info', 'market-data-external', `${this.name}.${command}: ${err.message}`);
       throw err;

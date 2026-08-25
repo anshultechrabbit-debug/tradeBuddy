@@ -365,6 +365,19 @@ export interface EngineBuy {
   entryNote?: string | null;
 }
 
+export interface EngineWhyFactor {
+  label: string;
+  score: number | null;
+  text: string;
+}
+
+export interface EngineWhy {
+  factorBreakdown: EngineWhyFactor[];
+  investReasons: string[];
+  lossReasons: string[];
+  summary: string;
+}
+
 export interface EngineOutput {
   schemaVersion: number;
   modelVersion: string;
@@ -458,6 +471,7 @@ export interface AiAnalysis {
   expectedClose: number | null;
   expectedPct: number | null;
   engine: EngineOutput | null;
+  engineWhy: EngineWhy | null;
   finalValidation?: { passed: boolean; failedChecks: { id: string; title: string; detail: string }[] } | null;
   dataTimestamp: string;
   disclaimer: string;
@@ -534,6 +548,7 @@ export interface RiserCandidate {
   tradeStatus: string;
   expectedClose: number | null;
   expectedPct: number | null;
+  reason: string | null;
 }
 
 export interface ActionableSetup {
@@ -548,6 +563,7 @@ export interface ActionableSetup {
   stopLoss: number | null;
   riskReward: number | null;
   expectedClose: number | null;
+  reason: string | null;
 }
 
 export interface PredictedRisersResponse {
