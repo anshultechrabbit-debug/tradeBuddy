@@ -8,7 +8,7 @@ import { recommend } from '../services/ai/recommender.js';
 import { topOpportunities } from '../services/radarService.js';
 import { analyzeStock, formatAnalysis } from '../services/stockAnalysisService.js';
 import { formatValidationFailure } from '../services/outputValidator.js';
-import { recordFromAnalysis, evaluatePredictions, getPredictions, weeklyStats } from '../services/predictionTracker.js';
+import { recordFromAnalysis, evaluatePredictions, getPredictions, weeklyStats, allStats, freezeDailyPredictions } from '../services/predictionTracker.js';
 
 const CONCURRENCY = 4;
 
@@ -231,7 +231,51 @@ router.post(
     try {
       const closes = req.body.closes ?? {};
       const { updated } = evaluatePredictions(closes);
-      res.json({ updated, performance: weeklyStats() });
+      res.json({ updated, performance: weeklyStats(), stats: allStats() });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  '/predictions',
+  async (req, res, next) => {
+    try {
+      const { symbol, date } = req.query;
+      let list = getPredictions();
+      if (symbol) {
+        const sym = String(symbol).toUpperCase();
+        list = list.filter((p) => p.symbol === sym);
+      }
+      if (date) {
+        list = list.filter((p) => p.date === String(date));
+      }
+      res.json({ predictions: list });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  '/predictions/stats',
+  async (req, res, next) => {
+    try {
+      res.json({ stats: allStats(), weekly: weeklyStats() });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  '/predictions/freeze-daily',
+  async (req, res, next) => {
+    try {
+      const date = req.body.date ? String(req.body.date) : undefined;
+      const frozen = freezeDailyPredictions(date);
+      res.json({ frozen });
     } catch (err) {
       next(err);
     }

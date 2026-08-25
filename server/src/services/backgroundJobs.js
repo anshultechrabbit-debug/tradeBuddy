@@ -2,8 +2,8 @@ import { prisma } from '../config/prisma.js';
 import { evaluateAlerts } from './alertService.js';
 import { logInfra } from '../utils/helpers.js';
 import { getMarketDataProvider } from '../providers/marketData/index.js';
-import { getPredictions, evaluatePredictions } from './predictionTracker.js';
-import { isPastClose, getOfficialClose } from './officialClose.js';
+import { getPredictions, evaluatePredictions, freezeDailyPredictions } from './predictionTracker.js';
+import { isPastClose, getOfficialOHLC, dayKey } from './officialClose.js';
 
 let alertTimer = null;
 let expiryTimer = null;
@@ -12,19 +12,26 @@ let alertRunning = false;
 let predictionEvalRunning = false;
 
 /**
- * Evaluates every OPEN prediction against the OFFICIAL end-of-day close,
+ * Evaluates every OPEN prediction against the OFFICIAL end-of-day OHLC,
  * never a live tick. No-ops before market close; safe to call repeatedly —
  * already-CLOSED predictions are skipped, and a symbol whose official close
- * hasn't been published yet just gets picked up on the next run (see
- * CRIT-6/CRIT-7 in the pipeline audit — this loop is what makes the
- * prediction-tracking feature actually produce real, verified records
- * instead of sitting permanently empty).
+ * hasn't been published yet just gets picked up on the next run.
+ *
+ * Also freezes daily final predictions (isFinalForDay=true) at or after
+ * 14:30 IST, before the evaluation pass, so the daily-final snapshot is
+ * locked before the close arrives.
  */
 async function runPredictionCloseEvaluationLoop() {
   if (predictionEvalRunning) return;
   predictionEvalRunning = true;
   try {
     if (!isPastClose()) return;
+
+    // Freeze the daily final prediction (14:30 IST cutoff) so the snapshot
+    // that gets evaluated is the one made closest to cutoff — not a later one.
+    const today = dayKey();
+    freezeDailyPredictions(today);
+
     const open = getPredictions().filter((p) => p.status === 'OPEN');
     if (!open.length) return;
 
@@ -32,20 +39,17 @@ async function runPredictionCloseEvaluationLoop() {
     const closes = {};
     const seen = new Set();
     for (const p of open) {
-      // A symbol can carry OPEN predictions from more than one day if this
-      // job missed a run — key by (symbol, date) so each is matched against
-      // the close of the specific day it was made on, never a different day's.
       const key = `${p.symbol}|${p.date}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      const close = await getOfficialClose(provider, p.symbol, p.date).catch(() => null);
-      if (close != null) closes[key] = { close };
+      const ohlc = await getOfficialOHLC(provider, p.symbol, p.date).catch(() => null);
+      if (ohlc != null) closes[key] = ohlc; // { status, close, high, low, source }
     }
 
     if (Object.keys(closes).length) {
       const { updated } = evaluatePredictions(closes);
       if (updated > 0) {
-        logInfra('info', 'predictions', `Evaluated ${updated} prediction(s) against the official close`);
+        logInfra('info', 'predictions', `Evaluated ${updated} prediction(s) against the official OHLC`);
       }
     }
   } catch (err) {

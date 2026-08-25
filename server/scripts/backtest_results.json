@@ -1,0 +1,453 @@
+{
+  "generatedAt": "2026-08-25T05:39:15.686Z",
+  "period": {
+    "from": "2024-08-25",
+    "to": "2026-08-23"
+  },
+  "daysRequested": 700,
+  "totalObservations": 15813,
+  "stocksRequested": 35,
+  "stocksWithData": 35,
+  "stocks": [
+    "RELIANCE",
+    "TCS",
+    "HDFCBANK",
+    "ICICIBANK",
+    "INFY",
+    "WIPRO",
+    "SBIN",
+    "BAJFINANCE",
+    "HINDUNILVR",
+    "LT",
+    "KOTAKBANK",
+    "AXISBANK",
+    "MARUTI",
+    "ULTRACEMCO",
+    "SUNPHARMA",
+    "NTPC",
+    "POWERGRID",
+    "COALINDIA",
+    "BHARTIARTL",
+    "ITC",
+    "ADANIENT",
+    "TATAMOTORS",
+    "TITAN",
+    "ASIANPAINT",
+    "NESTLEIND",
+    "HCLTECH",
+    "TECHM",
+    "DIVISLAB",
+    "DRREDDY",
+    "CIPLA",
+    "EICHERMOT",
+    "BAJAJFINSV",
+    "BPCL",
+    "ONGC",
+    "TATASTEEL"
+  ],
+  "methodologyNotes": {
+    "lookaheadBias": "NONE — each prediction uses candles[0..t-1] only; actual from candles[t]",
+    "tuningOnTestPeriod": "NONE — engine weights fixed, no optimization performed",
+    "dayChangePctAtOpen": "NULL — not available at market open; volume scoring uses direction-unknown fallback",
+    "newsInBacktest": "UNKNOWN — no historical news archive",
+    "fundamentalsInBacktest": "UNKNOWN — no historical P/E data",
+    "probabilityCalibration": "NOT CALIBRATED — scores are heuristic",
+    "stopHitProxy": "session LOW used as proxy (not tick-level intraday data)"
+  },
+  "results": {
+    "Engine 1.1": {
+      "overall": {
+        "n": 15813,
+        "nBuys": 0,
+        "directionalAccuracy": 48.31,
+        "buyPrecision": null,
+        "falseBuyRate": null,
+        "avgReturnAfterBuy": null,
+        "avgPredictionError": 1.26,
+        "targetHitRate": null,
+        "stopHitRate": null,
+        "maxDrawdown": 0,
+        "profitFactor": null
+      },
+      "byMarket": {
+        "BULL": {
+          "n": 2455,
+          "nBuys": 0,
+          "directionalAccuracy": 42.84,
+          "buyPrecision": null,
+          "falseBuyRate": null,
+          "avgReturnAfterBuy": null,
+          "avgPredictionError": 1.33,
+          "targetHitRate": null,
+          "stopHitRate": null,
+          "maxDrawdown": 0,
+          "profitFactor": null
+        },
+        "BEAR": {
+          "n": 2537,
+          "nBuys": 0,
+          "directionalAccuracy": 48.28,
+          "buyPrecision": null,
+          "falseBuyRate": null,
+          "avgReturnAfterBuy": null,
+          "avgPredictionError": 1.33,
+          "targetHitRate": null,
+          "stopHitRate": null,
+          "maxDrawdown": 0,
+          "profitFactor": null
+        },
+        "SIDEWAYS": {
+          "n": 10821,
+          "nBuys": 0,
+          "directionalAccuracy": 49.58,
+          "buyPrecision": null,
+          "falseBuyRate": null,
+          "avgReturnAfterBuy": null,
+          "avgPredictionError": 1.22,
+          "targetHitRate": null,
+          "stopHitRate": null,
+          "maxDrawdown": 0,
+          "profitFactor": null
+        }
+      },
+      "byVol": {
+        "HIGH": {
+          "n": 14861,
+          "nBuys": 0,
+          "directionalAccuracy": 48.47,
+          "buyPrecision": null,
+          "falseBuyRate": null,
+          "avgReturnAfterBuy": null,
+          "avgPredictionError": 1.27,
+          "targetHitRate": null,
+          "stopHitRate": null,
+          "maxDrawdown": 0,
+          "profitFactor": null
+        },
+        "NORMAL": {
+          "n": 917,
+          "nBuys": 0,
+          "directionalAccuracy": 45.54,
+          "buyPrecision": null,
+          "falseBuyRate": null,
+          "avgReturnAfterBuy": null,
+          "avgPredictionError": 1.08,
+          "targetHitRate": null,
+          "stopHitRate": null,
+          "maxDrawdown": 0,
+          "profitFactor": null
+        },
+        "LOW": {
+          "n": 35,
+          "nBuys": 0,
+          "directionalAccuracy": 54.17,
+          "buyPrecision": null,
+          "falseBuyRate": null,
+          "avgReturnAfterBuy": null,
+          "avgPredictionError": 1.1,
+          "targetHitRate": null,
+          "stopHitRate": null,
+          "maxDrawdown": 0,
+          "profitFactor": null
+        }
+      }
+    },
+    "Engine 1.0": {
+      "overall": {
+        "n": 15813,
+        "nBuys": 1851,
+        "directionalAccuracy": 49.07,
+        "buyPrecision": 47.81,
+        "falseBuyRate": 52.19,
+        "avgReturnAfterBuy": -0.08,
+        "avgPredictionError": 1.46,
+        "targetHitRate": 34.68,
+        "stopHitRate": 1.84,
+        "maxDrawdown": 96.86,
+        "profitFactor": 0.87
+      },
+      "byMarket": {
+        "BULL": {
+          "n": 2455,
+          "nBuys": 383,
+          "directionalAccuracy": 45.55,
+          "buyPrecision": 39.43,
+          "falseBuyRate": 60.57,
+          "avgReturnAfterBuy": -0.23,
+          "avgPredictionError": 1.52,
+          "targetHitRate": 36.29,
+          "stopHitRate": 1.57,
+          "maxDrawdown": 67.09,
+          "profitFactor": 0.65
+        },
+        "BEAR": {
+          "n": 2537,
+          "nBuys": 183,
+          "directionalAccuracy": 48.28,
+          "buyPrecision": 48.09,
+          "falseBuyRate": 51.91,
+          "avgReturnAfterBuy": -0.04,
+          "avgPredictionError": 1.52,
+          "targetHitRate": 33.33,
+          "stopHitRate": 1.09,
+          "maxDrawdown": 29.65,
+          "profitFactor": 0.94
+        },
+        "SIDEWAYS": {
+          "n": 10821,
+          "nBuys": 1285,
+          "directionalAccuracy": 50.05,
+          "buyPrecision": 50.27,
+          "falseBuyRate": 49.73,
+          "avgReturnAfterBuy": -0.04,
+          "avgPredictionError": 1.43,
+          "targetHitRate": 34.4,
+          "stopHitRate": 2.02,
+          "maxDrawdown": 92,
+          "profitFactor": 0.94
+        }
+      },
+      "byVol": {
+        "HIGH": {
+          "n": 14861,
+          "nBuys": 1674,
+          "directionalAccuracy": 49.3,
+          "buyPrecision": 47.49,
+          "falseBuyRate": 52.51,
+          "avgReturnAfterBuy": -0.12,
+          "avgPredictionError": 1.47,
+          "targetHitRate": 33.75,
+          "stopHitRate": 1.79,
+          "maxDrawdown": 98.01,
+          "profitFactor": 0.82
+        },
+        "NORMAL": {
+          "n": 917,
+          "nBuys": 173,
+          "directionalAccuracy": 45.78,
+          "buyPrecision": 50.87,
+          "falseBuyRate": 49.13,
+          "avgReturnAfterBuy": 0.31,
+          "avgPredictionError": 1.3,
+          "targetHitRate": 42.77,
+          "stopHitRate": 2.31,
+          "maxDrawdown": 10.74,
+          "profitFactor": 1.81
+        },
+        "LOW": {
+          "n": 35,
+          "nBuys": 4,
+          "directionalAccuracy": 40.63,
+          "buyPrecision": 50,
+          "falseBuyRate": 50,
+          "avgReturnAfterBuy": 1.02,
+          "avgPredictionError": 1.38,
+          "targetHitRate": 75,
+          "stopHitRate": 0,
+          "maxDrawdown": 1.19,
+          "profitFactor": 4.42
+        }
+      }
+    },
+    "Random 50/50": {
+      "overall": {
+        "n": 15813,
+        "nBuys": 0,
+        "directionalAccuracy": 49.29,
+        "buyPrecision": null,
+        "falseBuyRate": null,
+        "avgReturnAfterBuy": null,
+        "avgPredictionError": null,
+        "targetHitRate": null,
+        "stopHitRate": null,
+        "maxDrawdown": 0,
+        "profitFactor": null
+      },
+      "byMarket": {
+        "BULL": {
+          "n": 2455,
+          "nBuys": 0,
+          "directionalAccuracy": 50.39,
+          "buyPrecision": null,
+          "falseBuyRate": null,
+          "avgReturnAfterBuy": null,
+          "avgPredictionError": null,
+          "targetHitRate": null,
+          "stopHitRate": null,
+          "maxDrawdown": 0,
+          "profitFactor": null
+        },
+        "BEAR": {
+          "n": 2537,
+          "nBuys": 0,
+          "directionalAccuracy": 49.35,
+          "buyPrecision": null,
+          "falseBuyRate": null,
+          "avgReturnAfterBuy": null,
+          "avgPredictionError": null,
+          "targetHitRate": null,
+          "stopHitRate": null,
+          "maxDrawdown": 0,
+          "profitFactor": null
+        },
+        "SIDEWAYS": {
+          "n": 10821,
+          "nBuys": 0,
+          "directionalAccuracy": 49.03,
+          "buyPrecision": null,
+          "falseBuyRate": null,
+          "avgReturnAfterBuy": null,
+          "avgPredictionError": null,
+          "targetHitRate": null,
+          "stopHitRate": null,
+          "maxDrawdown": 0,
+          "profitFactor": null
+        }
+      },
+      "byVol": {
+        "HIGH": {
+          "n": 14861,
+          "nBuys": 0,
+          "directionalAccuracy": 49.32,
+          "buyPrecision": null,
+          "falseBuyRate": null,
+          "avgReturnAfterBuy": null,
+          "avgPredictionError": null,
+          "targetHitRate": null,
+          "stopHitRate": null,
+          "maxDrawdown": 0,
+          "profitFactor": null
+        },
+        "NORMAL": {
+          "n": 917,
+          "nBuys": 0,
+          "directionalAccuracy": 48.53,
+          "buyPrecision": null,
+          "falseBuyRate": null,
+          "avgReturnAfterBuy": null,
+          "avgPredictionError": null,
+          "targetHitRate": null,
+          "stopHitRate": null,
+          "maxDrawdown": 0,
+          "profitFactor": null
+        },
+        "LOW": {
+          "n": 35,
+          "nBuys": 0,
+          "directionalAccuracy": 54.29,
+          "buyPrecision": null,
+          "falseBuyRate": null,
+          "avgReturnAfterBuy": null,
+          "avgPredictionError": null,
+          "targetHitRate": null,
+          "stopHitRate": null,
+          "maxDrawdown": 0,
+          "profitFactor": null
+        }
+      }
+    },
+    "NIFTY Dir.": {
+      "overall": {
+        "n": 15813,
+        "nBuys": 0,
+        "directionalAccuracy": 49.6,
+        "buyPrecision": null,
+        "falseBuyRate": null,
+        "avgReturnAfterBuy": null,
+        "avgPredictionError": null,
+        "targetHitRate": null,
+        "stopHitRate": null,
+        "maxDrawdown": 0,
+        "profitFactor": null
+      },
+      "byMarket": {
+        "BULL": {
+          "n": 2455,
+          "nBuys": 0,
+          "directionalAccuracy": 45.82,
+          "buyPrecision": null,
+          "falseBuyRate": null,
+          "avgReturnAfterBuy": null,
+          "avgPredictionError": null,
+          "targetHitRate": null,
+          "stopHitRate": null,
+          "maxDrawdown": 0,
+          "profitFactor": null
+        },
+        "BEAR": {
+          "n": 2537,
+          "nBuys": 0,
+          "directionalAccuracy": 46.39,
+          "buyPrecision": null,
+          "falseBuyRate": null,
+          "avgReturnAfterBuy": null,
+          "avgPredictionError": null,
+          "targetHitRate": null,
+          "stopHitRate": null,
+          "maxDrawdown": 0,
+          "profitFactor": null
+        },
+        "SIDEWAYS": {
+          "n": 10821,
+          "nBuys": 0,
+          "directionalAccuracy": 51.22,
+          "buyPrecision": null,
+          "falseBuyRate": null,
+          "avgReturnAfterBuy": null,
+          "avgPredictionError": null,
+          "targetHitRate": null,
+          "stopHitRate": null,
+          "maxDrawdown": 0,
+          "profitFactor": null
+        }
+      },
+      "byVol": {
+        "HIGH": {
+          "n": 14861,
+          "nBuys": 0,
+          "directionalAccuracy": 49.78,
+          "buyPrecision": null,
+          "falseBuyRate": null,
+          "avgReturnAfterBuy": null,
+          "avgPredictionError": null,
+          "targetHitRate": null,
+          "stopHitRate": null,
+          "maxDrawdown": 0,
+          "profitFactor": null
+        },
+        "NORMAL": {
+          "n": 917,
+          "nBuys": 0,
+          "directionalAccuracy": 45.69,
+          "buyPrecision": null,
+          "falseBuyRate": null,
+          "avgReturnAfterBuy": null,
+          "avgPredictionError": null,
+          "targetHitRate": null,
+          "stopHitRate": null,
+          "maxDrawdown": 0,
+          "profitFactor": null
+        },
+        "LOW": {
+          "n": 35,
+          "nBuys": 0,
+          "directionalAccuracy": 77.14,
+          "buyPrecision": null,
+          "falseBuyRate": null,
+          "avgReturnAfterBuy": null,
+          "avgPredictionError": null,
+          "targetHitRate": null,
+          "stopHitRate": null,
+          "maxDrawdown": 0,
+          "profitFactor": null
+        }
+      }
+    }
+  },
+  "rawCounts": {
+    "v11": 15813,
+    "v10": 15813,
+    "rand": 15813,
+    "nifty": 15813
+  }
+}

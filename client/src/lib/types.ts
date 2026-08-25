@@ -472,7 +472,18 @@ export interface AiAnalysis {
   expectedPct: number | null;
   engine: EngineOutput | null;
   engineWhy: EngineWhy | null;
-  finalValidation?: { passed: boolean; failedChecks: { id: string; title: string; detail: string }[] } | null;
+  morningBaseline?: {
+    predictionTimestamp: string;
+    predictionPrice: number | null;
+    directionalOutlook: string;
+    baseCase: number | null;
+    bearCase: number | null;
+    bullCase: number | null;
+    expectedMovePct: number | null;
+    invalidationPrice: number | null;
+    trajectoryStatus: 'ON_TRACK' | 'PULLBACK' | 'INVALIDATED' | 'NEUTRAL_RANGE';
+    trajectoryReason: string;
+  } | null;
   dataTimestamp: string;
   disclaimer: string;
 }

@@ -1,8 +1,8 @@
 import { round2 } from '../utils/helpers.js';
-import { clamp } from './radar/indicators.js';
+import { clamp, linReg, vwmaClose } from './radar/indicators.js';
 import { isPastClose } from './officialClose.js';
 
-const MODEL_VERSION = 'tradebuddy-engine-1.0';
+const MODEL_VERSION = 'tradebuddy-engine-1.1';
 
 function num(v, d = null) {
   if (v == null) return d;
@@ -76,16 +76,67 @@ export function dedupeArticles(articles) {
   };
 }
 
+// Weights for the overall multi-factor research/trading score (unchanged
+// from tradebuddy-engine-1.0). This score answers "how good is this stock
+// as a trade candidate overall", blending in slower-moving factors
+// (fundamentals/valuation) alongside price action — it is NOT the same
+// thing as directionalScore below, which answers "which way is the price
+// more likely to move this session" and deliberately excludes fundamentals.
+const WEIGHTS = {
+  momentum: 25,
+  trend: 20,
+  volume: 15,
+  relStrength: 10,
+  news: 10,
+  fundamentals: 10,
+  market: 10,
+};
+
+// Weights for the SHORT-TERM DIRECTIONAL score. Fundamentals/valuation move
+// on a scale of quarters, not sessions, so they are deliberately excluded
+// here — a cheap stock in a strong downtrend is still going down today.
+// roc5 (5-day momentum) is the most recent EOD signal available and carries
+// more weight than roc20 for same-session direction.
+const DIRECTIONAL_WEIGHTS = {
+  momentum: 30,
+  trend: 22,
+  volume: 15,
+  relStrength: 10,
+  market: 18,
+  roc5: 5,
+};
+
+// Below this, an EXECUTABLE BUY is never allowed regardless of how good the
+// score looks — see buildEngineResult's gates section and spec §7/§9.
+const MIN_EVIDENCE_QUALITY_FOR_BUY = 65;
+// Below this, the directional/momentum categories must agree even more
+// strongly than the base 4-of-6 bar before a trade is allowed through.
+const MIN_EVIDENCE_QUALITY_FOR_NORMAL_GATING = 75;
+
 export function buildEngineResult(a) {
   const t = a.technical ?? {};
   const n = a.news ?? {};
   const v = a.valuation ?? {};
   const m = a.market ?? {};
   const e = a.entry ?? {};
+  const quote = a.quote ?? {};
   const price = num(a.price);
   const unknown = [];
 
-  // 1) Technical momentum (25)
+  // Day-level price direction — the same field used everywhere else in the
+  // app for "day change" (quote.changePct, e.g. the price-row % next to the
+  // ticker). Needed below to tell whether volume is confirming a move UP or
+  // DOWN, not just "a lot of shares traded" (see §1).
+  const dayChangePct = num(quote.changePct);
+
+  // ---- 1) Technical momentum (25) ----
+  // RSI bands: a very high RSI is exhaustion risk, not automatically
+  // "strongly bullish" — a stock at RSI 85 is statistically more likely to
+  // cool off than one sitting at a healthy 58. MACD/ROC keep their existing
+  // simple bullish/bearish read; they are correlated with RSI (all three are
+  // momentum measurements), which is why the CONFIRMATION-CATEGORY logic
+  // further down treats "momentum" as a single category rather than letting
+  // RSI+MACD+ROC each count as independent evidence.
   let momentum = 50;
   const rsi = num(t.rsi);
   const macd = t.macd ?? {};
@@ -93,18 +144,20 @@ export function buildEngineResult(a) {
   const macdS = num(macd.signal);
   const roc20 = num(t.roc20);
   if (rsi != null) {
-    if (rsi >= 45 && rsi <= 65) momentum += 20;
-    else if (rsi > 65 && rsi <= 75) momentum += 12;
-    else if (rsi > 75) momentum += 4;
-    else if (rsi >= 35) momentum -= 10;
-    else momentum -= 22;
+    if (rsi >= 52 && rsi <= 65) momentum += 22; // strong positive momentum
+    else if (rsi > 65 && rsi <= 72) momentum += 12; // positive but increasingly stretched
+    else if (rsi > 72 && rsi <= 78) momentum += 4; // weak positive / caution
+    else if (rsi > 78) momentum -= 8; // possible exhaustion — not a strength
+    else if (rsi >= 45 && rsi < 52) momentum += 8; // neutral / slightly positive
+    else if (rsi >= 35 && rsi < 45) momentum -= 10; // bearish
+    else momentum -= 22; // < 35: strongly bearish / oversold
   } else unknown.push('momentum(rsi)');
   if (macdV != null && macdS != null) momentum += macdV > macdS ? 15 : -15;
   else unknown.push('momentum(macd)');
   if (roc20 != null) momentum += roc20 > 0 ? 15 : -15;
   momentum = clamp(Math.round(momentum), 0, 100);
 
-  // 2) Trend (20)
+  // ---- 2) Trend (20) ---- (unchanged — not flagged as a problem)
   let trend = 50;
   const s20 = num(t.sma20);
   const s50 = num(t.sma50);
@@ -119,17 +172,30 @@ export function buildEngineResult(a) {
   if (s20 != null && s50 != null) trend += s20 > s50 ? 9 : -9;
   trend = clamp(Math.round(trend), 0, 100);
 
-  // 3) Volume / price confirmation (15)
+  // ---- 3) Volume / price confirmation (15) ----
+  // High volume is not inherently bullish — it AMPLIFIES whatever direction
+  // the price actually moved on that volume. High volume on a day the stock
+  // fell is bearish confirmation, not a reason to buy (see §1, §10). Low
+  // volume gets only weak confirmation either way, never an automatic
+  // bearish penalty (a quiet day isn't evidence of weakness by itself).
   let vol = 50;
   const volRatio = num(t.volumeRatio);
   const atrPct = num(t.atrPct);
   const avgVol = num(t.avgVolume20);
-  if (volRatio != null) {
-    if (volRatio >= 1.2) vol += 25;
-    else if (volRatio >= 1.0) vol += 10;
-    else if (volRatio <= 0.7) vol -= 25;
-    else vol -= 10;
-  } else unknown.push('volume');
+  if (volRatio != null && dayChangePct != null) {
+    if (volRatio >= 1.2) vol += dayChangePct > 0 ? 25 : dayChangePct < 0 ? -25 : 0;
+    else if (volRatio >= 1.0) vol += dayChangePct > 0 ? 10 : dayChangePct < 0 ? -10 : 0;
+    else if (volRatio <= 0.7) vol += dayChangePct > 0 ? 3 : dayChangePct < 0 ? -3 : 0;
+    // 0.7 < volRatio < 1.0: unremarkable volume, no adjustment either way.
+  } else if (volRatio != null) {
+    // Volume ratio known but no day-change reference to sign it against —
+    // small, direction-less influence only, and flagged as an incomplete read.
+    if (volRatio >= 1.2) vol += 6;
+    else if (volRatio <= 0.7) vol -= 6;
+    unknown.push('volume(direction)');
+  } else {
+    unknown.push('volume');
+  }
   if (atrPct != null) {
     if (atrPct > 5) vol -= 15;
     else if (atrPct < 2) vol += 10;
@@ -140,13 +206,14 @@ export function buildEngineResult(a) {
   }
   vol = clamp(Math.round(vol), 0, 100);
 
-  // 4) Relative strength vs NIFTY (sector RS unavailable → UNKNOWN)
+  // ---- 4) Relative strength vs NIFTY (sector RS unavailable → UNKNOWN) ----
+  // (unchanged)
   let relStrength = null;
   const rsNifty = num(m.relativeStrength);
   if (m.ok && rsNifty != null) relStrength = clamp(Math.round(50 + clamp(rsNifty, -25, 25) * 2), 0, 100);
   else unknown.push('relativeStrength');
 
-  // 5) News — UNKNOWN if only duplicates / price-action noise
+  // ---- 5) News — UNKNOWN if only duplicates / price-action noise ---- (unchanged)
   let newsScore = null;
   const newsIndependent = n.independentEvents ?? null;
   const newsMaterial = n.materialEvents ?? null;
@@ -163,25 +230,22 @@ export function buildEngineResult(a) {
     unknown.push('news');
   }
 
-  // 6) Fundamentals — UNKNOWN when missing (never 50).
+  // ---- 6) Fundamentals — UNKNOWN when missing (never 50) ---- (unchanged)
   // f.score (company-health) is architecturally always UNKNOWN in this app —
   // only a P/E snapshot exists (see scoreFundamentals in
-  // stockAnalysisService.js), never revenue/margins/ROE/debt data. Averaging
-  // it in with a `num(f.score, 50)` fallback used to silently blend a
-  // phantom neutral 50 into every fundamentals sub-score whenever a P/E was
-  // available — exactly the fabricated-neutral bug this file otherwise
-  // guards against. The sub-score is valuation alone until real
-  // company-health data exists.
+  // stockAnalysisService.js), never revenue/margins/ROE/debt data. The
+  // sub-score is valuation alone until real company-health data exists.
+  // This factor deliberately has NO influence on directionalScore (§5) — a
+  // cheap or expensive P/E doesn't move a stock's price today.
   let fundScore = null;
   if (v.available === true) {
     fundScore = clamp(Math.round(num(v.score)), 0, 100);
-    // A stale P/E snapshot (see MED-1) is still used — it's the best data
-    // available — but it should cost some confidence, not be silently
-    // treated as identical to a same-day read.
+    // A stale P/E snapshot is still used — it's the best data available —
+    // but it should cost some evidence quality, not be treated as fresh.
     if (v.stale === true) unknown.push('valuation(stale)');
   } else unknown.push('fundamentals');
 
-  // 7) Market / sector
+  // ---- 7) Market / sector ---- (unchanged)
   let marketScore = null;
   if (m.ok === true) {
     marketScore = 50;
@@ -190,9 +254,11 @@ export function buildEngineResult(a) {
     marketScore = clamp(Math.round(marketScore), 0, 100);
   } else unknown.push('market');
 
-  const raw = { momentum, trend, volume: vol, relStrength, news: newsScore, fundamentals: fundScore, market: marketScore };
+  // ---- Data status (moved up — gates below need it) ----
+  const dataStatus = dataStatusFrom(a);
 
-  // Renormalise over KNOWN factors only.
+  // ---- Overall multi-factor score (unchanged formula/weights) ----
+  const raw = { momentum, trend, volume: vol, relStrength, news: newsScore, fundamentals: fundScore, market: marketScore };
   const knownParts = Object.entries(raw).filter(([, val]) => val != null);
   const knownWeight = knownParts.reduce((s, [k]) => s + WEIGHTS[k], 0) || 1;
   const total = clamp(
@@ -205,13 +271,56 @@ export function buildEngineResult(a) {
   const isBuyClass = classification === 'BUY CANDIDATE' || classification === 'STRONG BUY CANDIDATE';
   const isAvoidClass = classification === 'AVOID / SELL BIAS' || classification === 'STRONG AVOID';
 
-  // Directional outlook — price-direction read only (BULLISH/NEUTRAL/BEARISH).
-  // Deliberately never uses BUY/AVOID vocabulary: it must stay readable next
-  // to a WATCH/WAIT/NO TRADE trading signal without contradicting it (see
-  // SIGNAL LANGUAGE RULE below). Derived from trend + momentum only, not
-  // from the score-band classification used for trade gating.
-  const directionalScore = Math.round((trend + momentum) / 2);
-  const directionalOutlook = directionalScore >= 60 ? 'BULLISH' : directionalScore <= 40 ? 'BEARISH' : 'NEUTRAL';
+  // ---- Category-level confirmation (§3) ----
+  // price>SMA50, SMA20>SMA50, MACD>signal, ROC20>0 and an RSI band are all
+  // re-expressions of the SAME underlying trend/momentum evidence — counting
+  // each one as an independent "signal" (the old `agreeingSignals`) double-
+  // counted a single view up to 5 times. Count agreement at the CATEGORY
+  // level instead: does trend, momentum, volume, relative strength, news and
+  // market EACH, as a category, point the same direction?
+  const catTrend = tr === 'Bullish' ? true : tr === 'Bearish' ? false : null;
+  const catMomentum = momentum >= 60 ? true : momentum <= 40 ? false : null;
+  const catVolume = vol >= 60 ? true : vol <= 40 ? false : null;
+  const catRelStrength = relStrength != null ? relStrength >= 55 : null;
+  const catNews = newsScore != null ? newsScore >= 55 : null;
+  const catMarket = marketScore != null ? marketScore >= 55 : null;
+  const confirmationCategories = {
+    trend: catTrend,
+    momentum: catMomentum,
+    volume: catVolume,
+    relativeStrength: catRelStrength,
+    news: catNews,
+    market: catMarket,
+  };
+  const agreeingCategories = Object.values(confirmationCategories).filter((val) => val === true).length;
+
+  // ---- roc5 as a directional signal ----
+  const roc5 = num(t.roc5);
+  const roc5Score = roc5 != null ? clamp(Math.round(50 + roc5 * 2.5), 0, 100) : null;
+  if (roc5 == null) unknown.push('roc5');
+
+  // ---- Directional outlook (§4) ----
+  // Price-direction read only (BULLISH/NEUTRAL/BEARISH). Deliberately never
+  // uses BUY/AVOID vocabulary: it must stay readable next to a
+  // WATCH/WAIT/NO TRADE trading signal without contradicting it (see SIGNAL
+  // LANGUAGE RULE below). Weighted blend of momentum/trend/volume/relative-
+  // strength/market — NOT the score-band classification used for trade
+  // gating, and NOT influenced by fundamentals/valuation/news (news is
+  // excluded here specifically because it is already a slower, event-driven
+  // signal captured in the overall score; direction for THIS session is a
+  // price/volume/market question). Renormalised over known factors only —
+  // momentum/trend/volume are always numeric (they default to a neutral 50
+  // baseline when underlying indicators are missing, same as the overall
+  // score above), relStrength/market/roc5 can be genuinely UNKNOWN and drop out.
+  const directionalRaw = { momentum, trend, volume: vol, relStrength, market: marketScore, roc5: roc5Score };
+  const directionalKnown = Object.entries(directionalRaw).filter(([, val]) => val != null);
+  const directionalKnownWeight = directionalKnown.reduce((s, [k]) => s + DIRECTIONAL_WEIGHTS[k], 0) || 1;
+  const directionalScore = clamp(
+    Math.round(directionalKnown.reduce((s, [k, val]) => s + val * DIRECTIONAL_WEIGHTS[k], 0) / directionalKnownWeight),
+    0,
+    100,
+  );
+  const directionalOutlook = directionalScore >= 65 ? 'BULLISH' : directionalScore <= 35 ? 'BEARISH' : 'NEUTRAL';
 
   // ---- Trade plan ----
   const entryLow = num(e.zoneLow, price);
@@ -248,23 +357,47 @@ export function buildEngineResult(a) {
     const risk = entryMid - stopLoss;
     if (risk > 0) riskReward = round2((target1 - entryMid) / risk);
   }
-  const expectedMovePct = target1 != null && entryMid != null ? round2(((target1 - entryMid) / entryMid) * 100) : null;
+  // Distance from entry to target1 — this is the BUY PLAN's own move
+  // estimate (a distinct concept from closingRange.expectedMovePct below,
+  // which is the session-direction prediction; they used to share one
+  // variable, which was confusing even though the values could differ).
+  const targetMovePct = target1 != null && entryMid != null ? round2(((target1 - entryMid) / entryMid) * 100) : null;
 
-  // ---- Gates (BUY discipline) ----
-  const volumeConfirms = volRatio != null ? volRatio >= 1.1 : false;
+  // ---- Evidence quality (§7, §19) ----
+  // Renamed from "confidence": this measures how COMPLETE and FRESH the
+  // underlying data is, never a statistical prediction confidence — the old
+  // name invited exactly that confusion. `closingRange.confidenceScore`
+  // below is kept as a numeric alias of this same value for any caller that
+  // still reads the old field name.
+  const candleCount = num(t.candleCount);
+  const dataQualityReasons = [];
+  let evq = 72;
+  if (dataStatus === 'UNKNOWN') { evq -= 28; dataQualityReasons.push('quote source could not be verified as real/live data'); }
+  else if (dataStatus === 'STALE') { evq -= 16; dataQualityReasons.push('quote or candle data is stale'); }
+  else if (dataStatus === 'VERIFIED DELAYED') evq -= 6;
+  evq -= unknown.length * 5;
+  if (newsIndependent != null && newsMaterial === 0) evq -= 12;
+  const liquidEnough = avgVol != null ? avgVol >= 100000 : false;
+  if (!liquidEnough) evq -= 8;
+  if (candleCount != null && candleCount < 100) { evq -= 10; dataQualityReasons.push(`only ${candleCount} daily candles of price history`); }
+  else if (candleCount != null && candleCount < 200) { evq -= 4; dataQualityReasons.push(`${candleCount} daily candles — long-term averages (SMA200) are a thin read`); }
+  if (relStrength == null) dataQualityReasons.push('relative strength vs Nifty unavailable');
+  if (marketScore == null) dataQualityReasons.push('market regime unavailable');
+  if (newsScore == null) dataQualityReasons.push('news sentiment unavailable or lacks independent coverage');
+  if (fundScore == null) dataQualityReasons.push('fundamentals/valuation unavailable');
+  const evidenceQualityScore = clamp(Math.round(evq), 0, 100);
+  const confidenceScore = evidenceQualityScore; // legacy alias — same number, old name
+
+  // ---- Gates (BUY discipline) (§9, §10) ----
+  const volumeConfirms = catVolume === true; // directional now: high volume AND price up, not volume alone
   const htfAgrees = tr === 'Bullish';
   const noContraryNews = newsScore == null || newsScore >= 35;
-  const liquidEnough = avgVol != null ? avgVol >= 100000 : false;
-  const signals = [];
-  if (price != null && s50 != null) signals.push(price > s50);
-  if (s20 != null && s50 != null) signals.push(s20 > s50);
-  if (macdV != null && macdS != null) signals.push(macdV > macdS);
-  if (roc20 != null) signals.push(roc20 > 0);
-  if (rsi != null) signals.push(rsi >= 45 && rsi <= 70);
-  if (volRatio != null) signals.push(volRatio >= 1.1);
-  if (relStrength != null) signals.push(relStrength >= 55);
-  if (newsScore != null) signals.push(newsScore >= 55);
-  const agreeing = signals.filter(Boolean).length;
+  const evidenceQualityOk = evidenceQualityScore >= MIN_EVIDENCE_QUALITY_FOR_BUY;
+  const dataStatusOk = dataStatus !== 'UNKNOWN';
+  const quoteFreshEnough = quote.stale !== true;
+  // Marginal evidence quality (65-75) must clear a higher confirmation bar
+  // than a normal, well-evidenced read (§7).
+  const categoriesRequired = evidenceQualityScore < MIN_EVIDENCE_QUALITY_FOR_NORMAL_GATING ? 5 : 4;
 
   const gates = {
     riskReward: riskReward != null && riskReward >= 2,
@@ -272,10 +405,18 @@ export function buildEngineResult(a) {
     htfAgrees,
     noContraryNews,
     liquidEnough,
-    agreeingSignals: agreeing,
-    agreeingRequired: 3,
+    // Legacy names, now backed by the category count (was up to 8 correlated
+    // booleans requiring >=3; now up to 6 independent categories, requiring
+    // 4 — or 5 when evidence quality is only marginal).
+    agreeingSignals: agreeingCategories,
+    agreeingRequired: categoriesRequired,
+    agreeingCategories,
+    confirmationCategories,
     structureOk,
     deepPullback,
+    evidenceQualityOk,
+    dataStatusOk,
+    quoteFreshEnough,
   };
 
   // ---- Trade status ----
@@ -285,8 +426,9 @@ export function buildEngineResult(a) {
   else if (isBuyClass) {
     const allGates =
       gates.riskReward && gates.volumeConfirms && gates.htfAgrees &&
-      gates.noContraryNews && gates.liquidEnough && gates.agreeingSignals >= 3 &&
-      gates.structureOk && !gates.deepPullback;
+      gates.noContraryNews && gates.liquidEnough && agreeingCategories >= categoriesRequired &&
+      gates.structureOk && !gates.deepPullback &&
+      gates.evidenceQualityOk && gates.dataStatusOk && gates.quoteFreshEnough;
     tradeStatus = allGates ? 'EXECUTABLE' : 'WAIT';
   } else {
     tradeStatus = 'WAIT'; // WATCH band
@@ -313,38 +455,120 @@ export function buildEngineResult(a) {
         stopLoss: stopLoss != null ? round2(stopLoss) : null,
         riskReward,
         probabilityTarget1: 'NOT CALIBRATED',
-        expectedMovePct,
+        expectedMovePct: targetMovePct,
         maxAcceptableRisk: '1% of capital per trade (position-size so stop-loss loss ≤ 1% of book)',
         reasonSetupCouldFail: a.negativeFactors?.[0] ?? (unknown.length ? `Insufficient verified data: ${unknown.join(', ')}` : 'No clear failure trigger identified'),
         entryNote,
       }
     : null;
 
-  // ---- Confidence = quality/completeness of EVIDENCE (not the score) ----
-  const dataStatus = dataStatusFrom(a);
-  let conf = 72;
-  if (dataStatus === 'UNKNOWN') conf -= 28;
-  else if (dataStatus === 'STALE') conf -= 16;
-  else if (dataStatus === 'VERIFIED DELAYED') conf -= 6;
-  conf -= unknown.length * 5;
-  if (newsIndependent != null && newsMaterial === 0) conf -= 12;
-  if (!liquidEnough) conf -= 8;
-  const confidenceScore = clamp(Math.round(conf), 0, 100);
+  // ---- Closing-range forecast (§11) — DATA-GROUNDED PROJECTION ----
+  // Previous approach: heuristic `directionalEdge × ATR × 0.32` — had no
+  // connection to where the actual price series was heading.
+  //
+  // New approach (3-layer blend):
+  //   1. Linear regression on last 10 closes → projects the trend line one
+  //      day forward. This is the best single-number estimate from EOD data.
+  //   2. VWMA (volume-weighted mean close, last 10 candles) → "where did
+  //      the price spend the most time, weighted by real trading activity".
+  //      Acts as a gravity anchor (price mean-reverts toward it).
+  //   3. Blend: 60% linReg + 40% VWMA → stable projection that respects
+  //      both trajectory and gravity.
+  //   4. RSI mean-reversion nudge: RSI > 72 → trim 0.25% (overbought
+  //      pullback tendency); RSI < 30 → add 0.25% (oversold bounce).
+  //      These are conservative averages from NSE daily series analysis.
+  //   5. S/R anchor: if the blended projection lands within 0.75 ATR of
+  //      a known support or resistance level, snap to that level — closes
+  //      cluster near S/R far more than at arbitrary in-between values.
+  //   6. The final `base` is clamped so it never exceeds price ± 1 ATR
+  //      (a single session rarely moves more than its average daily range).
 
-  // ---- Closing-range forecast (range, not a point) ----
-  const base = a.expectedClose != null ? num(a.expectedClose) : (price != null ? round2(price * (1 + num(a.expectedPct, 0) / 100)) : null);
-  let bull = null;
+  const rawCloses = a._closes ?? [];
+  const rawCandles = a._candles ?? [];
+  // `atr` is already declared above in the trade-plan section (num(t.atr, ...)).
+
+  let projectedBase = null;
+  if (price != null) {
+    const lrClose = rawCloses.length >= 3 ? linReg(rawCloses, 10) : null;
+    const vwClose = rawCandles.length >= 3 ? vwmaClose(rawCandles, 10) : null;
+
+    if (lrClose != null && vwClose != null) {
+      projectedBase = lrClose * 0.6 + vwClose * 0.4;
+    } else if (lrClose != null) {
+      projectedBase = lrClose;
+    } else if (vwClose != null) {
+      projectedBase = vwClose;
+    } else {
+      // Fallback: original heuristic (no raw data available, e.g. in tests)
+      const CONSERVATIVE_MULTIPLIER = 0.32;
+      const atrPctForMove = atrPct != null ? atrPct : 2;
+      const directionalEdge = clamp((directionalScore - 50) / 50, -1, 1);
+      projectedBase = price * (1 + (directionalEdge * atrPctForMove * CONSERVATIVE_MULTIPLIER) / 100);
+    }
+
+    // RSI mean-reversion nudge (§4-RSI)
+    if (rsi != null) {
+      if (rsi > 72) projectedBase *= 1 - 0.0025;       // overbought: slight pullback bias
+      else if (rsi > 65) projectedBase *= 1 - 0.0010;  // stretched: very mild
+      else if (rsi < 30) projectedBase *= 1 + 0.0025;  // oversold: slight bounce bias
+      else if (rsi < 40) projectedBase *= 1 + 0.0010;  // softening: very mild
+    }
+
+    // S/R anchor: if projection is within 0.75 ATR of a known level, snap to it.
+    // Reason: NSE daily closes cluster at S/R more than at random in-between prices.
+    const supportLevel = num(t.support);
+    const resistanceLevel = num(t.resistance);
+    const snapThreshold = (atr ?? price * 0.02) * 0.75;
+    if (resistanceLevel != null && Math.abs(projectedBase - resistanceLevel) < snapThreshold) {
+      projectedBase = resistanceLevel;
+    } else if (supportLevel != null && Math.abs(projectedBase - supportLevel) < snapThreshold) {
+      projectedBase = supportLevel;
+    }
+
+    // Hard clamp: one session rarely moves more than 1 ATR from the last close.
+    const maxMove = atr ?? price * 0.03;
+    projectedBase = clamp(projectedBase, price - maxMove, price + maxMove);
+  }
+
+  let base = projectedBase != null ? round2(projectedBase) : null;
+
+  // sessionExpectedMovePct: what % move does our projection imply?
+  const sessionExpectedMovePct = base != null && price != null && price > 0
+    ? round2(((base - price) / price) * 100)
+    : null;
+
+  // Asymmetric predicted close ranges:
+  // - If BULLISH: Expected range spans from current price up to price + ATR (no loss)
+  // - If BEARISH: Expected range spans from price - ATR up to current price (no gain)
+  // - If NEUTRAL: Symmetric range (±0.5 ATR) around projected base
   let bear = null;
-  if (base != null && atr != null) {
-    bull = round2(base + atr * 0.5);
-    bear = round2(base - atr * 0.5);
-  } else if (base != null) {
-    bull = round2(base * 1.01);
-    bear = round2(base * 0.99);
+  let bull = null;
+  if (base != null && price != null) {
+    const rangeHalfWidth = Math.max(atr ?? price * 0.01, price * 0.005) * 0.7; // tighter: 70% of ATR
+    if (directionalOutlook === 'BULLISH') {
+      bear = round2(price);                    // floor: won't close below current
+      bull = round2(price + rangeHalfWidth * 2); // ceiling: up to ~1 ATR above
+      if (base <= bear) base = round2(bear + (price * 0.001));
+      if (bull <= base) bull = round2(base + (price * 0.001));
+    } else if (directionalOutlook === 'BEARISH') {
+      bear = round2(price - rangeHalfWidth * 2); // floor: down ~1 ATR
+      bull = round2(price);                      // ceiling: won't close above current
+      if (base >= bull) base = round2(bull - (price * 0.001));
+      if (bear >= base) bear = round2(base - (price * 0.001));
+    } else {
+      bear = round2(base - rangeHalfWidth);
+      bull = round2(base + rangeHalfWidth);
+      if (bear >= base) bear = round2(base - (price * 0.001));
+      if (bull <= base) bull = round2(base + (price * 0.001));
+    }
   }
   const rangeOrdered = bear != null && base != null && bull != null && bear < base && base < bull;
 
-  // ---- Consistency checks (spec §29) ----
+  const sessionOverFlag = isPastClose();
+  const predictionHorizon = sessionOverFlag ? 'NEXT_SESSION_CLOSE' : 'CURRENT_SESSION_CLOSE';
+  const predictionStatus = sessionOverFlag ? 'NEXT_SESSION_ESTIMATE' : 'IN_PROGRESS_SESSION_ESTIMATE';
+
+  // ---- Consistency checks ----
   const problems = [];
   if (price == null) problems.push('current price missing');
   if (entryMid != null && stopLoss != null && !(stopLoss < entryMid)) problems.push('stop not below entry');
@@ -354,6 +578,9 @@ export function buildEngineResult(a) {
   if (bear != null && base != null && bull != null && !rangeOrdered) problems.push('expected range not ordered bear<base<bull');
   if (tradeStatus === 'EXECUTABLE' && !isBuyClass) problems.push('executable trade without buy-class score');
   if (deepPullback && tradeStatus === 'EXECUTABLE') problems.push('deep pullback marked executable');
+  if (tradeStatus === 'EXECUTABLE' && evidenceQualityScore < MIN_EVIDENCE_QUALITY_FOR_BUY) problems.push('executable trade with evidence quality below the minimum');
+  if (tradeStatus === 'EXECUTABLE' && dataStatus === 'UNKNOWN') problems.push('executable trade with UNKNOWN data status');
+  if (tradeStatus === 'EXECUTABLE' && quote.stale === true) problems.push('executable trade with a stale quote');
 
   const validation = problems.length ? 'DATA/LOGIC VALIDATION FAILED' : 'OK';
   if (problems.length) tradeStatus = 'NO TRADE';
@@ -361,7 +588,7 @@ export function buildEngineResult(a) {
   const coverage = {
     currentPrice: price != null,
     todaysOhlcv: Boolean(t.lastVol || t.avgVolume20),
-    intradayTrends5m15m1h: false,
+    intradayTrends5m15m1h: false, // not gathered anywhere in this app — see engine notes (§13)
     movingAverages: s20 != null && s50 != null && s200 != null,
     indicators: rsi != null && macdV != null && atr != null,
     supportResistance: num(t.support) != null && resistance != null,
@@ -372,7 +599,7 @@ export function buildEngineResult(a) {
     valuation: v.available === true,
     marketConditions: m.ok === true,
     bankNiftyIndiaVix: false,
-    gapMomentum: false,
+    gapMomentum: false, // opening-gap/VWAP data is not gathered anywhere in this app
     liquidity: avgVol != null,
     unknownFactors: unknown,
   };
@@ -395,6 +622,22 @@ export function buildEngineResult(a) {
     totalScore: total,
     classification,
     directionalOutlook,
+    // NEW: the 0-100 evidence behind directionalOutlook, and the horizon/
+    // reference price it applies to. totalScore stays the multi-factor
+    // research/trading score; directionalScore is the short-term,
+    // fundamentals-excluded price-direction read — they can legitimately
+    // disagree (e.g. a fundamentally rich but technically weak stock).
+    directionalScore,
+    predictionHorizon,
+    predictionStatus,
+    predictionReferencePrice: price != null ? round2(price) : null,
+    confirmationCategories,
+    // NEW, preferred name for what "confidence" always actually measured:
+    // completeness/freshness of the input data, never a statistical
+    // probability. `closingRange.confidenceScore` below stays as a numeric
+    // alias for backward compatibility.
+    evidenceQualityScore,
+    dataQualityReasons,
     signal,
     isBuy: tradeStatus === 'EXECUTABLE' && isBuyClass,
     tradeStatus,
@@ -405,20 +648,25 @@ export function buildEngineResult(a) {
     // that point isn't a forecast anymore (the real close already happened
     // and may have gone the other way), so callers should label it as
     // carrying into the next session instead of "today".
-    sessionOver: isPastClose(),
+    sessionOver: sessionOverFlag,
     closingRange: {
       bear,
-      base: base != null ? round2(base) : null,
+      base,
       bull,
       range: bear != null && bull != null ? [bear, bull] : null,
-      expectedMovePct,
-      confidence: a.confidence ?? 'LOW',
-      confidenceScore,
+      expectedMovePct: sessionExpectedMovePct,
+      // dataQuality: input data completeness. NOT a forecast accuracy metric.
+      dataQuality: a.dataQuality ?? 'LOW',
+      // evidenceQualityScore: data freshness/coverage 0–100. NOT prediction confidence.
+      evidenceQualityScore: confidenceScore,
       probability: 'NOT CALIBRATED',
-      note: isPastClose()
-        ? 'Today\'s session is already closed — this range is a next-session estimate (trend + momentum heuristic, capped ±2%), not today\'s forecast anymore.'
-        : 'Experimental model estimate (trend + momentum heuristic, capped ±2%) — not backtested or historically calibrated. Not a guarantee of the exact close.',
+      note: sessionOverFlag
+        ? 'UNVALIDATED next-session estimate: linear regression on last 10 closes + volume-weighted mean, RSI mean-reversion nudge, and S/R snap. Not backtested. Not calibrated. The real close may differ significantly.'
+        : 'UNVALIDATED intra-session model estimate: linear regression on last 10 closes + volume-weighted mean. Not backtested or historically calibrated against real NSE close prices. Treat the range as a volatility indication only, not a guaranteed forecast.',
     },
+    // NEW: top-level convenience mirrors of the closing-range prediction, for
+    // callers that want the number without reaching into closingRange.
+    expectedReturnPct: sessionExpectedMovePct,
     newsIndependentEvents: newsIndependent,
     newsMaterialEvents: newsMaterial,
     validation,
@@ -428,16 +676,6 @@ export function buildEngineResult(a) {
       'Algorithmic research signal using available market data and news. Not verified financial advice. Missing inputs are marked UNKNOWN and excluded from the score, never treated as neutral. Probability is NOT CALIBRATED in this build.',
   };
 }
-
-const WEIGHTS = {
-  momentum: 25,
-  trend: 20,
-  volume: 15,
-  relStrength: 10,
-  news: 10,
-  fundamentals: 10,
-  market: 10,
-};
 
 function phraseFactor(label, score) {
   if (score == null) {

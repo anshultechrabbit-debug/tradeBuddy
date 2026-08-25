@@ -19,7 +19,8 @@ import { fetchStockNews } from './newsService.js';
 import { buildEngineResult, buildWhySection } from './predictionEngine.js';
 import { validateAnalysis } from './outputValidator.js';
 import { round2 } from '../utils/helpers.js';
-import { isPastClose } from './officialClose.js';
+import { isPastClose, isMarketOpen, dayKey } from './officialClose.js';
+import { recordFromAnalysis, getPredictions } from './predictionTracker.js';
 
 // ---------------------------------------------------------------------------
 // Data gathering (each block degrades gracefully)
@@ -119,6 +120,7 @@ async function gatherTechnical(provider, symbol) {
     atrPct,
     roc10: roc(closes, 10),
     roc20: roc(closes, 20),
+    roc5: roc(closes, 5),
     volRatio: round2(volRatio),
     avgVol20,
     lastVol,
@@ -503,12 +505,15 @@ async function computeAnalysis(provider, sym, { includeNews }) {
 
   const entry = entryAndStop(tech);
 
-  // Confidence. A stale P/E snapshot is still the best data available, but
-  // it shouldn't buy the same confidence as a fresh one.
+  // dataQuality: how complete and fresh the input data is.
+  // NOT a prediction confidence — this measures data coverage only.
+  // HIGH = 150+ candles + news + fresh valuation.
+  // MEDIUM = 100+ candles + some news.
+  // LOW = thin data, stale or missing factors.
   const valuationFresh = valResult.available && !valResult.stale;
-  let confidence = 'LOW';
-  if (tech.closes.length >= 100 && newsResult.articles?.length >= 3) confidence = 'MEDIUM';
-  if (fundResult.available && valuationFresh && tech.closes.length >= 150 && newsResult.articles?.length >= 3) confidence = 'HIGH';
+  let dataQuality = 'LOW';
+  if (tech.closes.length >= 100 && newsResult.articles?.length >= 3) dataQuality = 'MEDIUM';
+  if (fundResult.available && valuationFresh && tech.closes.length >= 150 && newsResult.articles?.length >= 3) dataQuality = 'HIGH';
 
   const positiveFactors = [];
   const negativeFactors = [];
@@ -564,7 +569,9 @@ async function computeAnalysis(provider, sym, { includeNews }) {
     // that point.
     finalSignal: null,
     overallScore: null,
-    confidence,
+    // dataQuality measures input data completeness/freshness — NOT prediction accuracy.
+    // Do not display this as "confidence" in the UI.
+    dataQuality,
     flags,
     factorScores: {
       news: newsResult.score,
@@ -605,6 +612,7 @@ async function computeAnalysis(provider, sym, { includeNews }) {
       sma200: tech.s200,
       roc10: round2(tech.roc10),
       roc20: round2(tech.roc20),
+      roc5: round2(tech.roc5),
       volume: tech.lastVol,
       avgVolume20: tech.avgVol20,
       volumeRatio: tech.volRatio,
@@ -663,14 +671,13 @@ async function computeAnalysis(provider, sym, { includeNews }) {
     negativeFactors: negativeFactors.slice(0, 6),
     reasons,
     dataTimestamp: new Date().toISOString(),
+    // Raw price / candle series for the engine's linReg & vwmaClose projection.
+    // NOT published in the API response — engine-internal only.
+    _closes: tech.closes,
+    _candles: tech.candles,
     disclaimer:
       'This is an algorithmic research signal using live market data and news, not a guaranteed prediction of future price movement.',
   };
-
-  // Structured expected close so the UI can show a checkable "predicted high" list.
-  const _expPct = expectedMove(tech);
-  result.expectedClose = tech.price != null ? round2(tech.price * (1 + _expPct / 100)) : null;
-  result.expectedPct = _expPct;
 
   // Spec-compliant prediction engine: 0-100 weighted score (renormalised over
   // known factors — UNKNOWN factors are excluded, never treated as neutral),
@@ -681,6 +688,71 @@ async function computeAnalysis(provider, sym, { includeNews }) {
   result.engineWhy = buildWhySection(result);
   result.overallScore = result.engine.totalScore;
   result.finalSignal = result.engine.signal;
+
+  // Auto-record morning baseline snapshot if during market hours and not yet recorded today
+  const today = dayKey();
+  if (isMarketOpen()) {
+    recordFromAnalysis(result, today);
+  }
+
+  // Attach morning baseline and live trajectory status (if snapshot exists)
+  const morningSnapshot = getPredictions().find((p) => p.symbol === sym && p.date === today);
+  if (morningSnapshot) {
+    const mbPrice = morningSnapshot.predictionPrice;
+    const mbOutlook = morningSnapshot.directionalOutlook ?? 'NEUTRAL';
+    const mbBase = morningSnapshot.baseCase;
+    const mbBear = morningSnapshot.bearCase;
+    const mbBull = morningSnapshot.bullCase;
+    const mbInv = morningSnapshot.invalidationPrice ?? morningSnapshot.stopLoss;
+    const curPrice = tech.price;
+
+    let trajectoryStatus = 'ON_TRACK';
+    let trajectoryReason = '';
+
+    if (mbOutlook === 'BULLISH') {
+      if (mbInv != null && curPrice <= mbInv) {
+        trajectoryStatus = 'INVALIDATED';
+        trajectoryReason = `Price ₹${curPrice} fell below morning support level ₹${mbInv}`;
+      } else if (mbPrice != null && curPrice >= mbPrice) {
+        trajectoryStatus = 'ON_TRACK';
+        trajectoryReason = `Price ₹${curPrice} progressing towards morning target range (₹${mbBear ?? '—'}–₹${mbBull ?? '—'})`;
+      } else {
+        trajectoryStatus = 'PULLBACK';
+        trajectoryReason = `Price ₹${curPrice} pulled back below morning price ₹${mbPrice}, but support ₹${mbInv ?? '—'} holds`;
+      }
+    } else if (mbOutlook === 'BEARISH') {
+      if (mbInv != null && curPrice >= mbInv) {
+        trajectoryStatus = 'INVALIDATED';
+        trajectoryReason = `Price ₹${curPrice} broke above morning resistance level ₹${mbInv}`;
+      } else if (mbPrice != null && curPrice <= mbPrice) {
+        trajectoryStatus = 'ON_TRACK';
+        trajectoryReason = `Price ₹${curPrice} progressing down towards target range (₹${mbBear ?? '—'}–₹${mbBull ?? '—'})`;
+      } else {
+        trajectoryStatus = 'PULLBACK';
+        trajectoryReason = `Price ₹${curPrice} moved above morning price ₹${mbPrice}, but resistance ₹${mbInv ?? '—'} holds`;
+      }
+    } else {
+      trajectoryStatus = 'NEUTRAL_RANGE';
+      trajectoryReason = 'Price is within expected neutral range';
+    }
+
+    result.morningBaseline = {
+      predictionTimestamp: morningSnapshot.predictionTimestamp ?? morningSnapshot.createdAt,
+      predictionPrice: mbPrice,
+      directionalOutlook: mbOutlook,
+      baseCase: mbBase,
+      bearCase: mbBear,
+      bullCase: mbBull,
+      expectedMovePct: morningSnapshot.expectedMovePct,
+      invalidationPrice: mbInv,
+      trajectoryStatus,
+      trajectoryReason,
+    };
+  }
+
+  // Align top-level expected close properties with the spec-compliant engine's ATR-based closing range prediction
+  result.expectedClose = result.engine.closingRange?.base ?? null;
+  result.expectedPct = result.engine.closingRange?.expectedMovePct ?? null;
 
   // Narrative text is generated AFTER the single score/signal is fixed, so
   // it can never describe a different verdict than what's published.
@@ -722,7 +794,8 @@ export function formatAnalysis(result) {
   lines.push(`DIRECTIONAL OUTLOOK: ${result.engine?.directionalOutlook ?? 'n/a'}`);
   lines.push(`TRADING SIGNAL: ${result.finalSignal}${result.flags.length ? ` (${result.flags.join(', ')})` : ''}`);
   lines.push(`TRADE DECISION: ${result.engine?.tradeStatus ?? 'n/a'}`);
-  lines.push(`CONFIDENCE: ${result.confidence}`);
+  lines.push(`DATA QUALITY (input completeness, NOT prediction accuracy): ${result.dataQuality}`);
+  lines.push(`EVIDENCE QUALITY SCORE: ${result.engine?.evidenceQualityScore ?? 'n/a'}/100 — measures data freshness/coverage, not forecast reliability`);
   lines.push('');
   lines.push('SCORES:');
   const sc = (v) => (v == null ? 'UNKNOWN' : `${v}/100`);
@@ -877,13 +950,11 @@ export function simpleLanguageNote(result) {
     }
   }
 
-  // Forward-looking, LIVE prediction: anchored to the current price and a
-  // rough expected close derived from the live trend + momentum, so the user
-  // gets a checkable "where should it end the day" number in plain words.
-  // Once the session has closed for the day (see officialClose.isPastClose),
-  // "it should close around X" is no longer a forecast — the close already
-  // happened and may well have gone the other way — so switch to reporting
-  // today's realized move instead of restating a now-falsified prediction.
+  // Forward-looking UNVALIDATED model estimate.
+  // Clearly labelled: this is an algorithmic projection from EOD candle data,
+  // not a backtested, calibrated, or proven forecast. The range is an
+  // indication of where price has historically moved given similar setups —
+  // it is NOT a reliable predictor of the exact close price.
   let prediction = '';
   const marketRegime = result.market?.regime ?? 'NEUTRAL';
   const resistance = result.technical?.primaryResistance;
@@ -893,8 +964,10 @@ export function simpleLanguageNote(result) {
   const sessionOver = isPastClose();
   const realizedPct = result.quote?.changePct;
 
-  const expPct = expectedMove(result.technical);
-  const expClose = price != null ? price * (1 + expPct / 100) : null;
+  const cr = result.engine?.closingRange ?? {};
+  const expPct = cr.expectedMovePct;
+  const bear = cr.bear;
+  const bull = cr.bull;
 
   const nifty = result.market?.niftyLevel;
   const marketWord = marketRegime === 'BULLISH' ? 'market looks like it will rise'
@@ -904,27 +977,30 @@ export function simpleLanguageNote(result) {
   const priceLead = sessionOver ? "Today's close for" : 'Right now';
   const realizedText = sessionOver && realizedPct != null ? ` (${realizedPct >= 0 ? '+' : ''}${realizedPct}% for the day)` : '';
   const livePrice = price != null ? ` ${priceLead} ${name} is ${inrShort(price)}${realizedText},` : '';
-  // Same trend+momentum estimate either way — only the framing changes.
-  // Pre-close it's phrased as "today should close around X"; once today's
-  // close already happened, re-anchor the same number to the NEXT session
-  // instead of dropping the call entirely.
-  const expText = expClose == null
-    ? ' it should move up'
-    : sessionOver
-    ? ` for the next session, starting from today's close, the trend points to around ${inrShort(expClose)} (${expPct >= 0 ? '+' : ''}${expPct.toFixed(1)}%)`
-    : ` on its trend it should close around ${inrShort(expClose)} (${expPct >= 0 ? '+' : ''}${expPct.toFixed(1)}% from here)`;
+
+  // Range text with explicit UNVALIDATED disclaimer.
+  let expText = '';
+  if (bear == null || bull == null) {
+    expText = ' direction unclear from available data';
+  } else {
+    const rangeText = `${inrShort(bear)}–${inrShort(bull)}`;
+    const signText = expPct != null ? ` (${expPct >= 0 ? '+' : ''}${expPct.toFixed(2)}% model estimate — UNVALIDATED)` : '';
+    expText = sessionOver
+      ? ` for the next session, the model projects a volatility range of ${rangeText}${signText}. This is not a guaranteed forecast.`
+      : ` the model projects a volatility range of ${rangeText}${signText}. This is not a proven forecast — treat as a rough guide only.`;
+  }
 
   if (buyish || dip) {
     if (resistance != null && entryMid > 0) {
       const upside = ((Number(resistance) - entryMid) / entryMid) * 100;
-      prediction = ` Prediction:${livePrice} ${marketWord}${marketPrice}, and ${name} is in an uptrend, so${expText}. If you buy near ${inrShort(entryMid)} it could give about ${upside >= 0 ? '+' : ''}${upside.toFixed(0)}% up to resistance ${inrShort(resistance)}. Sell if it falls below ${inrShort(stop)}.`;
+      prediction = ` Model estimate (UNVALIDATED):${livePrice} ${marketWord}${marketPrice}, and ${name} is in an uptrend, so${expText} If you buy near ${inrShort(entryMid)} the resistance level is ${inrShort(resistance)} (~${upside >= 0 ? '+' : ''}${upside.toFixed(0)}% away). Sell if it falls below ${inrShort(stop)}.`;
     } else {
-      prediction = ` Prediction:${livePrice} ${marketWord}${marketPrice}, and ${name} is in an uptrend, so${expText}. Plan: buy near ${inrShort(entry.zoneLow)}–${inrShort(entry.zoneHigh)}, sell if below ${inrShort(stop)}.`;
+      prediction = ` Model estimate (UNVALIDATED):${livePrice} ${marketWord}${marketPrice}, and ${name} is in an uptrend, so${expText} Plan: buy near ${inrShort(entry.zoneLow)}–${inrShort(entry.zoneHigh)}, sell if below ${inrShort(stop)}.`;
     }
   } else if (avoid) {
-    prediction = ` Prediction:${livePrice} ${marketWord}${marketPrice}, and the trend is down, so${expText}. Better not to buy — if you already hold, exit if it falls below ${inrShort(stop)}.`;
+    prediction = ` Model estimate (UNVALIDATED):${livePrice} ${marketWord}${marketPrice}, and the trend is down, so${expText} Better not to buy — if you already hold, exit if it falls below ${inrShort(stop)}.`;
   } else {
-    prediction = ` Prediction:${livePrice} ${marketWord}${marketPrice}, no clear move expected, so${expText}. Just watch for now.`;
+    prediction = ` Model estimate (UNVALIDATED):${livePrice} ${marketWord}${marketPrice}, no clear move expected so${expText} Just watch for now.`;
   }
 
   return `Plain talk — ${name}: ${verdict} ${reason} ${action}${priceNote}${prediction}`;

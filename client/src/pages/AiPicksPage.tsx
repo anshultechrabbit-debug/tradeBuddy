@@ -8,6 +8,7 @@ import { fetchAllQuotes } from '../store/marketSlice';
 import { Card, Spinner, EmptyState, ErrorBox } from '../components/ui';
 import { formatCurrency, formatPct, formatTimeAgo } from '../lib/format';
 import { CandleChart } from '../components/CandleChart';
+import { PredictionTrackerPanel } from '../components/PredictionTrackerPanel';
 import type { AiAnalysis } from '../lib/types';
 
 function signalTone(signal: string): 'buy' | 'watch' | 'avoid' {
@@ -454,6 +455,52 @@ export function AiPicksPage() {
                 </div>
               ) : null}
 
+              {active.morningBaseline ? (
+                <div style={{ marginTop: '0.75rem', padding: '0.75rem 1rem', backgroundColor: '#f8fafc', borderRadius: '0.375rem', border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+                    <span style={{ fontWeight: 600, fontSize: '0.85rem', color: '#1e293b' }}>
+                      📌 Morning Baseline Forecast (Locked Target)
+                    </span>
+                    <span
+                      style={{
+                        fontWeight: 600,
+                        fontSize: '0.75rem',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        backgroundColor:
+                          active.morningBaseline.trajectoryStatus === 'ON_TRACK'
+                            ? '#dcfce7'
+                            : active.morningBaseline.trajectoryStatus === 'INVALIDATED'
+                            ? '#fee2e2'
+                            : '#fef3c7',
+                        color:
+                          active.morningBaseline.trajectoryStatus === 'ON_TRACK'
+                            ? '#166534'
+                            : active.morningBaseline.trajectoryStatus === 'INVALIDATED'
+                            ? '#991b1b'
+                            : '#92400e',
+                      }}
+                    >
+                      {active.morningBaseline.trajectoryStatus === 'ON_TRACK'
+                        ? '🟢 ON TRACK'
+                        : active.morningBaseline.trajectoryStatus === 'INVALIDATED'
+                        ? '🔴 THESIS INVALIDATED'
+                        : active.morningBaseline.trajectoryStatus === 'PULLBACK'
+                        ? '🟡 PULLBACK'
+                        : '🔵 NEUTRAL RANGE'}
+                    </span>
+                  </div>
+                  <div className="small" style={{ color: '#475569' }}>
+                    • Morning Outlook: <strong>{active.morningBaseline.directionalOutlook}</strong> (recorded at {formatCurrency(active.morningBaseline.predictionPrice)})<br />
+                    • Expected Closing Range: <strong>{active.morningBaseline.bearCase != null && active.morningBaseline.bullCase != null ? `${formatCurrency(active.morningBaseline.bearCase)}–${formatCurrency(active.morningBaseline.bullCase)}` : 'n/a'}</strong><br />
+                    • Invalidation / Support: <strong>{active.morningBaseline.invalidationPrice != null ? formatCurrency(active.morningBaseline.invalidationPrice) : 'n/a'}</strong><br />
+                    <span className="muted" style={{ fontSize: '0.75rem' }}>
+                      {active.morningBaseline.trajectoryReason}. Official EOD evaluation at 15:30 IST is judged against this locked morning target.
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="sg-action-box">
                 <div className="sg-action-item">
                   <span className="sg-action-label">Entry zone</span>
@@ -604,6 +651,8 @@ export function AiPicksPage() {
               </button>
             </div>
           ) : null}
+
+          <PredictionTrackerPanel />
         </>
       ) : null}
 

@@ -140,11 +140,11 @@ export function validateAnalysis(result) {
     }
   }
 
-  // CHECK 12: confidence is not probability.
-  const confScore = e.closingRange?.confidenceScore;
+  // CHECK 12: confidence/evidence is not probability.
+  const confScore = e.closingRange?.evidenceQualityScore ?? e.closingRange?.confidenceScore;
   const probability = e.closingRange?.probability;
   if (typeof probability === 'number' || (typeof confScore !== 'number')) {
-    fail('CHECK_12', 'Confidence/probability conflated', 'confidenceScore must be numeric and probability must remain a distinct, non-numeric label — they must never be the same field.');
+    fail('CHECK_12', 'Confidence/probability conflated', 'evidenceQualityScore (or confidenceScore) must be numeric and probability must remain a distinct, non-numeric label — they must never be the same field.');
   }
 
   // CHECK 13: probability must read NOT CALIBRATED unless calibrated on historical out-of-sample data.

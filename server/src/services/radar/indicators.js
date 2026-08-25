@@ -83,6 +83,49 @@ export function zscoreOfLatest(closes, window = 20) {
   return (closes[closes.length - 1] - mean) / std;
 }
 
+/**
+ * Linear regression: fit y = a + bx to the last `period` values and return
+ * the projected value one step BEYOND the last point (i.e. tomorrow's close
+ * if `values` contains daily closes up to today).
+ * Returns null if fewer than 3 data points are available.
+ */
+export function linReg(values, period = 10) {
+  const slice = values.length >= period ? values.slice(-period) : values.slice();
+  const n = slice.length;
+  if (n < 3) return null;
+  const xMean = (n - 1) / 2;
+  const yMean = slice.reduce((s, v) => s + v, 0) / n;
+  let ssXY = 0;
+  let ssXX = 0;
+  for (let i = 0; i < n; i++) {
+    ssXY += (i - xMean) * (slice[i] - yMean);
+    ssXX += (i - xMean) ** 2;
+  }
+  const slope = ssXX !== 0 ? ssXY / ssXX : 0;
+  // Predict at index n (one beyond the last observed point)
+  return yMean + slope * (n - xMean);
+}
+
+/**
+ * Volume-weighted mean close over the last `period` candles.
+ * Acts as a VWAP proxy (where did price spend most time weighted by activity).
+ * Returns null if no volume data is present.
+ */
+export function vwmaClose(candles, period = 10) {
+  const slice = candles.length >= period ? candles.slice(-period) : candles.slice();
+  let sumPV = 0;
+  let sumV = 0;
+  for (const c of slice) {
+    const v = Number(c.volume) || 0;
+    const p = Number(c.close);
+    if (Number.isFinite(p) && v > 0) {
+      sumPV += p * v;
+      sumV += v;
+    }
+  }
+  return sumV > 0 ? sumPV / sumV : null;
+}
+
 export function clamp(n, min, max) {
   return Math.min(max, Math.max(min, n));
 }
