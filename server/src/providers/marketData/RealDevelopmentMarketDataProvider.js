@@ -720,13 +720,17 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
       logInfra('info', 'market-data-external', `getIndexData live failed: ${err.message}`);
     }
 
-    // 2) Fallback: nselib EOD snapshot.
+    // 2) Fallback: nselib EOD snapshot. nselib's market_watch_all_indices()
+    // returns EVERY NSE index (sectoral, thematic, ~90 of them) — apply the
+    // same headline-only whitelist the live path uses above, or this ends up
+    // showing the whole index universe instead of just Nifty/Bank Nifty/Sensex/FinNifty.
     try {
       const live = await this.fallback.getIndexData();
       if (Array.isArray(live) && live.length) {
         return live
+          .filter((item) => INDEX_MAP[item.symbol])
           .map((item) => ({
-            symbol: item.symbol,
+            symbol: INDEX_MAP[item.symbol],
             exchange: 'NSE',
             instrumentType: 'INDEX',
             level: round2(item.level),

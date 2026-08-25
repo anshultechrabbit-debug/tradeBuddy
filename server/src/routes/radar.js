@@ -21,25 +21,45 @@ router.post(
   },
 );
 
-router.get('/signals', pagination, async (req, res, next) => {
-  try {
-    const { page, limit } = req.pagination;
-    const result = await listSignals({ userId: req.user.id, page, limit });
-    res.json(paginatedResult({ rows: result.rows, total: result.total, page, limit }));
-  } catch (err) {
-    next(err);
-  }
-});
+router.get(
+  '/signals',
+  pagination,
+  query('signal').optional().isIn(['BUY', 'WATCH', 'AVOID']),
+  query('symbol').optional().isString().trim(),
+  validate,
+  async (req, res, next) => {
+    try {
+      const { page, limit } = req.pagination;
+      const result = await listSignals({
+        userId: req.user.id,
+        page,
+        limit,
+        signal: req.query.signal,
+        symbol: req.query.symbol,
+      });
+      res.json(paginatedResult({ rows: result.rows, total: result.total, page, limit }));
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
-router.get('/opportunities', pagination, async (req, res, next) => {
-  try {
-    const { page, limit } = req.pagination;
-    const result = await listOpportunities({ page, limit });
-    res.json(paginatedResult({ rows: result.rows, total: result.total, page, limit }));
-  } catch (err) {
-    next(err);
-  }
-});
+router.get(
+  '/opportunities',
+  pagination,
+  query('signal').optional().isIn(['BUY', 'WATCH', 'AVOID']),
+  query('symbol').optional().isString().trim(),
+  validate,
+  async (req, res, next) => {
+    try {
+      const { page, limit } = req.pagination;
+      const result = await listOpportunities({ page, limit, signal: req.query.signal, symbol: req.query.symbol });
+      res.json(paginatedResult({ rows: result.rows, total: result.total, page, limit }));
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 router.get('/latest', async (req, res, next) => {
   try {

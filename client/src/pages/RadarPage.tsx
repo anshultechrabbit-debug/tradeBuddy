@@ -21,6 +21,52 @@ function tone(signal: string): 'buy' | 'watch' | 'avoid' {
   return 'watch';
 }
 
+type SignalFilter = '' | 'BUY' | 'WATCH' | 'AVOID';
+
+function FilterBar({
+  signalFilter,
+  onSignalFilter,
+  search,
+  onSearch,
+}: {
+  signalFilter: SignalFilter;
+  onSignalFilter: (v: SignalFilter) => void;
+  search: string;
+  onSearch: (v: string) => void;
+}) {
+  const options: { value: SignalFilter; label: string }[] = [
+    { value: '', label: 'All' },
+    { value: 'BUY', label: 'Buy' },
+    { value: 'WATCH', label: 'Watch' },
+    { value: 'AVOID', label: 'Avoid' },
+  ];
+  return (
+    <div className="market-toolbar">
+      <div className="tabs">
+        {options.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            className={signalFilter === o.value ? 'tab tab-active' : 'tab'}
+            onClick={() => onSignalFilter(o.value)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <div className="search-box">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => onSearch(e.target.value)}
+          placeholder="Search symbol…"
+          autoComplete="off"
+        />
+      </div>
+    </div>
+  );
+}
+
 function MarketMood({ indices, breadth, regime }: { indices: { symbol: string; level: number; changePct: number }[]; breadth: { advancing: number; declining: number; total: number } | null; regime: string }) {
   return (
     <div className="rd-mood">
@@ -61,13 +107,45 @@ export function RadarPage() {
   const MOVER_PAGE = 3;
   const TREND_PAGE = 20;
 
-  useEffect(() => {
-    dispatch(fetchOpportunities({ page: oppPage, limit: 10 }));
-  }, [dispatch, oppPage]);
+  // Trending now is already fully loaded client-side (one scan response), so
+  // its filter applies instantly with no extra requests. Saved Opportunities
+  // and Recent Signals are server-paginated, so their filters go through the
+  // API — the search box is debounced so typing doesn't fire a request per
+  // keystroke.
+  const [trendSignalFilter, setTrendSignalFilter] = useState<SignalFilter>('');
+  const [trendSearch, setTrendSearch] = useState('');
+
+  const [oppSignalFilter, setOppSignalFilter] = useState<SignalFilter>('');
+  const [oppSearchInput, setOppSearchInput] = useState('');
+  const [oppSearch, setOppSearch] = useState('');
+
+  const [sigSignalFilter, setSigSignalFilter] = useState<SignalFilter>('');
+  const [sigSearchInput, setSigSearchInput] = useState('');
+  const [sigSearch, setSigSearch] = useState('');
 
   useEffect(() => {
-    dispatch(fetchSignals({ page: sigPage, limit: 10 }));
-  }, [dispatch, sigPage]);
+    const t = setTimeout(() => {
+      setOppSearch(oppSearchInput);
+      setOppPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [oppSearchInput]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSigSearch(sigSearchInput);
+      setSigPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [sigSearchInput]);
+
+  useEffect(() => {
+    dispatch(fetchOpportunities({ page: oppPage, limit: 10, signal: oppSignalFilter || undefined, symbol: oppSearch || undefined }));
+  }, [dispatch, oppPage, oppSignalFilter, oppSearch]);
+
+  useEffect(() => {
+    dispatch(fetchSignals({ page: sigPage, limit: 10, signal: sigSignalFilter || undefined, symbol: sigSearch || undefined }));
+  }, [dispatch, sigPage, sigSignalFilter, sigSearch]);
 
   // Live radar: SSE pushes a fresh scan the moment one completes server-side
   // (background scan now runs at most every 30s, market hours only), so the
@@ -120,7 +198,11 @@ export function RadarPage() {
     .filter((q) => q.symbol && q.lastPrice != null && q.changePct != null)
     .sort((a, b) => (a.changePct ?? 0) - (b.changePct ?? 0));
 
-  const trending = scanResult?.opportunities ?? [];
+  const trending = (scanResult?.opportunities ?? []).filter((o) => {
+    if (trendSignalFilter && o.signal !== trendSignalFilter) return false;
+    if (trendSearch && !o.symbol.toUpperCase().includes(trendSearch.toUpperCase())) return false;
+    return true;
+  });
 
   const trendPages = Math.max(1, Math.ceil(trending.length / TREND_PAGE));
   const safeTrendPage = Math.min(trendPage, trendPages);
@@ -203,6 +285,18 @@ export function RadarPage() {
         ) : undefined
         }
       >
+        <FilterBar
+          signalFilter={trendSignalFilter}
+          onSignalFilter={(v) => {
+            setTrendSignalFilter(v);
+            setTrendPage(1);
+          }}
+          search={trendSearch}
+          onSearch={(v) => {
+            setTrendSearch(v);
+            setTrendPage(1);
+          }}
+        />
         {scanning ? (
           <Spinner label="Scanning the market…" />
         ) : trendSlice.length ? (
@@ -232,12 +326,23 @@ export function RadarPage() {
             </div>
             <PaginationBar page={safeTrendPage} totalPages={trendPages} onPage={setTrendPage} />
           </>
+        ) : scanResult ? (
+          <EmptyState title="No matches" hint="Try clearing the filters above" />
         ) : (
           <EmptyState title="No scan run yet" hint="Click Run Scan to analyze the market" />
         )}
       </Card>
 
       <Card title="Saved Opportunities">
+        <FilterBar
+          signalFilter={oppSignalFilter}
+          onSignalFilter={(v) => {
+            setOppSignalFilter(v);
+            setOppPage(1);
+          }}
+          search={oppSearchInput}
+          onSearch={setOppSearchInput}
+        />
         {loading ? (
           <Spinner />
         ) : opportunities && opportunities.data.length > 0 ? (
@@ -267,6 +372,15 @@ export function RadarPage() {
       </Card>
 
       <Card title="Recent Signals">
+        <FilterBar
+          signalFilter={sigSignalFilter}
+          onSignalFilter={(v) => {
+            setSigSignalFilter(v);
+            setSigPage(1);
+          }}
+          search={sigSearchInput}
+          onSearch={setSigSearchInput}
+        />
         {signals && signals.data.length > 0 ? (
           <>
             <Table headers={['Symbol', 'Signal', 'Conviction', 'Regime', 'Timestamp']}>

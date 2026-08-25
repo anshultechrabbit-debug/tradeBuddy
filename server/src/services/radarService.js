@@ -408,8 +408,10 @@ export function startRadarScheduler(intervalMs = 60000) {
   return schedulerTimer;
 }
 
-export async function listSignals({ userId, page = 1, limit = 20 }) {
+export async function listSignals({ userId, page = 1, limit = 20, signal, symbol }) {
   const where = userId != null ? { userId } : {};
+  if (signal) where.signal = signal;
+  if (symbol) where.symbol = { contains: symbol.toUpperCase() };
   const [total, rows] = await Promise.all([
     prisma.scanSignal.count({ where }),
     prisma.scanSignal.findMany({
@@ -436,10 +438,14 @@ export async function listSignals({ userId, page = 1, limit = 20 }) {
   };
 }
 
-export async function listOpportunities({ page = 1, limit = 20 }) {
+export async function listOpportunities({ page = 1, limit = 20, signal, symbol }) {
+  const where = {};
+  if (signal) where.signal = signal;
+  if (symbol) where.symbol = { contains: symbol.toUpperCase() };
   const [total, rows] = await Promise.all([
-    prisma.radarOpportunity.count(),
+    prisma.radarOpportunity.count({ where }),
     prisma.radarOpportunity.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
       take: limit,
       skip: (page - 1) * limit,
