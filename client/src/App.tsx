@@ -18,10 +18,13 @@ import { AdminBrokersPage } from './pages/admin/AdminBrokersPage';
 import { AdminCompliancePage } from './pages/admin/AdminCompliancePage';
 import { AdminScanUniversePage } from './pages/admin/AdminScanUniversePage';
 
+import { LandingPage } from './pages/LandingPage';
+
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route element={<ProtectedRoute />}>
           <Route path="/dashboard" element={<DashboardPage />} />
