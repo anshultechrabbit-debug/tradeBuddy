@@ -94,6 +94,10 @@ export class NselibAdapter {
     return this.client.call('instruments', { kind });
   }
 
+  async getNiftyList() {
+    return this.client.call('nifty_list', {});
+  }
+
   async getFundamentals(symbol) {
     const data = await this.client.call('fundamentals', { symbol: resolveLiveSymbol(symbol) });
     return data && typeof data === 'object' ? { ...data, symbol } : data;

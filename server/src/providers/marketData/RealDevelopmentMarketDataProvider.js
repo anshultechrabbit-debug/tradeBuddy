@@ -968,7 +968,11 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
 
   async _getNiftyList() {
     try {
-      const data = await this.primary.client.call('nifty_list', {});
+      const source = [this.primary, this.fallback, this.backfill].find(
+        (adapter) => typeof adapter?.getNiftyList === 'function',
+      );
+      if (!source) throw new Error('No external adapter supports NIFTY membership discovery');
+      const data = await source.getNiftyList();
       return Array.isArray(data) ? data : [];
     } catch (err) {
       this._recordError(err, 'niftyList');
@@ -1005,17 +1009,34 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
 
   /**
    * Replaces the seeded universe with the real NSE equity list (nselib) and
-   * rebuilds the scan universe. NIFTY 50 constituents get priority 10,
-   * everything else 100. Index instruments are upserted too.
+   * rebuilds the scan universe. For the current NIFTY 100 verification phase,
+   * only NIFTY 50 + NIFTY Next 50 constituents are enabled. Other NSE stocks
+   * remain in the database but are disabled, so this is easy to reverse later.
    */
   async syncInstrumentMaster() {
     const start = performance.now();
-    const list = await this.primary.getInstruments('equity');
+    // Resolve the restricted universe first. A full NSE instrument download is
+    // comparatively expensive and can trip the shared external-client guard,
+    // causing a subsequent membership request to return an empty result.
+    const nifty = await this._getNiftyList();
+    const niftySet = new Set(nifty.map((s) => String(s).trim().toUpperCase()));
+    if (niftySet.size !== 100) {
+      throw new Error(`Expected 100 NIFTY 100 constituents; received ${niftySet.size}`);
+    }
+
+    // The live-quote adapter is currently primary, but instrument-master
+    // discovery belongs to nselib (the fallback adapter). Select by capability
+    // so adapter ordering can change without breaking database seeding.
+    const instrumentSource = [this.primary, this.fallback, this.backfill].find(
+      (source) => typeof source?.getInstruments === 'function',
+    );
+    if (!instrumentSource) {
+      throw new Error('No external market-data adapter supports instrument discovery');
+    }
+    const list = await instrumentSource.getInstruments('equity');
     if (!Array.isArray(list) || !list.length) {
       throw new Error('External instrument list is empty; NSE fetch failed');
     }
-    const nifty = await this._getNiftyList();
-    const niftySet = new Set(nifty.map((s) => String(s).trim().toUpperCase()));
     let created = 0;
     let updated = 0;
 
@@ -1054,10 +1075,17 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
           symbol,
           exchange: 'NSE',
           instrumentType: 'EQUITY',
-          enabled: true,
+          enabled: niftySet.has(symbol),
           priority: niftySet.has(symbol) ? 10 : 100,
+          excluded: !niftySet.has(symbol),
+          exclusionReason: niftySet.has(symbol) ? null : 'Disabled during NIFTY 100 verification',
         },
-        update: { priority: niftySet.has(symbol) ? 10 : 100 },
+        update: {
+          enabled: niftySet.has(symbol),
+          priority: niftySet.has(symbol) ? 10 : 100,
+          excluded: !niftySet.has(symbol),
+          exclusionReason: niftySet.has(symbol) ? null : 'Disabled during NIFTY 100 verification',
+        },
       });
     }
 

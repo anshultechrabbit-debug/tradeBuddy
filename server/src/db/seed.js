@@ -65,7 +65,7 @@ async function syncExternalMarketData() {
     return null;
   }
   const result = await provider.syncInstrumentMaster();
-  logInfra('info', 'seed', `External universe synced: ${result.total} equities (${result.created} created, ${result.updated} updated, ${result.niftyMembers} NIFTY 50)`);
+  logInfra('info', 'seed', `External universe synced: ${result.total} equities (${result.created} created, ${result.updated} updated, ${result.niftyMembers} NIFTY 100 enabled)`);
   return result;
 }
 

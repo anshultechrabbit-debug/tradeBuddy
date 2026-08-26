@@ -434,19 +434,24 @@ def nselib_candles(symbol, days, is_index=False):
 
 
 def nselib_nifty_list():
-    """Real NIFTY 50 constituent symbols from nselib's equity index list."""
+    """Real NIFTY 100 symbols (NIFTY 50 + NIFTY Next 50) from nselib."""
     from nselib import capital_market
 
-    df = capital_market.nifty50_equity_list()
-    if df is None or getattr(df, "empty", True):
-        return []
-    sym_c = col(df, "Symbol", "SYMBOL", "symbol")
     out = []
-    for _, row in df.iterrows():
-        s = row.get(sym_c) if sym_c else None
-        if s is None:
-            continue
-        out.append(str(s).strip())
+    for df in (
+        capital_market.nifty50_equity_list(),
+        capital_market.niftynext50_equity_list(),
+    ):
+        if df is None or getattr(df, "empty", True):
+            return []
+        sym_c = col(df, "Symbol", "SYMBOL", "symbol")
+        for _, row in df.iterrows():
+            s = row.get(sym_c) if sym_c else None
+            if s is None:
+                continue
+            symbol = str(s).strip().upper()
+            if symbol and symbol not in out:
+                out.append(symbol)
     return out
 
 
