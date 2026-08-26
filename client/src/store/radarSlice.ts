@@ -65,6 +65,7 @@ const radarSlice = createSlice({
       .addCase(runScan.fulfilled, (state, action) => {
         state.scanning = false;
         state.scanResult = action.payload;
+        state.lastScannedAt = action.payload.lastScannedAt ?? null;
       })
       .addCase(runScan.rejected, (state, action) => {
         state.scanning = false;

@@ -6,15 +6,6 @@ import { Card, Badge, Spinner, EmptyState, ProgressBar, PaginationBar, ErrorBox,
 import { formatCurrency, formatPct, formatDateTime, formatTimeAgo, signalBadgeClass, regimeBadgeClass } from '../lib/format';
 import { Link } from 'react-router-dom';
 
-function plainSignal(signal: string): string {
-  if (signal.includes('BUY ON DIP')) return 'Buy on Dip';
-  if (signal.includes('STRONG BUY')) return 'Strong Buy';
-  if (signal.includes('BUY')) return 'Buy';
-  if (signal.includes('STRONG AVOID')) return 'Strong Avoid';
-  if (signal.includes('AVOID')) return 'Avoid';
-  return 'Watch';
-}
-
 function tone(signal: string): 'buy' | 'watch' | 'avoid' {
   if (signal.includes('BUY')) return 'buy';
   if (signal.includes('AVOID')) return 'avoid';
@@ -36,9 +27,9 @@ function FilterBar({
 }) {
   const options: { value: SignalFilter; label: string }[] = [
     { value: '', label: 'All' },
-    { value: 'BUY', label: 'Buy' },
-    { value: 'WATCH', label: 'Watch' },
-    { value: 'AVOID', label: 'Avoid' },
+    { value: 'BUY', label: 'BUY' },
+    { value: 'WATCH', label: 'WATCH' },
+    { value: 'AVOID', label: 'AVOID' },
   ];
   return (
     <div className="market-toolbar">
@@ -141,11 +132,11 @@ export function RadarPage() {
 
   useEffect(() => {
     dispatch(fetchOpportunities({ page: oppPage, limit: 10, signal: oppSignalFilter || undefined, symbol: oppSearch || undefined }));
-  }, [dispatch, oppPage, oppSignalFilter, oppSearch]);
+  }, [dispatch, oppPage, oppSignalFilter, oppSearch, lastScannedAt]);
 
   useEffect(() => {
-    dispatch(fetchSignals({ page: sigPage, limit: 10, signal: sigSignalFilter || undefined, symbol: sigSearch || undefined }));
-  }, [dispatch, sigPage, sigSignalFilter, sigSearch]);
+    dispatch(fetchSignals({ page: sigPage, limit: 100, signal: sigSignalFilter || undefined, symbol: sigSearch || undefined }));
+  }, [dispatch, sigPage, sigSignalFilter, sigSearch, lastScannedAt]);
 
   // Live radar: SSE pushes a fresh scan the moment one completes server-side
   // (background scan now runs at most every 30s, market hours only), so the
@@ -155,18 +146,17 @@ export function RadarPage() {
   // fetchAllQuotes, a full-universe DB query) — the main cause of the
   // request flood on this page.
   useEffect(() => {
-    dispatch(fetchLatestScan());
+    dispatch(runScan());
     dispatch(fetchIndices());
     dispatch(fetchAllQuotes());
     dispatch(fetchBreadth());
-    const timer = setInterval(() => {
-      dispatch(fetchLatestScan());
-      dispatch(fetchIndices());
-    }, 30000);
+    const scanTimer = setInterval(() => dispatch(runScan()), 60000);
+    const indicesTimer = setInterval(() => dispatch(fetchIndices()), 30000);
     const quotesTimer = setInterval(() => dispatch(fetchAllQuotes()), 60000);
     const breadthTimer = setInterval(() => dispatch(fetchBreadth()), 60000);
     return () => {
-      clearInterval(timer);
+      clearInterval(scanTimer);
+      clearInterval(indicesTimer);
       clearInterval(quotesTimer);
       clearInterval(breadthTimer);
     };
@@ -187,15 +177,11 @@ export function RadarPage() {
     return () => source.close();
   }, [dispatch]);
 
-  function handleScan() {
-    dispatch(runScan());
-  }
-
   const gainers = [...allQuotes]
-    .filter((q) => q.symbol && q.lastPrice != null && q.changePct != null)
+    .filter((q) => q.symbol && q.lastPrice != null && q.changePct != null && q.changePct > 0)
     .sort((a, b) => (b.changePct ?? 0) - (a.changePct ?? 0));
   const losers = [...allQuotes]
-    .filter((q) => q.symbol && q.lastPrice != null && q.changePct != null)
+    .filter((q) => q.symbol && q.lastPrice != null && q.changePct != null && q.changePct < 0)
     .sort((a, b) => (a.changePct ?? 0) - (b.changePct ?? 0));
 
   const trending = (scanResult?.opportunities ?? []).filter((o) => {
@@ -203,6 +189,9 @@ export function RadarPage() {
     if (trendSearch && !o.symbol.toUpperCase().includes(trendSearch.toUpperCase())) return false;
     return true;
   });
+  const outlookBySymbol = new Map(
+    (signals?.data ?? []).map((signal) => [signal.symbol, signal.directionalOutlook]),
+  );
 
   const trendPages = Math.max(1, Math.ceil(trending.length / TREND_PAGE));
   const safeTrendPage = Math.min(trendPage, trendPages);
@@ -221,20 +210,17 @@ export function RadarPage() {
       <header className="page-header">
         <div>
           <h1>Opportunity Radar</h1>
-          <p className="muted">See what the market is doing right now — and which stocks are worth a look</p>
+          <p className="muted">Technical scan of the market data currently stored by TradeBuddy</p>
         </div>
         <div className="sg-header-right">
           <span className="sg-live-badge">
             <span className="sg-live-dot" />
-            {lastScannedAt ? `scan updated ${formatTimeAgo(lastScannedAt)}` : 'live'}
+            {lastScannedAt ? `auto scan updated ${formatTimeAgo(lastScannedAt)}` : 'starting scan'}
           </span>
-          <button className="btn btn-primary" onClick={handleScan} disabled={scanning}>
-            {scanning ? <Spinner /> : 'Run Scan'}
-          </button>
         </div>
       </header>
 
-      {error ? <ErrorBox message={error} onRetry={handleScan} /> : null}
+      {error ? <ErrorBox message={error} onRetry={() => dispatch(runScan())} /> : null}
 
       {indices.length > 0 ? (
         <MarketMood indices={indices.map((i) => ({ symbol: i.symbol, level: i.level, changePct: i.changePct }))} breadth={breadth} regime={scanResult?.regime ?? 'NEUTRAL'} />
@@ -244,9 +230,9 @@ export function RadarPage() {
         <Card title="Top gainers">
           {gainSlice.length ? (
             <div className="rd-mover-list">
-              {gainSlice.map((g) => (
+              {gainSlice.map((g, index) => (
                 <Link key={g.symbol} to={`/radar/${g.symbol}`} className="rd-mover-row">
-                  <span className="strong">{g.symbol}</span>
+                  <span className="strong">#{(safeGainPage - 1) * MOVER_PAGE + index + 1} {g.symbol}</span>
                   <span className="muted small">{formatCurrency(g.lastPrice)}</span>
                   <span className="text-positive small">{formatPct(g.changePct)}</span>
                 </Link>
@@ -260,9 +246,9 @@ export function RadarPage() {
         <Card title="Top losers">
           {losSlice.length ? (
             <div className="rd-mover-list">
-              {losSlice.map((l) => (
+              {losSlice.map((l, index) => (
                 <Link key={l.symbol} to={`/radar/${l.symbol}`} className="rd-mover-row">
-                  <span className="strong">{l.symbol}</span>
+                  <span className="strong">#{(safeLosPage - 1) * MOVER_PAGE + index + 1} {l.symbol}</span>
                   <span className="muted small">{formatCurrency(l.lastPrice)}</span>
                   <span className="text-negative small">{formatPct(l.changePct)}</span>
                 </Link>
@@ -308,7 +294,12 @@ export function RadarPage() {
                   <Link key={o.symbol} to={`/radar/${o.symbol}`} className="rd-trend-card">
                     <div className="rd-trend-head">
                       <span className="strong">{o.symbol}</span>
-                      <Badge className={signalBadgeClass(o.signal)}>{plainSignal(o.signal)}</Badge>
+                      <Badge className={signalBadgeClass(o.signal)}>{o.signal}</Badge>
+                      {o.directionalOutlook ? (
+                        <Badge className={regimeBadgeClass(o.directionalOutlook)}>Stock {o.directionalOutlook}</Badge>
+                      ) : (
+                        <Badge className="badge badge-muted">Stock UNKNOWN</Badge>
+                      )}
                     </div>
                     <div className="rd-trend-price">
                       <span className="strong">{formatCurrency(o.price)}</span>
@@ -333,7 +324,7 @@ export function RadarPage() {
         )}
       </Card>
 
-      <Card title="Saved Opportunities">
+      <Card title="Current Scan Opportunities">
         <FilterBar
           signalFilter={oppSignalFilter}
           onSignalFilter={(v) => {
@@ -347,7 +338,7 @@ export function RadarPage() {
           <Spinner />
         ) : opportunities && opportunities.data.length > 0 ? (
           <>
-            <Table headers={['Symbol', 'Signal', 'Conviction', 'Regime', 'Date']}>
+            <Table headers={['Symbol', 'Action Signal', 'Stock Outlook', 'Conviction', 'Date']}>
               {opportunities.data.map((o) => (
                 <tr key={o.id}>
                   <td>
@@ -356,10 +347,18 @@ export function RadarPage() {
                     </Link>
                   </td>
                   <td>
-                    <Badge className={signalBadgeClass(o.signal)}>{plainSignal(o.signal)}</Badge>
+                    <Badge className={signalBadgeClass(o.signal)}>{o.signal}</Badge>
+                  </td>
+                  <td>
+                    {outlookBySymbol.get(o.symbol) ? (
+                      <Badge className={regimeBadgeClass(outlookBySymbol.get(o.symbol) ?? 'NEUTRAL')}>
+                        {outlookBySymbol.get(o.symbol)}
+                      </Badge>
+                    ) : (
+                      <span className="muted">—</span>
+                    )}
                   </td>
                   <td>{o.convictionScore}</td>
-                  <td>{o.regime}</td>
                   <td className="muted small">{formatDateTime(o.createdAt)}</td>
                 </tr>
               ))}
@@ -371,7 +370,10 @@ export function RadarPage() {
         )}
       </Card>
 
-      <Card title="Recent Signals">
+      <Card
+        title="Current Technical Signals — 100 Nifty Stocks"
+        action={signals ? <span className="muted small">{signals.meta.total} matching · {scanResult?.opportunities.length ?? 0} scanned</span> : undefined}
+      >
         <FilterBar
           signalFilter={sigSignalFilter}
           onSignalFilter={(v) => {
@@ -383,7 +385,7 @@ export function RadarPage() {
         />
         {signals && signals.data.length > 0 ? (
           <>
-            <Table headers={['Symbol', 'Signal', 'Conviction', 'Regime', 'Timestamp']}>
+            <Table headers={['Symbol', 'AI-Validated Action', 'Stock Outlook', 'Conviction', 'Timestamp']}>
               {signals.data.map((s) => (
                 <tr key={s.id}>
                   <td>
@@ -392,10 +394,16 @@ export function RadarPage() {
                     </Link>
                   </td>
                   <td>
-                    <Badge className={signalBadgeClass(s.signal)}>{plainSignal(s.signal)}</Badge>
+                    <Badge className={signalBadgeClass(s.signal)}>{s.signal}</Badge>
+                  </td>
+                  <td>
+                    {s.directionalOutlook ? (
+                      <Badge className={regimeBadgeClass(s.directionalOutlook)}>{s.directionalOutlook}</Badge>
+                    ) : (
+                      <span className="muted">—</span>
+                    )}
                   </td>
                   <td>{s.convictionScore}</td>
-                  <td>{s.regime}</td>
                   <td className="muted small">{formatDateTime(s.timestamp)}</td>
                 </tr>
               ))}

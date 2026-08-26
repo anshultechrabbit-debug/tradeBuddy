@@ -511,7 +511,10 @@ function entryAndStop(t) {
 // Short-TTL cache so real-time polling (news + market) stays cheap and does
 // not hammer NSE / the news feed on every request.
 const analysisCache = new Map();
-const ANALYSIS_CACHE_TTL_OK = 2_000; // recompute price/technical/market every ~2s
+// Keep Radar and AI Strategy on the same validated verdict for one scan cycle.
+// Market quotes continue updating independently; a full seven-factor analysis
+// (including news/fundamentals) does not need to be recomputed every 2 seconds.
+const ANALYSIS_CACHE_TTL_OK = 60_000;
 const ANALYSIS_CACHE_TTL_ERR = 5_000;
 // Stale-while-revalidate bound: serve the last-known result instantly while a
 // background recompute runs, but never show data older than this.

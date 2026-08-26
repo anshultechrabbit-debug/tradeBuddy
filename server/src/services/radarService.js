@@ -13,6 +13,7 @@ import {
 import { sma } from './radar/indicators.js';
 import { round2, logInfra, audit } from '../utils/helpers.js';
 import { publishRadar } from './eventHub.js';
+import { analyzeStock } from './stockAnalysisService.js';
 
 export function mapLimit(items, limit, fn) {
   const results = [];
@@ -47,6 +48,90 @@ async function getIndexAboveSma50(provider) {
   return closes[closes.length - 1] > sma50;
 }
 
+async function getIndexReturn20FromCache() {
+  const rows = await prisma.marketCandle.findMany({
+    where: { symbol: 'NIFTY', exchange: 'NSE', timeframe: '1d' },
+    orderBy: { ts: 'desc' },
+    take: 30,
+  });
+  if (rows.length < 21) return null;
+  const closes = rows.reverse().map((r) => Number(r.close));
+  return (closes[closes.length - 1] / closes[closes.length - 21] - 1) * 100;
+}
+
+async function getIndexAboveSma50FromCache() {
+  const rows = await prisma.marketCandle.findMany({
+    where: { symbol: 'NIFTY', exchange: 'NSE', timeframe: '1d' },
+    orderBy: { ts: 'desc' },
+    take: 60,
+  });
+  if (rows.length < 50) return null;
+  const closes = rows.reverse().map((r) => Number(r.close));
+  const sma50 = closes.slice(-50).reduce((a, b) => a + b, 0) / 50;
+  return closes[closes.length - 1] > sma50;
+}
+
+async function computeBreadthFromCache(symbols) {
+  if (!symbols.length) {
+    return {
+      advancing: 0,
+      declining: 0,
+      unchanged: 0,
+      total: 0,
+      covered: 0,
+      breadthPctAboveSma20: 0,
+      breadthPctAboveSma50: 50,
+      averageChangePct: 0,
+    };
+  }
+  const rows = await prisma.marketCandle.findMany({
+    where: { symbol: { in: symbols }, exchange: 'NSE', timeframe: '1d' },
+    orderBy: { ts: 'asc' },
+  });
+  const bySymbol = new Map();
+  for (const row of rows) {
+    if (!bySymbol.has(row.symbol)) bySymbol.set(row.symbol, []);
+    bySymbol.get(row.symbol).push(row);
+  }
+
+  let aboveSma20 = 0;
+  let aboveSma50 = 0;
+  let advancing = 0;
+  let declining = 0;
+  let unchanged = 0;
+  let sumChangePct = 0;
+  let covered = 0;
+
+  for (const candles of bySymbol.values()) {
+    if (candles.length < 21) continue;
+    covered += 1;
+    const closes = candles.map((c) => Number(c.close));
+    const sma20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+    const sma50 = closes.slice(-50).reduce((a, b) => a + b, 0) / Math.min(50, closes.length);
+    const last = closes[closes.length - 1];
+    const prev = closes[closes.length - 2];
+    if (last > sma20) aboveSma20 += 1;
+    if (last > sma50) aboveSma50 += 1;
+    const chg = prev > 0 ? ((last - prev) / prev) * 100 : 0;
+    sumChangePct += chg;
+    if (chg > 0.1) advancing += 1;
+    else if (chg < -0.1) declining += 1;
+    else unchanged += 1;
+  }
+
+  const total = advancing + declining + unchanged;
+  return {
+    advancing,
+    declining,
+    unchanged,
+    total,
+    covered,
+    breadthPctAboveSma20: total ? round2((aboveSma20 / total) * 100) : 0,
+    breadthPctAboveSma50: total ? round2((aboveSma50 / total) * 100) : 50,
+    averageChangePct: total ? round2(sumChangePct / total) : 0,
+  };
+}
+
 /**
  * Runs a full radar scan over the scan universe. Returns ranked
  * opportunities, regime and breadth. Deterministic: same universe + candles
@@ -60,7 +145,7 @@ let schedulerRunning = false;
  * Pure computation of a radar scan (no persistence). Returns the ranked
  * opportunities plus the raw per-symbol results for optional persistence.
  */
-async function computeScan({ userId = null, limit = 15 }) {
+async function computeScan({ userId = null, limit = 15, useCachedOnly = true }) {
   const provider = getMarketDataProvider();
   const scanId = `scan-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
@@ -71,31 +156,38 @@ async function computeScan({ userId = null, limit = 15 }) {
     take: config.maxScanSymbols,
   });
 
-  const [breadth, indexReturn20, indexAboveSma50] = await Promise.all([
-    provider.getMarketBreadth(),
-    getIndexReturn20(provider),
-    getIndexAboveSma50(provider),
-  ]);
+  let breadth, indexReturn20, indexAboveSma50;
+
+  if (useCachedOnly) {
+    const [cachedBreadth, cachedIndexReturn20, cachedIndexAboveSma50] = await Promise.all([
+      computeBreadthFromCache(universe.map((u) => u.symbol)),
+      getIndexReturn20FromCache(),
+      getIndexAboveSma50FromCache(),
+    ]);
+    breadth = cachedBreadth;
+    indexReturn20 = cachedIndexReturn20;
+    indexAboveSma50 = cachedIndexAboveSma50;
+  } else {
+    const [fetchedBreadth, fetchedIndexReturn20, fetchedIndexAboveSma50] = await Promise.all([
+      provider.getMarketBreadth(),
+      getIndexReturn20(provider),
+      getIndexAboveSma50(provider),
+    ]);
+    breadth = fetchedBreadth;
+    indexReturn20 = fetchedIndexReturn20;
+    indexAboveSma50 = fetchedIndexAboveSma50;
+  }
 
   const regime = computeRegime({
-    breadthPctAboveSma50: breadth.breadthPctAboveSma50,
+    breadthPctAboveSma50: breadth?.breadthPctAboveSma50 ?? 50,
     indexAboveSma50,
   });
 
-  const breadthPct = breadth.breadthPctAboveSma50;
+  const breadthPct = breadth?.breadthPctAboveSma50 ?? 50;
 
-  // Not every symbol has usable cached candles yet (e.g. right after a DB
-  // seed, or a symbol nobody has ever analyzed) — for those, getCandles
-  // would otherwise fall through to an external historical fetch. An
-  // interactive scan must never do that inline: even a bounded batch of
-  // external fetches is enough to stall the request for minutes and starve
-  // every other page's requests behind the same shared rate limiter. So this
-  // scan only ever scores symbols that are ALREADY fresh in the DB — a
-  // cheap, purely local read — and skips the rest for this pass. Coverage
-  // still improves over time via a fully decoupled background loop (see
-  // startCandleBackfillLoop) that fetches stale/missing symbols without
-  // ever blocking a user request.
-  const staleAfterMs = config.externalMarketData.staleAfterMs;
+  // A manual scan is a snapshot calculation over data already stored in
+  // Postgres. It never fetches missing/stale history inline. The independent
+  // backfill loop may improve the stored dataset for the next scan.
   const freshnessRows = await prisma.marketCandle.groupBy({
     by: ['symbol'],
     where: { symbol: { in: universe.map((u) => u.symbol) }, timeframe: '1d' },
@@ -103,36 +195,60 @@ async function computeScan({ userId = null, limit = 15 }) {
     _count: { _all: true },
   });
   const freshBySymbol = new Map(freshnessRows.map((r) => [r.symbol, r]));
-  const now = Date.now();
-  const isFresh = (symbol) => {
+  const hasEnoughData = (symbol) => {
     const r = freshBySymbol.get(symbol);
-    return !!r && r._count._all >= 30 && now - new Date(r._max.ts).getTime() <= staleAfterMs;
+    return !!r && r._count._all >= 30;
   };
 
   const universeToScan = [];
   const failures = [];
   for (const entry of universe) {
-    if (isFresh(entry.symbol)) universeToScan.push(entry);
+    if (hasEnoughData(entry.symbol)) universeToScan.push(entry);
     else failures.push(entry.symbol);
   }
 
-  // Cache-only reads from here — every symbol in universeToScan is already
-  // fresh, so this never triggers an external fetch. Concurrency can be much
-  // higher than the external-call paths elsewhere (those are capped low to
-  // avoid tripping NSE's rate limiting) since this is pure Postgres I/O.
-  const candlesList = await mapLimit(universeToScan, 20, (entry) =>
-    provider.getCandles(entry.symbol, '1d', 60, entry.exchange),
-  );
+  // Read the snapshot directly instead of calling provider.getCandles(),
+  // which is allowed to refresh stale data from an external source.
+  const candlesList = await mapLimit(universeToScan, 20, async (entry) => {
+    const rows = await prisma.marketCandle.findMany({
+      where: { symbol: entry.symbol, exchange: entry.exchange, timeframe: '1d' },
+      orderBy: { ts: 'desc' },
+      take: 60,
+    });
+    return rows.reverse().map((row) => ({
+      ...row,
+      open: Number(row.open),
+      high: Number(row.high),
+      low: Number(row.low),
+      close: Number(row.close),
+      volume: Number(row.volume),
+    }));
+  });
 
-  // Phase 1: score every already-fresh symbol off cached candle closes only
-  // — no live quotes yet. Live-quoting every symbol up front used to be the
-  // dominant cost here: a single scan could mean a live-quote fetch for the
-  // entire multi-thousand-symbol universe, which — even chunked — is many
-  // minutes of sequential external calls before the request could respond.
+  // Phase 1 scores every usable symbol from cached candle closes.
   function scoreEntry(entry, candles, livePrice) {
     if (!candles || candles.length < 30) return null;
     const features = computeFeatures(candles, { indexReturn20, breadthPct, livePrice });
     if (!features) return null;
+    // Per-stock price direction, separate from the one global Nifty market
+    // regime. Use the same BULLISH/NEUTRAL/BEARISH language as AI Strategy,
+    // based only on directional technical categories that are actually known.
+    const directionalParts = [
+      [features.subscores.trend, 0.5],
+      [features.subscores.momentum, 0.35],
+      [features.subscores.relativeStrength, 0.15],
+    ].filter(([value]) => value != null);
+    const directionalWeight = directionalParts.reduce((sum, [, weight]) => sum + weight, 0) || 1;
+    const directionalScore = directionalParts.reduce(
+      (sum, [value, weight]) => sum + Number(value) * weight,
+      0,
+    ) / directionalWeight;
+    features.directionalScore = round2(directionalScore);
+    features.directionalOutlook = directionalScore >= 65
+      ? 'BULLISH'
+      : directionalScore <= 35
+        ? 'BEARISH'
+        : 'NEUTRAL';
     const conviction = computeConviction(features);
     const signal = generateSignal({ conviction, regime, features });
     const reason = buildReason(features, regime, conviction);
@@ -164,25 +280,22 @@ async function computeScan({ userId = null, limit = 15 }) {
 
   scanned.sort((a, b) => b.convictionScore - a.convictionScore);
 
-  // Phase 2: refresh live price/intraday-momentum for a bounded candidate
-  // pool only — the symbols that could plausibly make the final cut — rather
-  // than the whole universe. computeFeatures already treats a missing
-  // livePrice as "use the last candle close", so anything outside this pool
-  // is still scored, just without today's intraday move factored in. Only
-  // worth attempting during market hours: NSE's live-quote API has nothing
-  // to serve once trading has closed, and every failed attempt still pays
-  // the full per-call timeout (30s) before giving up — three of those in a
-  // row (before the circuit breaker opens) is what made an after-hours scan
-  // take 90+ seconds for zero benefit.
+  // Phase 2 applies the latest quotes already persisted in Postgres. Clicking
+  // Run Scan therefore never makes a market API call midway through scoring.
   const CANDIDATE_POOL = Math.min(scanned.length, limit > 0 ? Math.max(limit * 8, 100) : 150);
   const candidates = scanned.slice(0, CANDIDATE_POOL);
-  if (candidates.length && isMarketOpen()) {
-    const liveQuotes = await provider.getQuotes({
-      symbols: candidates.map((c) => c.symbol),
-      exchange: 'NSE',
+  if (candidates.length) {
+    const quoteRows = await prisma.marketQuote.findMany({
+      where: { symbol: { in: candidates.map((c) => c.symbol) }, exchange: 'NSE' },
+      orderBy: { timestamp: 'desc' },
+      select: { symbol: true, lastPrice: true },
     });
+    const latestQuotes = new Map();
+    for (const quote of quoteRows) {
+      if (!latestQuotes.has(quote.symbol)) latestQuotes.set(quote.symbol, quote);
+    }
     for (let i = 0; i < candidates.length; i += 1) {
-      const q = liveQuotes[i];
+      const q = latestQuotes.get(candidates[i].symbol);
       const livePrice = q && Number(q.lastPrice) > 0 ? q.lastPrice : null;
       if (livePrice == null) continue;
       const entry = { instrumentId: candidates[i].instrumentId, symbol: candidates[i].symbol, exchange: candidates[i].exchange, priority: candidates[i].priority };
@@ -192,6 +305,40 @@ async function computeScan({ userId = null, limit = 15 }) {
     scanned.splice(0, CANDIDATE_POOL, ...candidates);
     scanned.sort((a, b) => b.convictionScore - a.convictionScore);
   }
+
+  // A technical screen may nominate a BUY, but only the full AI prediction
+  // engine is allowed to publish an actionable BUY. It applies the additional
+  // risk/reward, higher-timeframe, evidence-quality, freshness and trade-plan
+  // gates used by the AI Strategy page. This prevents contradictions such as
+  // Radar BUY while AI Strategy says WATCH/WAIT for the same stock.
+  const radarBuys = scanned.filter((s) => s.signal === 'BUY');
+  const aiChecks = await mapLimit(radarBuys, 4, (entry) =>
+    analyzeStock(entry.symbol).catch(() => null),
+  );
+  for (let i = 0; i < radarBuys.length; i += 1) {
+    const entry = radarBuys[i];
+    const analysis = aiChecks[i];
+    const valid = analysis?.ok && analysis.finalValidation?.passed;
+    const aiSignal = valid ? analysis.finalSignal : null;
+    const actionable = aiSignal === 'BUY' || aiSignal === 'STRONG BUY';
+    entry.signal = actionable ? 'BUY' : aiSignal === 'AVOID' ? 'AVOID' : 'WATCH';
+    if (valid) {
+      entry.convictionScore = Number(analysis.overallScore ?? entry.convictionScore);
+      entry.features = {
+        ...entry.features,
+        aiStrategy: {
+          signal: aiSignal,
+          directionalOutlook: analysis.engine?.directionalOutlook ?? 'NEUTRAL',
+          tradeStatus: analysis.engine?.tradeStatus ?? 'WAIT',
+          score: analysis.overallScore,
+        },
+      };
+      entry.reason = `AI Strategy: ${analysis.oneLiner}`;
+    } else {
+      entry.reason = `${entry.reason}; AI Strategy validation unavailable, so BUY was downgraded to WATCH`;
+    }
+  }
+  scanned.sort((a, b) => b.convictionScore - a.convictionScore);
 
   const top = limit > 0 ? scanned.slice(0, limit) : scanned;
 
@@ -212,6 +359,9 @@ function shapeScanResult({ scanId, regime, breadth, top, provider }) {
       regime: s.regime,
       convictionScore: s.convictionScore,
       explanation: s.reason,
+      aiSignal: s.features?.aiStrategy?.signal ?? null,
+      directionalOutlook: s.features?.aiStrategy?.directionalOutlook ?? s.features?.directionalOutlook ?? null,
+      tradeStatus: s.features?.aiStrategy?.tradeStatus ?? null,
       dataSource: provider.dataSource,
     })),
   };
@@ -221,9 +371,9 @@ function shapeScanResult({ scanId, regime, breadth, top, provider }) {
  * Full scan (on demand). Persists signals + opportunities + audit, and also
  * refreshes the in-memory "latest" result used by the live polling endpoint.
  */
-export async function runScan({ userId = null, limit = 15, persist = true } = {}) {
+export async function runScan({ userId = null, limit = 15, persist = true, useCachedOnly = true } = {}) {
   const { scanId, provider, regime, breadth, breadthPct, scanned, top, failures } =
-    await computeScan({ userId, limit });
+    await computeScan({ userId, limit, useCachedOnly });
 
   if (persist && userId != null) {
     const signalsData = scanned.map((s) => ({
@@ -238,8 +388,6 @@ export async function runScan({ userId = null, limit = 15, persist = true } = {}
       reason: s.reason,
       dataSource: provider.dataSource,
     }));
-    await prisma.scanSignal.createMany({ data: signalsData });
-
     const oppData = top.map((s) => ({
       scanId,
       userId,
@@ -253,9 +401,15 @@ export async function runScan({ userId = null, limit = 15, persist = true } = {}
       explanation: s.reason,
       dataSource: provider.dataSource,
     }));
-    if (oppData.length) {
-      await prisma.radarOpportunity.createMany({ data: oppData });
-    }
+    const writes = [
+      prisma.scanSignal.deleteMany({ where: { userId } }),
+      prisma.radarOpportunity.deleteMany({ where: { userId } }),
+      prisma.scanSignal.createMany({ data: signalsData }),
+    ];
+    if (oppData.length) writes.push(prisma.radarOpportunity.createMany({ data: oppData }));
+    // Automatic scans replace the user's prior snapshot atomically. This
+    // keeps every Radar section aligned and prevents unbounded row growth.
+    await prisma.$transaction(writes);
 
     logInfra('info', 'radar', `Scan ${scanId}: ${scanned.length} symbols scanned, ${top.length} opportunities, ${failures.length} skipped`);
     await audit(userId, 'RADAR_SCAN', 'radar', scanId, {
@@ -274,7 +428,7 @@ export async function runScan({ userId = null, limit = 15, persist = true } = {}
 
 /** Live scan: compute fresh scores WITHOUT persisting, cache for /radar/latest. */
 export async function runLiveScan(limit = 0) {
-  const { scanId, provider, regime, breadth, top } = await computeScan({ userId: null, limit });
+  const { scanId, provider, regime, breadth, top } = await computeScan({ userId: null, limit, useCachedOnly: true });
   const result = shapeScanResult({ scanId, regime, breadth, top, provider });
   lastScanResult = result;
   publishRadar(result);
@@ -428,7 +582,7 @@ export async function listSignals({ userId, page = 1, limit = 20, signal, symbol
     prisma.scanSignal.count({ where }),
     prisma.scanSignal.findMany({
       where,
-      orderBy: { timestamp: 'desc' },
+      orderBy: [{ timestamp: 'desc' }, { convictionScore: 'desc' }],
       take: limit,
       skip: (page - 1) * limit,
     }),
@@ -444,24 +598,34 @@ export async function listSignals({ userId, page = 1, limit = 20, signal, symbol
       convictionScore: s.convictionScore,
       features: s.features,
       reason: s.reason,
+      aiSignal: s.features?.aiStrategy?.signal ?? null,
+      directionalOutlook: s.features?.aiStrategy?.directionalOutlook ?? s.features?.directionalOutlook ?? null,
+      tradeStatus: s.features?.aiStrategy?.tradeStatus ?? null,
       dataSource: s.dataSource,
     })),
     total,
   };
 }
 
-export async function listOpportunities({ page = 1, limit = 20, signal, symbol }) {
-  const where = {};
+export async function listOpportunities({ userId, page = 1, limit = 20, signal, symbol }) {
+  const latest = await prisma.radarOpportunity.findFirst({
+    where: userId != null ? { userId } : {},
+    orderBy: { createdAt: 'desc' },
+    select: { scanId: true },
+  });
+  if (!latest) return { rows: [], total: 0 };
+
+  const where = { scanId: latest.scanId };
+  if (userId != null) where.userId = userId;
   if (signal) where.signal = signal;
   if (symbol) where.symbol = { contains: symbol.toUpperCase() };
   const [total, rows] = await Promise.all([
     prisma.radarOpportunity.count({ where }),
     prisma.radarOpportunity.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
+      orderBy: { convictionScore: 'desc' },
       take: limit,
       skip: (page - 1) * limit,
-      distinct: ['symbol'],
     }),
   ]);
   return {
@@ -520,9 +684,14 @@ export async function getDeepDive(symbol) {
 }
 
 export async function topOpportunities(limit = 5) {
+  const latest = await prisma.radarOpportunity.findFirst({
+    orderBy: { createdAt: 'desc' },
+    select: { scanId: true },
+  });
+  if (!latest) return [];
   return prisma.radarOpportunity.findMany({
-    orderBy: [{ createdAt: 'desc' }, { convictionScore: 'desc' }],
-    distinct: ['symbol'],
+    where: { scanId: latest.scanId },
+    orderBy: { convictionScore: 'desc' },
     take: limit,
   });
 }

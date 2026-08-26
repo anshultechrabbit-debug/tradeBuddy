@@ -14,7 +14,7 @@ router.post(
   validate,
   async (req, res, next) => {
     try {
-      res.json(await runScan({ userId: req.user.id, limit: req.body.limit ?? 0 }));
+      res.json(await runScan({ userId: req.user.id, limit: req.body.limit ?? 0, useCachedOnly: true }));
     } catch (err) {
       next(err);
     }
@@ -53,7 +53,7 @@ router.get(
   async (req, res, next) => {
     try {
       const { page, limit } = req.pagination;
-      const result = await listOpportunities({ page, limit, signal: req.query.signal, symbol: req.query.symbol });
+      const result = await listOpportunities({ userId: req.user.id, page, limit, signal: req.query.signal, symbol: req.query.symbol });
       res.json(paginatedResult({ rows: result.rows, total: result.total, page, limit }));
     } catch (err) {
       next(err);

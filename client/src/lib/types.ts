@@ -175,6 +175,9 @@ export interface Opportunity {
   regime: string;
   convictionScore: number;
   explanation: string;
+  aiSignal?: string | null;
+  directionalOutlook?: 'BULLISH' | 'NEUTRAL' | 'BEARISH' | null;
+  tradeStatus?: string | null;
   dataSource: string;
 }
 
@@ -185,9 +188,10 @@ export interface SavedOpportunity extends Opportunity {
 }
 
 export interface ScanResult {
-  scanId: number;
+  scanId: string;
   regime: string;
   breadth: Breadth;
+  lastScannedAt: string;
   opportunities: Opportunity[];
 }
 
@@ -199,8 +203,11 @@ export interface Signal {
   signal: 'BUY' | 'WATCH' | 'AVOID';
   regime: string;
   convictionScore: number;
-  features: Record<string, number>;
+  features: Record<string, unknown>;
   reason: string;
+  aiSignal?: string | null;
+  directionalOutlook?: 'BULLISH' | 'NEUTRAL' | 'BEARISH' | null;
+  tradeStatus?: string | null;
   dataSource: string;
 }
 
