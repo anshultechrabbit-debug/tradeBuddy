@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 
-const U = "Hey TradePanda 👋 what's the best trade right now?";
-const P = "NIFTY 24800 CE 🔥 Entry ₹142 → Target ₹188 (+32%) Confidence 94% ⚡ Routing to Zerodha!";
+const U = "Hey TradePanda 👋 what is the rate of NIFTY 50 today?";
+const P = "NIFTY 50 is trading at ₹24,780.40 (+0.82%) 🚀 Strong bullish momentum above VWAP with RSI 62.4!";
 const T = 1100;
 
 export function TradePandaScene() {
@@ -331,7 +331,7 @@ export function TradePandaScene() {
                     {P.slice(0,pC)}
                     {an && pC<P.length && <span style={{display:'inline-block',width:2,height:13,background:'rgba(96,165,250,0.8)',marginLeft:2,borderRadius:1,verticalAlign:'middle',animation:'pulse 0.5s ease-in-out infinite'}}/>}
                   </div>
-                  {hp && <div style={{display:'flex',alignItems:'center',gap:4,fontSize:9,paddingLeft:4,color:'#4b5563'}}><span>{hm}</span><span style={{color:'#34d399'}}>✓✓</span><span style={{color:'#3b82f6'}}>· via Zerodha</span></div>}
+                  {hp && <div style={{display:'flex',alignItems:'center',gap:4,fontSize:9,paddingLeft:4,color:'#4b5563'}}><span>{hm}</span><span style={{color:'#34d399'}}>✓✓</span><span style={{color:'#3b82f6'}}>· Live Market API</span></div>}
                 </div>
               </div>
             )}
