@@ -25,6 +25,7 @@ router.get(
   '/signals',
   pagination,
   query('signal').optional().isIn(['BUY', 'WATCH', 'AVOID']),
+  query('outlook').optional().isIn(['BULLISH', 'NEUTRAL', 'BEARISH']),
   query('symbol').optional().isString().trim(),
   validate,
   async (req, res, next) => {
@@ -35,6 +36,7 @@ router.get(
         page,
         limit,
         signal: req.query.signal,
+        outlook: req.query.outlook,
         symbol: req.query.symbol,
       });
       res.json(paginatedResult({ rows: result.rows, total: result.total, page, limit }));
@@ -48,12 +50,13 @@ router.get(
   '/opportunities',
   pagination,
   query('signal').optional().isIn(['BUY', 'WATCH', 'AVOID']),
+  query('outlook').optional().isIn(['BULLISH', 'NEUTRAL', 'BEARISH']),
   query('symbol').optional().isString().trim(),
   validate,
   async (req, res, next) => {
     try {
       const { page, limit } = req.pagination;
-      const result = await listOpportunities({ userId: req.user.id, page, limit, signal: req.query.signal, symbol: req.query.symbol });
+      const result = await listOpportunities({ userId: req.user.id, page, limit, signal: req.query.signal, outlook: req.query.outlook, symbol: req.query.symbol });
       res.json(paginatedResult({ rows: result.rows, total: result.total, page, limit }));
     } catch (err) {
       next(err);

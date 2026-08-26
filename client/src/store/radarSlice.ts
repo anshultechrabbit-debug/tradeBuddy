@@ -9,6 +9,7 @@ export interface RadarState {
   opportunities: Paginated<SavedOpportunity> | null;
   signals: Paginated<Signal> | null;
   loading: boolean;
+  signalsLoading: boolean;
   error: string | null;
 }
 
@@ -19,6 +20,7 @@ const initialState: RadarState = {
   opportunities: null,
   signals: null,
   loading: false,
+  signalsLoading: false,
   error: null,
 };
 
@@ -34,7 +36,7 @@ export const fetchLatestScan = createAsyncThunk<ScanResult & { lastScannedAt: st
 
 export const fetchOpportunities = createAsyncThunk(
   'radar/opportunities',
-  async (params?: { page?: number; limit?: number; signal?: string; symbol?: string }) => {
+  async (params?: { page?: number; limit?: number; signal?: string; outlook?: string; symbol?: string }) => {
     const { data } = await apiClient.get<Paginated<SavedOpportunity>>('/radar/opportunities', { params });
     return data;
   },
@@ -42,7 +44,7 @@ export const fetchOpportunities = createAsyncThunk(
 
 export const fetchSignals = createAsyncThunk(
   'radar/signals',
-  async (params?: { page?: number; limit?: number; signal?: string; symbol?: string }) => {
+  async (params?: { page?: number; limit?: number; signal?: string; outlook?: string; symbol?: string }) => {
     const { data } = await apiClient.get<Paginated<Signal>>('/radar/signals', { params });
     return data;
   },
@@ -90,10 +92,15 @@ const radarSlice = createSlice({
         state.loading = false;
         state.error = action.error.message ?? 'Failed to load opportunities';
       })
+      .addCase(fetchSignals.pending, (state) => {
+        state.signalsLoading = true;
+      })
       .addCase(fetchSignals.fulfilled, (state, action) => {
+        state.signalsLoading = false;
         state.signals = action.payload;
       })
       .addCase(fetchSignals.rejected, (state, action) => {
+        state.signalsLoading = false;
         state.error = action.error.message ?? 'Failed to load signals';
       });
   },

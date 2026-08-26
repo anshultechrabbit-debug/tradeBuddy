@@ -140,6 +140,7 @@ async function computeBreadthFromCache(symbols) {
 let lastScanResult = null;
 let schedulerTimer = null;
 let schedulerRunning = false;
+const userScanPromises = new Map();
 
 /**
  * Pure computation of a radar scan (no persistence). Returns the ranked
@@ -371,7 +372,7 @@ function shapeScanResult({ scanId, regime, breadth, top, provider }) {
  * Full scan (on demand). Persists signals + opportunities + audit, and also
  * refreshes the in-memory "latest" result used by the live polling endpoint.
  */
-export async function runScan({ userId = null, limit = 15, persist = true, useCachedOnly = true } = {}) {
+async function executeScan({ userId = null, limit = 15, persist = true, useCachedOnly = true } = {}) {
   const { scanId, provider, regime, breadth, breadthPct, scanned, top, failures } =
     await computeScan({ userId, limit, useCachedOnly });
 
@@ -424,6 +425,16 @@ export async function runScan({ userId = null, limit = 15, persist = true, useCa
   lastScanResult = result;
   publishRadar(result);
   return result;
+}
+
+export function runScan(options = {}) {
+  const userId = options.userId ?? null;
+  if (userId != null && userScanPromises.has(userId)) return userScanPromises.get(userId);
+  const task = executeScan(options).finally(() => {
+    if (userId != null && userScanPromises.get(userId) === task) userScanPromises.delete(userId);
+  });
+  if (userId != null) userScanPromises.set(userId, task);
+  return task;
 }
 
 /** Live scan: compute fresh scores WITHOUT persisting, cache for /radar/latest. */
@@ -574,19 +585,21 @@ export function startRadarScheduler(intervalMs = 60000) {
   return schedulerTimer;
 }
 
-export async function listSignals({ userId, page = 1, limit = 20, signal, symbol }) {
+export async function listSignals({ userId, page = 1, limit = 20, signal, outlook, symbol }) {
   const where = userId != null ? { userId } : {};
   if (signal) where.signal = signal;
   if (symbol) where.symbol = { contains: symbol.toUpperCase() };
-  const [total, rows] = await Promise.all([
-    prisma.scanSignal.count({ where }),
-    prisma.scanSignal.findMany({
-      where,
-      orderBy: [{ timestamp: 'desc' }, { convictionScore: 'desc' }],
-      take: limit,
-      skip: (page - 1) * limit,
-    }),
-  ]);
+  const allRows = await prisma.scanSignal.findMany({
+    where,
+    orderBy: [{ timestamp: 'desc' }, { convictionScore: 'desc' }],
+  });
+  const filteredRows = outlook
+    ? allRows.filter((row) => (
+        row.features?.aiStrategy?.directionalOutlook ?? row.features?.directionalOutlook
+      ) === outlook)
+    : allRows;
+  const total = filteredRows.length;
+  const rows = filteredRows.slice((page - 1) * limit, page * limit);
   return {
     rows: rows.map((s) => ({
       id: s.id,
@@ -607,7 +620,7 @@ export async function listSignals({ userId, page = 1, limit = 20, signal, symbol
   };
 }
 
-export async function listOpportunities({ userId, page = 1, limit = 20, signal, symbol }) {
+export async function listOpportunities({ userId, page = 1, limit = 20, signal, outlook, symbol }) {
   const latest = await prisma.radarOpportunity.findFirst({
     where: userId != null ? { userId } : {},
     orderBy: { createdAt: 'desc' },
@@ -619,15 +632,34 @@ export async function listOpportunities({ userId, page = 1, limit = 20, signal, 
   if (userId != null) where.userId = userId;
   if (signal) where.signal = signal;
   if (symbol) where.symbol = { contains: symbol.toUpperCase() };
-  const [total, rows] = await Promise.all([
-    prisma.radarOpportunity.count({ where }),
-    prisma.radarOpportunity.findMany({
-      where,
-      orderBy: { convictionScore: 'desc' },
-      take: limit,
-      skip: (page - 1) * limit,
-    }),
-  ]);
+  const allRows = await prisma.radarOpportunity.findMany({
+    where,
+    orderBy: { convictionScore: 'desc' },
+  });
+  const signalRows = allRows.length
+    ? await prisma.scanSignal.findMany({
+        where: {
+          ...(userId != null ? { userId } : {}),
+          symbol: { in: allRows.map((row) => row.symbol) },
+        },
+        orderBy: { timestamp: 'desc' },
+        select: { symbol: true, features: true },
+      })
+    : [];
+  const outlookBySymbol = new Map();
+  for (const row of signalRows) {
+    if (!outlookBySymbol.has(row.symbol)) {
+      outlookBySymbol.set(
+        row.symbol,
+        row.features?.aiStrategy?.directionalOutlook ?? row.features?.directionalOutlook ?? null,
+      );
+    }
+  }
+  const filteredRows = outlook
+    ? allRows.filter((row) => outlookBySymbol.get(row.symbol) === outlook)
+    : allRows;
+  const total = filteredRows.length;
+  const rows = filteredRows.slice((page - 1) * limit, page * limit);
   return {
     rows: rows.map((o) => ({
       id: o.id,
@@ -639,6 +671,7 @@ export async function listOpportunities({ userId, page = 1, limit = 20, signal, 
       regime: o.regime,
       convictionScore: o.convictionScore,
       explanation: o.explanation,
+      directionalOutlook: outlookBySymbol.get(o.symbol) ?? null,
       dataSource: o.dataSource,
       createdAt: o.createdAt,
     })),

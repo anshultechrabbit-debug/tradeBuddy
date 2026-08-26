@@ -13,33 +13,56 @@ function tone(signal: string): 'buy' | 'watch' | 'avoid' {
 }
 
 type SignalFilter = '' | 'BUY' | 'WATCH' | 'AVOID';
+type OutlookFilter = '' | 'BULLISH' | 'NEUTRAL' | 'BEARISH';
 
 function FilterBar({
   signalFilter,
   onSignalFilter,
+  outlookFilter,
+  onOutlookFilter,
   search,
   onSearch,
 }: {
   signalFilter: SignalFilter;
   onSignalFilter: (v: SignalFilter) => void;
+  outlookFilter: OutlookFilter;
+  onOutlookFilter: (v: OutlookFilter) => void;
   search: string;
   onSearch: (v: string) => void;
 }) {
-  const options: { value: SignalFilter; label: string }[] = [
+  const signalOptions: { value: SignalFilter; label: string }[] = [
     { value: '', label: 'All' },
     { value: 'BUY', label: 'BUY' },
     { value: 'WATCH', label: 'WATCH' },
     { value: 'AVOID', label: 'AVOID' },
   ];
+  const outlookOptions: { value: OutlookFilter; label: string }[] = [
+    { value: '', label: 'All outlooks' },
+    { value: 'BULLISH', label: 'BULLISH' },
+    { value: 'NEUTRAL', label: 'NEUTRAL' },
+    { value: 'BEARISH', label: 'BEARISH' },
+  ];
   return (
     <div className="market-toolbar">
       <div className="tabs">
-        {options.map((o) => (
+        {signalOptions.map((o) => (
           <button
             key={o.value}
             type="button"
             className={signalFilter === o.value ? 'tab tab-active' : 'tab'}
             onClick={() => onSignalFilter(o.value)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <div className="tabs">
+        {outlookOptions.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            className={outlookFilter === o.value ? 'tab tab-active' : 'tab'}
+            onClick={() => onOutlookFilter(o.value)}
           >
             {o.label}
           </button>
@@ -88,15 +111,16 @@ function MarketMood({ indices, breadth, regime }: { indices: { symbol: string; l
 
 export function RadarPage() {
   const dispatch = useAppDispatch();
-  const { scanResult, scanning, lastScannedAt, opportunities, signals, loading, error } = useAppSelector((s) => s.radar);
+  const { scanResult, scanning, lastScannedAt, opportunities, signals, loading, signalsLoading, error } = useAppSelector((s) => s.radar);
   const { indices, allQuotes, breadth } = useAppSelector((s) => s.market);
   const [oppPage, setOppPage] = useState(1);
   const [sigPage, setSigPage] = useState(1);
   const [gainPage, setGainPage] = useState(1);
   const [losPage, setLosPage] = useState(1);
   const [trendPage, setTrendPage] = useState(1);
-  const MOVER_PAGE = 3;
+  const MOVER_PAGE = 5;
   const TREND_PAGE = 20;
+  const SIGNAL_PAGE = 20;
 
   // Trending now is already fully loaded client-side (one scan response), so
   // its filter applies instantly with no extra requests. Saved Opportunities
@@ -104,13 +128,16 @@ export function RadarPage() {
   // API — the search box is debounced so typing doesn't fire a request per
   // keystroke.
   const [trendSignalFilter, setTrendSignalFilter] = useState<SignalFilter>('');
+  const [trendOutlookFilter, setTrendOutlookFilter] = useState<OutlookFilter>('');
   const [trendSearch, setTrendSearch] = useState('');
 
   const [oppSignalFilter, setOppSignalFilter] = useState<SignalFilter>('');
+  const [oppOutlookFilter, setOppOutlookFilter] = useState<OutlookFilter>('');
   const [oppSearchInput, setOppSearchInput] = useState('');
   const [oppSearch, setOppSearch] = useState('');
 
   const [sigSignalFilter, setSigSignalFilter] = useState<SignalFilter>('');
+  const [sigOutlookFilter, setSigOutlookFilter] = useState<OutlookFilter>('');
   const [sigSearchInput, setSigSearchInput] = useState('');
   const [sigSearch, setSigSearch] = useState('');
 
@@ -131,12 +158,24 @@ export function RadarPage() {
   }, [sigSearchInput]);
 
   useEffect(() => {
-    dispatch(fetchOpportunities({ page: oppPage, limit: 10, signal: oppSignalFilter || undefined, symbol: oppSearch || undefined }));
-  }, [dispatch, oppPage, oppSignalFilter, oppSearch, lastScannedAt]);
+    dispatch(fetchOpportunities({ page: oppPage, limit: 10, signal: oppSignalFilter || undefined, outlook: oppOutlookFilter || undefined, symbol: oppSearch || undefined }));
+  }, [dispatch, oppPage, oppSignalFilter, oppOutlookFilter, oppSearch, lastScannedAt]);
 
   useEffect(() => {
-    dispatch(fetchSignals({ page: sigPage, limit: 100, signal: sigSignalFilter || undefined, symbol: sigSearch || undefined }));
-  }, [dispatch, sigPage, sigSignalFilter, sigSearch, lastScannedAt]);
+    dispatch(fetchSignals({ page: sigPage, limit: SIGNAL_PAGE, signal: sigSignalFilter || undefined, outlook: sigOutlookFilter || undefined, symbol: sigSearch || undefined }));
+  }, [dispatch, sigPage, sigSignalFilter, sigOutlookFilter, sigSearch, lastScannedAt]);
+
+  useEffect(() => {
+    if (opportunities && oppPage > opportunities.meta.totalPages) {
+      setOppPage(opportunities.meta.totalPages);
+    }
+  }, [opportunities, oppPage]);
+
+  useEffect(() => {
+    if (signals && sigPage > signals.meta.totalPages) {
+      setSigPage(signals.meta.totalPages);
+    }
+  }, [signals, sigPage]);
 
   // Live radar: SSE pushes a fresh scan the moment one completes server-side
   // (background scan now runs at most every 30s, market hours only), so the
@@ -186,13 +225,10 @@ export function RadarPage() {
 
   const trending = (scanResult?.opportunities ?? []).filter((o) => {
     if (trendSignalFilter && o.signal !== trendSignalFilter) return false;
+    if (trendOutlookFilter && o.directionalOutlook !== trendOutlookFilter) return false;
     if (trendSearch && !o.symbol.toUpperCase().includes(trendSearch.toUpperCase())) return false;
     return true;
   });
-  const outlookBySymbol = new Map(
-    (signals?.data ?? []).map((signal) => [signal.symbol, signal.directionalOutlook]),
-  );
-
   const trendPages = Math.max(1, Math.ceil(trending.length / TREND_PAGE));
   const safeTrendPage = Math.min(trendPage, trendPages);
   const trendSlice = trending.slice((safeTrendPage - 1) * TREND_PAGE, safeTrendPage * TREND_PAGE);
@@ -217,6 +253,9 @@ export function RadarPage() {
             <span className="sg-live-dot" />
             {lastScannedAt ? `auto scan updated ${formatTimeAgo(lastScannedAt)}` : 'starting scan'}
           </span>
+          <button type="button" className="btn btn-primary" onClick={() => dispatch(runScan())} disabled={scanning}>
+            {scanning ? 'Scanning...' : 'Scan Now'}
+          </button>
         </div>
       </header>
 
@@ -277,6 +316,11 @@ export function RadarPage() {
             setTrendSignalFilter(v);
             setTrendPage(1);
           }}
+          outlookFilter={trendOutlookFilter}
+          onOutlookFilter={(v) => {
+            setTrendOutlookFilter(v);
+            setTrendPage(1);
+          }}
           search={trendSearch}
           onSearch={(v) => {
             setTrendSearch(v);
@@ -331,6 +375,11 @@ export function RadarPage() {
             setOppSignalFilter(v);
             setOppPage(1);
           }}
+          outlookFilter={oppOutlookFilter}
+          onOutlookFilter={(v) => {
+            setOppOutlookFilter(v);
+            setOppPage(1);
+          }}
           search={oppSearchInput}
           onSearch={setOppSearchInput}
         />
@@ -350,9 +399,9 @@ export function RadarPage() {
                     <Badge className={signalBadgeClass(o.signal)}>{o.signal}</Badge>
                   </td>
                   <td>
-                    {outlookBySymbol.get(o.symbol) ? (
-                      <Badge className={regimeBadgeClass(outlookBySymbol.get(o.symbol) ?? 'NEUTRAL')}>
-                        {outlookBySymbol.get(o.symbol)}
+                    {o.directionalOutlook ? (
+                      <Badge className={regimeBadgeClass(o.directionalOutlook)}>
+                        {o.directionalOutlook}
                       </Badge>
                     ) : (
                       <span className="muted">—</span>
@@ -380,10 +429,17 @@ export function RadarPage() {
             setSigSignalFilter(v);
             setSigPage(1);
           }}
+          outlookFilter={sigOutlookFilter}
+          onOutlookFilter={(v) => {
+            setSigOutlookFilter(v);
+            setSigPage(1);
+          }}
           search={sigSearchInput}
           onSearch={setSigSearchInput}
         />
-        {signals && signals.data.length > 0 ? (
+        {signalsLoading ? (
+          <Spinner />
+        ) : signals && signals.data.length > 0 ? (
           <>
             <Table headers={['Symbol', 'AI-Validated Action', 'Stock Outlook', 'Conviction', 'Timestamp']}>
               {signals.data.map((s) => (

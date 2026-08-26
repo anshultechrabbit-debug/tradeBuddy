@@ -13,7 +13,7 @@ export default defineConfig({
         timeout: 300000,
         configure: (proxy, _options) => {
           proxy.on('error', (err, _req, _res) => {
-            console.log('[vite-proxy] error:', err.code);
+            console.log('[vite-proxy] error:', err.message);
           });
           proxy.on('proxyReq', (proxyReq, req, _res) => {
             proxyReq.setHeader('x-forwarded-for', req.socket.remoteAddress);

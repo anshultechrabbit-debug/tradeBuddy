@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 export function Spinner({ label }: { label?: string }) {
   return (
@@ -32,9 +32,9 @@ export function ErrorBox({ message, onRetry }: { message: string | null | undefi
   );
 }
 
-export function Card({ title, action, children, className = '' }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
+export function Card({ title, action, children, className = '', style }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string; style?: CSSProperties }) {
   return (
-    <div className={`card ${className}`}>
+    <div className={`card ${className}`} style={style}>
       {title || action ? (
         <div className="card-header">
           {title ? <h3 className="card-title">{title}</h3> : null}
@@ -96,27 +96,58 @@ export function PaginationBar({
   onPage: (page: number) => void;
 }) {
   if (totalPages <= 1) return null;
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const firstVisible = Math.max(1, Math.min(safePage - 2, totalPages - 4));
+  const visiblePages = Array.from(
+    { length: Math.min(5, totalPages) },
+    (_, index) => firstVisible + index,
+  );
   return (
     <div className="pagination">
       <button
         type="button"
         className="btn btn-outline btn-sm"
-        disabled={page <= 1}
-        onClick={() => onPage(page - 1)}
+        disabled={safePage <= 1}
+        onClick={() => onPage(1)}
       >
-        ← Prev
+        First
       </button>
-      <span className="muted">
-        Page {page} of {totalPages}
-      </span>
       <button
         type="button"
         className="btn btn-outline btn-sm"
-        disabled={page >= totalPages}
-        onClick={() => onPage(page + 1)}
+        disabled={safePage <= 1}
+        onClick={() => onPage(safePage - 1)}
+      >
+        ← Prev
+      </button>
+      {visiblePages.map((pageNumber) => (
+        <button
+          key={pageNumber}
+          type="button"
+          className={`btn btn-sm ${pageNumber === safePage ? 'btn-primary' : 'btn-outline'}`}
+          aria-current={pageNumber === safePage ? 'page' : undefined}
+          onClick={() => onPage(pageNumber)}
+        >
+          {pageNumber}
+        </button>
+      ))}
+      <button
+        type="button"
+        className="btn btn-outline btn-sm"
+        disabled={safePage >= totalPages}
+        onClick={() => onPage(safePage + 1)}
       >
         Next →
       </button>
+      <button
+        type="button"
+        className="btn btn-outline btn-sm"
+        disabled={safePage >= totalPages}
+        onClick={() => onPage(totalPages)}
+      >
+        Last
+      </button>
+      <span className="muted small">Page {safePage} of {totalPages}</span>
     </div>
   );
 }
