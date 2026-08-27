@@ -36,7 +36,7 @@ export const fetchLatestScan = createAsyncThunk<ScanResult & { lastScannedAt: st
 
 export const fetchOpportunities = createAsyncThunk(
   'radar/opportunities',
-  async (params?: { page?: number; limit?: number; signal?: string; outlook?: string; symbol?: string }) => {
+  async (params?: { page?: number; limit?: number; signal?: string; outlook?: string; minConviction?: number; symbol?: string }) => {
     const { data } = await apiClient.get<Paginated<SavedOpportunity>>('/radar/opportunities', { params });
     return data;
   },
@@ -44,7 +44,7 @@ export const fetchOpportunities = createAsyncThunk(
 
 export const fetchSignals = createAsyncThunk(
   'radar/signals',
-  async (params?: { page?: number; limit?: number; signal?: string; outlook?: string; symbol?: string }) => {
+  async (params?: { page?: number; limit?: number; signal?: string; outlook?: string; minConviction?: number; symbol?: string }) => {
     const { data } = await apiClient.get<Paginated<Signal>>('/radar/signals', { params });
     return data;
   },

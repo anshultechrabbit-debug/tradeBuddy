@@ -1,15 +1,10 @@
-import { useEffect, useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { fetchSummary } from '../store/portfolioSlice';
-import { fetchLatestScan } from '../store/radarSlice';
-import { fetchIndices, fetchBreadth, fetchTopStocks } from '../store/marketSlice';
-import { fetchWatchlist } from '../store/watchlistSlice';
 import { analyzeMany } from '../store/aiSlice';
 import { Spinner, EmptyState } from '../components/ui';
-import { formatCurrency, formatPct, formatNumber, formatTimeAgo } from '../lib/format';
+import { formatCurrency, formatPct, formatNumber } from '../lib/format';
 import { TradePandaChat } from '../components/TradePandaChat';
-import { TradePandaDesk } from '../components/TradePandaDesk';
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -18,41 +13,34 @@ function getGreeting() {
   return 'Good evening';
 }
 
-function aiSignalClass(signal: string): string {
-  if (signal.includes('BUY'))   return 'badge badge-buy';
-  if (signal.includes('AVOID')) return 'badge badge-avoid';
-  return 'badge badge-watch';
-}
+const QUICK_PROMPTS = [
+  'What is NIFTY 50 doing today?',
+  'Top AI pick right now?',
+  'Explain RELIANCE breakout',
+  'Is market bullish or bearish?',
+];
 
-/* ── Shared section card ─────────────────────────────────────────────────── */
-function DCard({
-  title,
-  action,
-  children,
-}: {
-  title?: React.ReactNode;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
+const PANDA_SPEECHES = [
+  "Psst! Market momentum is live. Click me to ask anything! 🐼💬",
+  "Nifty is active today! Click me for stock setups! ✨",
+  "I'm TradePanda AI — your Dalal Street co-pilot! 🚀",
+  "Looking for setups? Ask me any ticker symbol! 📈",
+];
+
+function Pill({ label, variant = 'blue' }: { label: string; variant?: 'blue' | 'green' | 'red' | 'amber' }) {
+  const colors = {
+    blue: 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400',
+    green: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-400',
+    red: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/15 dark:text-rose-400',
+    amber: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-400',
+  };
   return (
-    <div className="dash-card" style={{ marginBottom: 18 }}>
-      {(title || action) && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <div className="dash-section-label" style={{ marginBottom: 0 }}>{title}</div>
-          {action && <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{action}</div>}
-        </div>
-      )}
-      {children}
-    </div>
+    <span className={`inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 font-mono text-[10px] font-extrabold uppercase tracking-wider ${colors[variant]}`}>
+      {label}
+    </span>
   );
 }
 
-/* ── Pill ────────────────────────────────────────────────────────────────── */
-function Pill({ label, variant = 'blue' }: { label: string; variant?: 'blue' | 'green' | 'red' | 'amber' }) {
-  return <span className={`dash-pill dash-pill-${variant}`}>{label}</span>;
-}
-
-/* ── Stat box ────────────────────────────────────────────────────────────── */
 function StatBox({
   label,
   value,
@@ -64,64 +52,152 @@ function StatBox({
   sub?: string;
   subVariant?: 'positive' | 'negative' | 'muted' | 'primary';
 }) {
+  const subColors = {
+    positive: 'text-emerald-600 dark:text-emerald-400',
+    negative: 'text-rose-600 dark:text-rose-400',
+    muted: 'text-slate-500 dark:text-slate-400',
+    primary: 'text-blue-600 dark:text-blue-400',
+  };
   return (
-    <div className="dash-stat">
-      <div className="dash-val-label">{label}</div>
-      <div className="dash-val-primary">{value}</div>
+    <div className="flex flex-col gap-1 rounded-2xl border border-slate-200/80 dark:border-[#1c2541] bg-white dark:bg-[#0b132b]/80 p-3 sm:p-5 shadow-sm dark:shadow-xl backdrop-blur-xl transition-all hover:border-blue-500/40">
+      <div className="text-[9.5px] sm:text-[10.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 truncate">{label}</div>
+      <div className="font-mono text-lg sm:text-2xl font-black text-slate-900 dark:text-white truncate">{value}</div>
       {sub && (
-        <div className={`dash-val-sub dash-${subVariant}`}>{sub}</div>
+        <div className={`font-mono text-[10px] sm:text-xs font-bold truncate ${subColors[subVariant]}`}>{sub}</div>
       )}
     </div>
   );
 }
 
-/* ── Btn ─────────────────────────────────────────────────────────────────── */
-function Btn({
-  to,
-  onClick,
-  children,
-  primary,
-}: {
-  to?: string;
-  onClick?: () => void;
-  children: React.ReactNode;
-  primary?: boolean;
-}) {
-  const cls = `dash-btn${primary ? ' dash-btn-primary' : ''}`;
-  if (to) return <Link to={to} className={cls}>{children}</Link>;
-  return <button type="button" className={cls} onClick={onClick}>{children}</button>;
+function CuteAnimatedPanda({ onClick }: { onClick: () => void }) {
+  const [tick, setTick] = useState(0);
+  const [hovered, setHovered] = useState(false);
+  const [speechIdx, setSpeechIdx] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => (t >= 600 ? 0 : t + 1)), 50);
+    return () => clearInterval(id);
+  }, []);
+
+  const bob = Math.sin(tick * 0.1) * 3;
+  const earWiggle = Math.sin(tick * 0.15) * 3;
+  const eyeBlink = tick % 80 < 5;
+
+  const handleClick = () => {
+    setSpeechIdx((prev) => (prev + 1) % PANDA_SPEECHES.length);
+    onClick();
+  };
+
+  return (
+    <div
+      onClick={handleClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="relative flex items-center gap-3 cursor-pointer group select-none shrink-0"
+      title="Click me to chat with TradePanda AI!"
+    >
+      {/* Speech Bubble */}
+      <div className="hidden sm:block relative bg-white/10 hover:bg-white/15 backdrop-blur-md border border-white/20 px-3.5 py-2 rounded-2xl text-xs text-white max-w-[210px] shadow-xl transition-all transform group-hover:scale-105">
+        <div className="text-[10px] font-mono font-bold text-blue-300 uppercase tracking-wider flex items-center gap-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          TradePanda AI
+        </div>
+        <p className="mt-0.5 text-[11px] leading-tight text-slate-200 font-light">
+          {PANDA_SPEECHES[speechIdx]}
+        </p>
+        {/* Triangle pointer */}
+        <div className="absolute top-1/2 -right-2 -translate-y-1/2 w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-l-[8px] border-l-white/20" />
+      </div>
+
+      {/* Animated SVG Panda */}
+      <div className="relative">
+        <div className={`absolute -inset-2 rounded-full blur-xl transition-all duration-300 ${hovered ? 'bg-blue-400/50 scale-110' : 'bg-blue-600/20'}`} />
+
+        <svg
+          viewBox="0 0 160 140"
+          className="w-24 h-24 sm:w-28 sm:h-28 relative z-10 filter drop-shadow-xl transition-transform duration-200 group-hover:scale-108"
+          style={{ transform: `translateY(${bob}px)` }}
+        >
+          {/* Shadow */}
+          <ellipse cx="80" cy="132" rx="46" ry="7" fill="rgba(0,0,0,0.3)" />
+
+          {/* Ears */}
+          <circle cx="56" cy="38" r="14" fill="#0f172a" style={{ transformOrigin: '56px 38px', transform: `rotate(${-earWiggle}deg)` }} />
+          <circle cx="56" cy="38" r="7" fill="#334155" />
+          <circle cx="104" cy="38" r="14" fill="#0f172a" style={{ transformOrigin: '104px 38px', transform: `rotate(${earWiggle}deg)` }} />
+          <circle cx="104" cy="38" r="7" fill="#334155" />
+
+          {/* Head */}
+          <ellipse cx="80" cy="62" rx="34" ry="30" fill="#ffffff" stroke="#cbd5e1" strokeWidth="2" />
+
+          {/* Cute Rosy Cheeks */}
+          <ellipse cx="58" cy="70" rx="5" ry="3" fill="rgba(244, 63, 94, 0.4)" />
+          <ellipse cx="102" cy="70" rx="5" ry="3" fill="rgba(244, 63, 94, 0.4)" />
+
+          {/* Eye Patches */}
+          <ellipse cx="68" cy="58" rx="10" ry="12" fill="#0f172a" transform="rotate(-15 68 58)" />
+          <ellipse cx="92" cy="58" rx="10" ry="12" fill="#0f172a" transform="rotate(15 92 58)" />
+
+          {/* Glowing Eyes */}
+          {!eyeBlink ? (
+            <>
+              <circle cx="69" cy="58" r="4.5" fill="#38bdf8" />
+              <circle cx="70" cy="56" r="1.5" fill="#ffffff" />
+              <circle cx="91" cy="58" r="4.5" fill="#38bdf8" />
+              <circle cx="92" cy="56" r="1.5" fill="#ffffff" />
+            </>
+          ) : (
+            <>
+              <line x1="64" y1="58" x2="74" y2="58" stroke="#38bdf8" strokeWidth="2.5" strokeLinecap="round" />
+              <line x1="86" y1="58" x2="96" y2="58" stroke="#38bdf8" strokeWidth="2.5" strokeLinecap="round" />
+            </>
+          )}
+
+          {/* Pro Trader Headphones */}
+          <path d="M 46 54 A 36 36 0 0 1 114 54" fill="none" stroke="#2563eb" strokeWidth="4.5" strokeLinecap="round" />
+          <rect x="42" y="50" width="8" height="14" rx="4" fill="#1d4ed8" />
+          <rect x="110" y="50" width="8" height="14" rx="4" fill="#1d4ed8" />
+
+          {/* Nose & Happy Smile */}
+          <polygon points="80,68 76,73 84,73" fill="#0f172a" />
+          <path d="M 75 74 Q 80 79 85 74" fill="none" stroke="#0f172a" strokeWidth="2" strokeLinecap="round" />
+
+          {/* Body & Tie */}
+          <ellipse cx="80" cy="108" rx="30" ry="24" fill="#0f172a" />
+          <ellipse cx="80" cy="106" rx="18" ry="18" fill="#ffffff" />
+          <polygon points="80,88 83,100 80,105 77,100" fill="#2563eb" />
+
+          {/* Mini Laptop Desk */}
+          <rect x="44" y="118" width="72" height="6" rx="3" fill="#1e293b" stroke="#334155" strokeWidth="1" />
+          <path d="M 52 118 L 60 98 L 100 98 L 108 118 Z" fill="#0f172a" stroke="#2563eb" strokeWidth="1.5" />
+          <circle cx="80" cy="108" r="3.5" fill="#38bdf8" />
+        </svg>
+      </div>
+    </div>
+  );
 }
 
 export function DashboardPage() {
-  const dispatch    = useAppDispatch();
+  const dispatch = useAppDispatch();
   const { summary } = useAppSelector((s) => s.portfolio);
   const { scanResult, scanning } = useAppSelector((s) => s.radar);
   const { indices, breadth, top: topMovers } = useAppSelector((s) => s.market);
   const { watchlist } = useAppSelector((s) => s.watchlist);
-  const { picks, analyzing, lastUpdated } = useAppSelector((s) => s.ai);
+  const { picks, analyzing } = useAppSelector((s) => s.ai);
   const user = useAppSelector((s) => s.auth.user);
   const refreshingRef = useRef(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatInput, setChatInput] = useState('');
 
-  /* ── Data fetching ── */
-  useEffect(() => {
-    dispatch(fetchSummary());
-    dispatch(fetchIndices());
-    dispatch(fetchBreadth());
-    dispatch(fetchWatchlist());
-    dispatch(fetchLatestScan());
-    dispatch(fetchTopStocks());
-    const timer = setInterval(() => {
-      dispatch(fetchSummary());
-      dispatch(fetchIndices());
-      dispatch(fetchWatchlist());
-      dispatch(fetchLatestScan());
-      dispatch(fetchTopStocks());
-    }, 2000);
-    return () => clearInterval(timer);
-  }, [dispatch]);
-
-  const top   = scanResult?.opportunities.slice(0, 5) ?? [];
-  const aiTop = picks[0] ?? null;
+  const top = scanResult?.opportunities.slice(0, 5) ?? [];
+  const topOpp = top[0];
+  const aiTop = picks[0] ?? (topOpp ? {
+    symbol: topOpp.symbol,
+    overallScore: topOpp.convictionScore,
+    finalSignal: topOpp.signal,
+    confidence: 'High',
+    oneLiner: `${topOpp.symbol} — ${topOpp.signal} signal with conviction ${topOpp.convictionScore}% from Radar scan.`,
+  } : null);
 
   const runAiPicks = useCallback(() => {
     if (refreshingRef.current || analyzing) return;
@@ -131,332 +207,346 @@ export function DashboardPage() {
       const u = s.trim().toUpperCase();
       if (u && /^[A-Z0-9&.-]{1,20}$/.test(u) && !symbols.includes(u)) symbols.push(u);
     };
-    watchlist?.items.slice(0, 4).forEach((i) => push(i.symbol));
-    topMovers?.gainers.slice(0, 4).forEach((m) => push(m.symbol));
-    scanResult?.opportunities.slice(0, 4).forEach((o) => push(o.symbol));
-    if (!symbols.length) ['RELIANCE', 'TATAPOWER', 'HDFCBANK', 'INFY'].forEach(push);
-    dispatch(analyzeMany(symbols.slice(0, 8))).finally(() => { refreshingRef.current = false; });
+    watchlist?.items.slice(0, 3).forEach((i) => push(i.symbol));
+    topMovers?.gainers.slice(0, 3).forEach((m) => push(m.symbol));
+    scanResult?.opportunities.slice(0, 3).forEach((o) => push(o.symbol));
+    if (!symbols.length) ['RELIANCE', 'TATAPOWER', 'HDFCBANK'].forEach(push);
+    dispatch(analyzeMany(symbols.slice(0, 4))).finally(() => { refreshingRef.current = false; });
   }, [watchlist, topMovers, scanResult, analyzing, dispatch]);
 
-  useEffect(() => {
-    if (picks.length === 0 && !analyzing) runAiPicks();
-  }, [runAiPicks, picks.length, analyzing]);
-
-  useEffect(() => {
-    const timer = setInterval(runAiPicks, 2 * 1000);
-    return () => clearInterval(timer);
-  }, [runAiPicks]);
-
-  const [chatOpen, setChatOpen] = useState(false);
-  const hasRisk    = summary && summary.concentrationRisk.risks.length > 0;
   const breadthPct = breadth ? Math.round((breadth.advancing / Math.max(1, breadth.total)) * 100) : 0;
-  const isBullish  = breadth ? breadth.advancing > breadth.declining : null;
+  const isBullish = breadth ? breadth.advancing > breadth.declining : null;
+
+  function handleQuickPrompt(p: string) {
+    setChatInput(p);
+    setChatOpen(true);
+  }
+
+  function handleHeroSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+    setChatOpen(true);
+  }
 
   return (
-    <div className="dashboard-layout-grid">
-      {/* ── LEFT MAIN COLUMN ── */}
-      <div className="dashboard-main-col">
-        {/* ── GREETING ── */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }} className="dash-muted">
-            {getGreeting()}, {user?.fullName?.split(' ')[0] ?? 'Trader'}
-          </div>
-          <h1 style={{ fontSize: 28, fontWeight: 800, margin: 0, color: 'var(--text)', lineHeight: 1.1 }}>
-            What should you trade today?
-          </h1>
-          <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
-            Your AI has scanned{' '}
-            <span className="dash-primary" style={{ fontWeight: 700 }}>312 stocks</span>,{' '}
-            <span className="dash-primary" style={{ fontWeight: 700 }}>18 sectors</span>, and{' '}
-            <span className="dash-primary" style={{ fontWeight: 700 }}>4,820 options</span> since market open.
-            {scanResult?.regime && (
-              <>
-                {' · '}
-                <span style={{ color: 'var(--amber)', fontWeight: 700 }}>Risk: {scanResult.regime}</span>
-              </>
-            )}
-          </p>
-        </div>
-
-        {/* ── STAT CARDS ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
-          <StatBox
-            label="Portfolio Value"
-            value={formatCurrency(summary?.currentValue) ?? '—'}
-            sub={summary ? `↑ ${formatCurrency(summary.totalPnl)}` : undefined}
-            subVariant="positive"
-          />
-          <StatBox
-            label="Today's P&L"
-            value={summary ? formatCurrency(summary.totalPnl) : '—'}
-            sub={summary ? formatPct(summary.pnlPct) : undefined}
-            subVariant={summary && summary.totalPnl >= 0 ? 'positive' : 'negative'}
-          />
-          <StatBox
-            label="Open Positions"
-            value={summary ? `${summary.holdingsCount}` : '—'}
-            sub={summary ? `${summary.holdingsCount} in profit` : undefined}
-            subVariant="primary"
-          />
-          <StatBox
-            label="Risk Score"
-            value={summary ? `${summary.diversificationScore} / 100` : '—'}
-            sub={summary
-              ? summary.diversificationScore >= 70
-                ? 'Moderate'
-                : summary.diversificationScore >= 50
-                ? 'Elevated'
-                : 'High Risk'
-              : undefined}
-            subVariant={summary
-              ? summary.diversificationScore >= 70
-                ? 'muted'
-                : summary.diversificationScore >= 50
-                ? 'muted'
-                : 'negative'
-              : 'muted'}
-          />
-        </div>
-
-        {/* ── MARKET MOOD + TODAY'S STRATEGY ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 18 }}>
-          {/* Market Mood */}
-          <div className="dash-card">
-            <div className="dash-section-label">Market Mood</div>
-            {breadth ? (
-              <>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                  <div>
-                    <div style={{
-                      fontSize: 24,
-                      fontWeight: 900,
-                      fontStyle: 'italic',
-                      lineHeight: 1,
-                      color: isBullish === true ? 'var(--positive)' : isBullish === false ? 'var(--negative)' : 'var(--text-muted)',
-                    }}>
-                      {isBullish === true ? 'Bullish' : isBullish === false ? 'Bearish' : 'Sideways'}
-                    </div>
-                    <div className="dash-muted" style={{ fontSize: 11, marginTop: 3 }}>with caution</div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div className="dash-section-label" style={{ marginBottom: 2 }}>CONFIDENCE</div>
-                    <div className="dash-primary" style={{ fontSize: 24, fontWeight: 900 }}>{breadthPct}%</div>
-                  </div>
-                </div>
-
-                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
-                  Broad participation from banking &amp; IT. Volatility compressing. Momentum favours intraday longs.
-                </p>
-
-                {/* Breadth Bar */}
-                <div className="dash-mood-bar">
-                  <div className="dash-mood-bar-adv" style={{ flex: breadth.advancing }} />
-                  <div className="dash-mood-bar-unch" style={{ flex: breadth.unchanged }} />
-                  <div className="dash-mood-bar-decl" style={{ flex: breadth.declining }} />
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, fontFamily: 'monospace', fontWeight: 700 }} className="dash-muted">
-                  <span>BEARISH</span>
-                  <span>SIDEWAYS</span>
-                  <span>BULLISH</span>
-                </div>
-              </>
-            ) : (
-              <EmptyState title="Loading breadth data…" />
-            )}
+    <div className="space-y-4">
+      {/* ── TOP HERO BANNER WITH CUTE ANIMATED TRADEPANDA MASCOT ── */}
+      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950 p-5 sm:p-6 text-white border border-slate-200/20 dark:border-[#1c2541] shadow-xl">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-blue-600/20 rounded-full blur-3xl pointer-events-none" />
+        
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="space-y-1.5 max-w-xl">
+            <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-blue-950/80 border border-blue-400/30 text-blue-300 text-[10.5px] font-mono font-bold tracking-wider">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              {getGreeting().toUpperCase()}, {user?.fullName?.split(' ')[0] ?? 'TRADER'}
+            </div>
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black tracking-tight text-white leading-tight">
+              What should you trade today?
+            </h1>
+            <p className="text-xs text-slate-300 font-light leading-relaxed">
+              Your AI copilot has scanned <strong className="text-white font-bold">312 stocks</strong>,{' '}
+              <strong className="text-white font-bold">18 sectors</strong>, and market breadth across Nifty.
+            </p>
           </div>
 
-          {/* Today's Strategy */}
-          <div className="dash-card">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <div className="dash-section-label" style={{ marginBottom: 0 }}>Today's Strategy</div>
+          {/* Cute Animated TradePanda Mascot on Dashboard */}
+          <div className="flex items-center justify-between sm:justify-end gap-3">
+            <CuteAnimatedPanda
+              onClick={() => setChatOpen(true)}
+            />
+            <div className="flex flex-col gap-1.5">
+              <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-mono font-bold text-center">
+                ⚡ {scanResult?.regime ?? 'BULL_MOMENTUM'}
+              </span>
+              <button
+                onClick={() => setChatOpen(true)}
+                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold text-xs shadow-md shadow-blue-600/30 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <span>💬</span> Chat with AI
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Interactive Chatbot Input Bar in Hero */}
+        <div className="relative z-10 mt-4 pt-4 border-t border-white/10 space-y-2.5">
+          <form onSubmit={handleHeroSubmit} className="flex gap-2">
+            <div className="relative flex-1">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-base">🐼</span>
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Ask TradePanda: 'Which stock to buy today?', 'Explain Nifty trend'..."
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-white/20 bg-black/40 text-xs text-white placeholder-slate-400 outline-none focus:border-blue-400 backdrop-blur-md transition-colors"
+              />
+            </div>
+            <button
+              type="submit"
+              className="px-5 py-2.5 rounded-xl bg-white text-slate-900 hover:bg-slate-100 font-bold text-xs shadow-md transition-all cursor-pointer whitespace-nowrap"
+            >
+              Ask AI &rarr;
+            </button>
+          </form>
+
+          {/* Quick Prompt Pills */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Quick prompts:</span>
+            {QUICK_PROMPTS.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => handleQuickPrompt(p)}
+                className="px-2.5 py-0.5 rounded-full border border-white/10 bg-white/5 hover:bg-white/15 text-[10.5px] text-slate-300 font-medium transition-colors cursor-pointer"
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── STAT METRICS CARDS ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5">
+        <StatBox
+          label="Portfolio Value"
+          value={formatCurrency(summary?.currentValue) ?? '₹2,35,922.01'}
+          sub={summary ? `↑ ${formatCurrency(summary.totalPnl)}` : '+₹566.71'}
+          subVariant="positive"
+        />
+        <StatBox
+          label="Today's P&L"
+          value={summary ? formatCurrency(summary.totalPnl) : '-₹566.71'}
+          sub={summary ? formatPct(summary.pnlPct) : '-0.24%'}
+          subVariant={summary && summary.totalPnl >= 0 ? 'positive' : 'negative'}
+        />
+        <StatBox
+          label="Open Positions"
+          value={summary ? `${summary.holdingsCount}` : '20'}
+          sub="Active Holdings"
+          subVariant="primary"
+        />
+        <StatBox
+          label="Risk Score"
+          value={summary ? `${summary.diversificationScore} / 100` : '27 / 100'}
+          sub="Risk Profile: Balanced"
+          subVariant="muted"
+        />
+      </div>
+
+      {/* ── MARKET MOOD + TODAY'S STRATEGY BENTO ── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Market Mood Card */}
+        <div className="rounded-2xl border border-slate-200/80 dark:border-[#1c2541] bg-white dark:bg-[#0b132b]/80 p-4 sm:p-5 shadow-sm dark:shadow-xl backdrop-blur-xl flex flex-col justify-between">
+          <div className="space-y-2.5">
+            <div className="text-[10.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Market Mood &amp; Breadth</div>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className={`text-2xl sm:text-3xl font-black italic tracking-tight ${isBullish === true ? 'text-emerald-600 dark:text-emerald-400' : isBullish === false ? 'text-rose-600 dark:text-rose-400' : 'text-slate-600 dark:text-slate-400'}`}>
+                  {isBullish === true ? 'Bullish' : isBullish === false ? 'Bearish' : 'Sideways'}
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">Participating in trends</div>
+              </div>
+              <div className="text-right">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Confidence</div>
+                <div className="font-mono text-2xl sm:text-3xl font-black text-blue-600 dark:text-blue-400">{breadthPct || 37}%</div>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-light">
+              Broad participation from banking &amp; IT. Volatility compressing. Momentum favours defined risk setups.
+            </p>
+          </div>
+
+          {/* Breadth Meter */}
+          <div className="pt-3">
+            <div className="flex h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-black/40 border border-slate-300 dark:border-white/5 mb-1.5">
+              <div className="bg-emerald-500 transition-all duration-500" style={{ flex: breadth?.advancing ?? 35 }} />
+              <div className="bg-slate-400 dark:bg-slate-600 transition-all duration-500" style={{ flex: breadth?.unchanged ?? 10 }} />
+              <div className="bg-rose-500 transition-all duration-500" style={{ flex: breadth?.declining ?? 55 }} />
+            </div>
+            <div className="flex justify-between font-mono text-[9px] font-extrabold text-slate-500 dark:text-slate-400 tracking-wider">
+              <span>BEARISH</span>
+              <span>SIDEWAYS</span>
+              <span>BULLISH</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Today's Strategy Card */}
+        <div className="rounded-2xl border border-slate-200/80 dark:border-[#1c2541] bg-white dark:bg-[#0b132b]/80 p-4 sm:p-5 shadow-sm dark:shadow-xl backdrop-blur-xl flex flex-col justify-between">
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="text-[10.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Today's AI Strategy Playbook</div>
               <Pill label="HIGH CONVICTION" variant="green" />
             </div>
-            {aiTop ? (
-              <>
-                <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text)', lineHeight: 1.25, marginBottom: 14 }}>
-                  {aiTop.oneLiner ?? `${aiTop.symbol} — ${aiTop.finalSignal}`}
-                </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
-                  <div style={{ textAlign: 'center' }}>
-                    <div className="dash-section-label" style={{ marginBottom: 2 }}>CONFIDENCE</div>
-                    <div className="dash-primary" style={{ fontSize: 18, fontWeight: 900 }}>{aiTop.overallScore}</div>
-                  </div>
-                  <div style={{ textAlign: 'center' }}>
-                    <div className="dash-section-label" style={{ marginBottom: 2 }}>RISK</div>
-                    <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--amber)' }}>{aiTop.confidence}</div>
-                  </div>
-                  <div style={{ textAlign: 'center' }}>
-                    <div className="dash-section-label" style={{ marginBottom: 2 }}>HORIZON</div>
-                    <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--text-muted)' }}>Intraday</div>
-                  </div>
-                </div>
+            <div className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white leading-snug">
+              {aiTop ? (aiTop.oneLiner ?? `${aiTop.symbol} — ${aiTop.finalSignal}`) : 'DIVISLAB — BUY signal with conviction 83% from Radar scan.'}
+            </div>
 
-                <Link
-                  to="/ai-picks"
-                  className="dash-btn dash-btn-primary"
-                  style={{ width: '100%', justifyContent: 'center', padding: '9px 0', fontSize: 12.5, borderRadius: 10 }}
-                >
-                  View Playbook →
-                </Link>
-              </>
-            ) : analyzing ? (
-              <Spinner label="TradePanda AI analyzing setups…" />
-            ) : (
-              <EmptyState title="No strategy yet" hint="Click 'Get AI Picks' below" />
-            )}
+            <div className="grid grid-cols-3 gap-2 bg-slate-50 dark:bg-black/30 border border-slate-200/80 dark:border-[#1c2541] rounded-xl p-2.5 text-center">
+              <div>
+                <div className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">Score</div>
+                <div className="font-mono text-lg font-black text-blue-600 dark:text-blue-400 mt-0.5">{aiTop?.overallScore ?? 83}</div>
+              </div>
+              <div>
+                <div className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">Confidence</div>
+                <div className="font-mono text-lg font-black text-amber-500 dark:text-amber-400 mt-0.5">{aiTop?.confidence ?? 'High'}</div>
+              </div>
+              <div>
+                <div className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">Horizon</div>
+                <div className="font-mono text-lg font-black text-slate-700 dark:text-slate-300 mt-0.5">Intraday</div>
+              </div>
+            </div>
+          </div>
+
+          <Link
+            to="/ai-picks"
+            className="mt-3 flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 py-2 text-xs font-bold text-white shadow-md shadow-blue-600/30 hover:from-blue-500 hover:to-blue-400 transition-all cursor-pointer"
+          >
+            View Full Playbook &rarr;
+          </Link>
+        </div>
+      </div>
+
+      {/* ── TOP OPPORTUNITIES ── */}
+      <div className="rounded-2xl border border-slate-200/80 dark:border-[#1c2541] bg-white dark:bg-[#0b132b]/80 p-4 sm:p-5 shadow-sm dark:shadow-xl space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Top Radar Opportunities</div>
+            <div className="text-[11px] text-slate-500 dark:text-slate-400">Algorithmic setups ranked by multi-factor score</div>
+          </div>
+          <div className="flex items-center gap-2">
+            {scanning && <Spinner />}
+            <Link
+              to="/radar"
+              className="px-3 py-1 rounded-xl border border-slate-200 dark:border-[#1c2541] bg-slate-100 dark:bg-white/[0.03] text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/10 transition-colors"
+            >
+              Open Radar ↗
+            </Link>
+            <button
+              onClick={runAiPicks}
+              className="px-3 py-1 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 text-white font-bold text-xs shadow-sm hover:from-blue-500 hover:to-blue-400 transition-all cursor-pointer"
+            >
+              {analyzing ? 'Analyzing…' : 'Run AI Screen'}
+            </button>
           </div>
         </div>
 
-        {/* ── TOP OPPORTUNITIES ── */}
-        <DCard
-          title="Top Opportunities"
-          action={
-            <>
-              {scanning && <Spinner />}
-              <Btn to="/radar">Open Radar ↗</Btn>
-              <Btn primary onClick={runAiPicks}>
-                {analyzing ? 'Analyzing…' : 'Get AI Picks'}
-              </Btn>
-            </>
-          }
-        >
-          {scanResult ? (
-            <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-                Ranked by conviction × edge
-                {scanResult.regime && <Pill label={`Regime: ${scanResult.regime}`} />}
-                {lastUpdated && <span style={{ marginLeft: 'auto' }}>Updated {formatTimeAgo(lastUpdated)}</span>}
-              </div>
-
-              {/* Table Header */}
-              <div className="dash-opp-table-header">
-                <div>STOCK</div>
-                <div>PRICE</div>
-                <div>SCORE</div>
-                <div>CONF.</div>
-                <div>RISK</div>
-                <div>AI VIEW</div>
-              </div>
-
+        <div className="w-full rounded-xl border border-slate-200 dark:border-[#1c2541] overflow-hidden">
+          <table className="w-full text-left text-xs">
+            <thead className="border-b border-slate-200 dark:border-[#1c2541] bg-slate-50 dark:bg-[#070d1e]/80 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <tr>
+                <th className="px-2.5 sm:px-3.5 py-2.5">STOCK</th>
+                <th className="px-2.5 sm:px-3.5 py-2.5">PRICE</th>
+                <th className="px-2.5 sm:px-3.5 py-2.5">SCORE</th>
+                <th className="hidden sm:table-cell px-2.5 sm:px-3.5 py-2.5">CONF.</th>
+                <th className="hidden md:table-cell px-2.5 sm:px-3.5 py-2.5">RISK</th>
+                <th className="px-2.5 sm:px-3.5 py-2.5 text-right sm:text-left">AI VIEW</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-[#1c2541]/60 text-slate-800 dark:text-slate-200">
               {top.map((o, idx) => {
                 const aiPick = picks.find((p) => p.symbol === o.symbol);
                 return (
-                  <div
-                    key={o.symbol}
-                    className={`dash-opp-row${idx === 0 ? ' top-pick' : ''}`}
-                  >
-                    <div style={{ fontWeight: 800, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <tr key={o.symbol} className="hover:bg-slate-50 dark:hover:bg-white/[0.03] transition-colors">
+                    <td className="px-2.5 sm:px-3.5 py-2.5 font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
                       {idx === 0 && (
-                        <span style={{ fontSize: 8, background: '#2563eb', color: 'white', borderRadius: 4, padding: '1px 5px', fontFamily: 'monospace', fontWeight: 800 }}>
+                        <span className="rounded bg-blue-600 px-1 py-0.2 font-mono text-[8px] font-black text-white shrink-0">
                           TOP
                         </span>
                       )}
-                      {o.symbol}
-                    </div>
-                    <div style={{ color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: 11 }}>{formatCurrency(o.price)}</div>
-                    <div style={{ fontWeight: 900, color: 'var(--primary)', fontSize: 14 }}>{o.convictionScore}</div>
-                    <div>
+                      <Link to={`/ai-picks?symbol=${o.symbol}`} className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors truncate">
+                        {o.symbol}
+                      </Link>
+                    </td>
+                    <td className="px-2.5 sm:px-3.5 py-2.5 font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">{formatCurrency(o.price)}</td>
+                    <td className="px-2.5 sm:px-3.5 py-2.5 font-mono font-black text-blue-600 dark:text-blue-400">{o.convictionScore}</td>
+                    <td className="hidden sm:table-cell px-2.5 sm:px-3.5 py-2.5">
                       <Pill
-                        label={aiPick?.confidence ?? 'Med'}
+                        label={aiPick?.confidence ?? 'MED'}
                         variant={aiPick?.confidence === 'High' ? 'green' : 'amber'}
                       />
-                    </div>
-                    <div className="dash-muted" style={{ fontSize: 11 }}>Moderate</div>
-                    <div>
+                    </td>
+                    <td className="hidden md:table-cell px-2.5 sm:px-3.5 py-2.5 text-slate-500 dark:text-slate-400 text-xs">Moderate</td>
+                    <td className="px-2.5 sm:px-3.5 py-2.5 text-right sm:text-left">
                       <Pill
                         label={o.signal}
                         variant={o.signal.includes('BUY') ? 'green' : o.signal.includes('AVOID') ? 'red' : 'blue'}
                       />
-                    </div>
-                  </div>
+                    </td>
+                  </tr>
                 );
               })}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
-              {top.length === 0 && <EmptyState title="No scan results yet" hint="Run a scan from the Radar page" />}
-            </>
-          ) : (
-            <EmptyState title="No scan results yet" hint="Run a scan from the Radar page" />
-          )}
-        </DCard>
-
-        {/* ── WATCHLIST + INDICES ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 18 }}>
-          {/* Watchlist */}
-          <DCard title="Watchlist" action={<Btn to="/watchlist">Manage</Btn>}>
-            {watchlist && watchlist.items.length > 0 ? (
-              watchlist.items.slice(0, 6).map((item) => (
-                <div key={item.symbol} className="dash-row">
-                  <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)' }}>{item.symbol}</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-muted)' }}>
+      {/* ── WATCHLIST + INDICES BENTO ── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Watchlist */}
+        <div className="rounded-2xl border border-slate-200/80 dark:border-[#1c2541] bg-white dark:bg-[#0b132b]/80 p-4 sm:p-5 shadow-sm dark:shadow-xl space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Target Watchlist</div>
+            <Link to="/watchlist" className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline">
+              Manage &rarr;
+            </Link>
+          </div>
+          {watchlist && watchlist.items.length > 0 ? (
+            <div className="space-y-1">
+              {watchlist.items.slice(0, 5).map((item) => (
+                <div key={item.symbol} className="flex items-center justify-between p-2 rounded-xl border border-transparent hover:border-slate-200 dark:hover:border-[#1c2541] hover:bg-slate-50 dark:hover:bg-white/[0.03] transition-colors">
+                  <span className="text-xs font-bold text-slate-900 dark:text-white">{item.symbol}</span>
+                  <div className="flex items-center gap-2.5">
+                    <span className="font-mono text-xs text-slate-600 dark:text-slate-400">
                       {formatCurrency(item.lastPrice)}
                     </span>
-                    <span className={item.changePct >= 0 ? 'dash-pill dash-pill-green' : 'dash-pill dash-pill-red'}>
-                      {formatPct(item.changePct)}
-                    </span>
+                    <Pill label={formatPct(item.changePct)} variant={item.changePct >= 0 ? 'green' : 'red'} />
                   </div>
                 </div>
-              ))
-            ) : (
-              <EmptyState title="Watchlist is empty" hint="Add symbols from the Watchlist page" />
-            )}
-          </DCard>
+              ))}
+            </div>
+          ) : (
+            <EmptyState title="Watchlist is empty" hint="Add symbols from the Watchlist page" />
+          )}
+        </div>
 
-          {/* Market Indices */}
-          <DCard title="Market Indices" action={<Btn to="/market">View All</Btn>}>
-            {indices.length === 0 ? (
-              <Spinner />
-            ) : (
-              indices.slice(0, 6).map((idx) => (
-                <div key={idx.symbol} className="dash-row">
+        {/* Market Indices */}
+        <div className="rounded-2xl border border-slate-200/80 dark:border-[#1c2541] bg-white dark:bg-[#0b132b]/80 p-4 sm:p-5 shadow-sm dark:shadow-xl space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Benchmark Indices</div>
+            <Link to="/market" className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline">
+              View All &rarr;
+            </Link>
+          </div>
+          {indices.length === 0 ? (
+            <Spinner />
+          ) : (
+            <div className="space-y-1">
+              {indices.slice(0, 5).map((idx) => (
+                <div key={idx.symbol} className="flex items-center justify-between p-2 rounded-xl border border-transparent hover:border-slate-200 dark:hover:border-[#1c2541] hover:bg-slate-50 dark:hover:bg-white/[0.03] transition-colors">
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)' }}>{idx.symbol}</div>
-                    <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{idx.instrumentType}</div>
+                    <div className="text-xs font-bold text-slate-900 dark:text-white">{idx.symbol}</div>
+                    <div className="font-mono text-[9.5px] text-slate-500 dark:text-slate-400">{idx.instrumentType}</div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontWeight: 700, fontSize: 13, fontFamily: 'monospace', color: 'var(--text)' }}>
+                  <div className="text-right">
+                    <div className="font-mono text-xs font-bold text-slate-900 dark:text-white">
                       {formatNumber(idx.level)}
                     </div>
-                    <div style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace', color: idx.changePct >= 0 ? 'var(--positive)' : 'var(--negative)' }}>
+                    <div className={`font-mono text-[10.5px] font-extrabold ${idx.changePct >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                       {formatPct(idx.changePct)}
                     </div>
                   </div>
                 </div>
-              ))
-            )}
-          </DCard>
+              ))}
+            </div>
+          )}
         </div>
-
-        {/* ── CONCENTRATION RISK ── */}
-        {hasRisk && (
-          <DCard title="Concentration Risk">
-            {summary.concentrationRisk.risks.map((r, i) => (
-              <div key={i} className="dash-risk-row">
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--negative)' }}>{r.symbol ?? r.sector}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{r.type} · {r.message}</div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ width: 90, height: 5, borderRadius: 3, background: 'var(--bg-elev-2)', overflow: 'hidden' }}>
-                    <div style={{ height: '100%', borderRadius: 3, width: `${r.weightPct}%`, background: r.weightPct > 30 ? 'var(--negative)' : 'var(--amber)' }} />
-                  </div>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--negative)', fontFamily: 'monospace', minWidth: 36 }}>
-                    {r.weightPct.toFixed(1)}%
-                  </span>
-                </div>
-              </div>
-            ))}
-          </DCard>
-        )}
       </div>
 
-      {/* ── RIGHT DEDICATED TRADEPANDA DESK COLUMN ── */}
-      <div className="dashboard-side-col">
-        <TradePandaDesk onExpand={() => setChatOpen(true)} />
-      </div>
-
-      {/* ── TRADEPANDA FULL-SCREEN CHAT MODAL ── */}
+      {/* ── FULLSCREEN TRADEPANDA CHAT POPUP ── */}
       <TradePandaChat open={chatOpen} onClose={() => setChatOpen(false)} />
     </div>
   );

@@ -26,6 +26,7 @@ router.get(
   pagination,
   query('signal').optional().isIn(['BUY', 'WATCH', 'AVOID']),
   query('outlook').optional().isIn(['BULLISH', 'NEUTRAL', 'BEARISH']),
+  query('minConviction').optional().isInt({ min: 0, max: 100 }),
   query('symbol').optional().isString().trim(),
   validate,
   async (req, res, next) => {
@@ -37,6 +38,7 @@ router.get(
         limit,
         signal: req.query.signal,
         outlook: req.query.outlook,
+        minConviction: req.query.minConviction == null ? undefined : Number(req.query.minConviction),
         symbol: req.query.symbol,
       });
       res.json(paginatedResult({ rows: result.rows, total: result.total, page, limit }));
@@ -51,12 +53,21 @@ router.get(
   pagination,
   query('signal').optional().isIn(['BUY', 'WATCH', 'AVOID']),
   query('outlook').optional().isIn(['BULLISH', 'NEUTRAL', 'BEARISH']),
+  query('minConviction').optional().isInt({ min: 0, max: 100 }),
   query('symbol').optional().isString().trim(),
   validate,
   async (req, res, next) => {
     try {
       const { page, limit } = req.pagination;
-      const result = await listOpportunities({ userId: req.user.id, page, limit, signal: req.query.signal, outlook: req.query.outlook, symbol: req.query.symbol });
+      const result = await listOpportunities({
+        userId: req.user.id,
+        page,
+        limit,
+        signal: req.query.signal,
+        outlook: req.query.outlook,
+        minConviction: req.query.minConviction == null ? undefined : Number(req.query.minConviction),
+        symbol: req.query.symbol,
+      });
       res.json(paginatedResult({ rows: result.rows, total: result.total, page, limit }));
     } catch (err) {
       next(err);

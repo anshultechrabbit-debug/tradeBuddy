@@ -1,109 +1,190 @@
-import { useEffect, useState } from 'react';
-import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { runScan, fetchOpportunities, fetchSignals, fetchLatestScan } from '../store/radarSlice';
-import { fetchIndices, fetchAllQuotes, fetchBreadth } from '../store/marketSlice';
-import { Card, Badge, Spinner, EmptyState, ProgressBar, PaginationBar, ErrorBox, Table } from '../components/ui';
-import { formatCurrency, formatPct, formatDateTime, formatTimeAgo, signalBadgeClass, regimeBadgeClass } from '../lib/format';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-
-function tone(signal: string): 'buy' | 'watch' | 'avoid' {
-  if (signal.includes('BUY')) return 'buy';
-  if (signal.includes('AVOID')) return 'avoid';
-  return 'watch';
-}
+import { TradePandaChat } from '../components/TradePandaChat';
+import { Badge, Card, EmptyState, ErrorBox, PaginationBar, Spinner, Table } from '../components/ui';
+import { formatCompact, formatCurrency, formatDateTime, formatPct, formatTimeAgo, regimeBadgeClass, signalBadgeClass } from '../lib/format';
+import { fetchAllQuotes } from '../store/marketSlice';
+import { fetchLatestScan, fetchOpportunities, fetchSignals, runScan } from '../store/radarSlice';
+import { useAppDispatch, useAppSelector } from '../store/hooks';
 
 type SignalFilter = '' | 'BUY' | 'WATCH' | 'AVOID';
 type OutlookFilter = '' | 'BULLISH' | 'NEUTRAL' | 'BEARISH';
+type ExplorerView = 'opportunities' | 'signals';
 
-function FilterBar({
-  signalFilter,
-  onSignalFilter,
-  outlookFilter,
-  onOutlookFilter,
-  search,
-  onSearch,
-}: {
-  signalFilter: SignalFilter;
-  onSignalFilter: (v: SignalFilter) => void;
-  outlookFilter: OutlookFilter;
-  onOutlookFilter: (v: OutlookFilter) => void;
-  search: string;
-  onSearch: (v: string) => void;
-}) {
-  const signalOptions: { value: SignalFilter; label: string }[] = [
-    { value: '', label: 'All' },
-    { value: 'BUY', label: 'BUY' },
-    { value: 'WATCH', label: 'WATCH' },
-    { value: 'AVOID', label: 'AVOID' },
-  ];
-  const outlookOptions: { value: OutlookFilter; label: string }[] = [
-    { value: '', label: 'All outlooks' },
-    { value: 'BULLISH', label: 'BULLISH' },
-    { value: 'NEUTRAL', label: 'NEUTRAL' },
-    { value: 'BEARISH', label: 'BEARISH' },
-  ];
+const HELP = {
+  breadth: 'The share of covered stocks trading above their previous close. Higher breadth means more stocks support the market move.',
+  regime: 'The broad market environment derived from trend and breadth. It provides context and is not a trade recommendation.',
+  coverage: 'The number of stocks in the configured Nifty 100 universe with a usable market quote.',
+  conviction: 'A 0-100 strength score built from trend, momentum, relative strength and price action.',
+  action: 'Buy means review as a candidate, Watch means wait for confirmation, and Avoid means weak technical posture.',
+  outlook: 'Expected price direction separate from action.',
+  sma20: 'The percentage of stocks above their 20-day simple moving average.',
+  sma50: 'The percentage of stocks above their 50-day simple moving average.',
+  averageMove: 'The average percentage price change across covered stocks.',
+  volume: 'Stocks ranked by traded volume in the live feed.',
+};
+
+function InfoTip({ term, text }: { term: string; text: string }) {
   return (
-    <div className="market-toolbar">
-      <div className="tabs">
-        {signalOptions.map((o) => (
-          <button
-            key={o.value}
-            type="button"
-            className={signalFilter === o.value ? 'tab tab-active' : 'tab'}
-            onClick={() => onSignalFilter(o.value)}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
-      <div className="tabs">
-        {outlookOptions.map((o) => (
-          <button
-            key={o.value}
-            type="button"
-            className={outlookFilter === o.value ? 'tab tab-active' : 'tab'}
-            onClick={() => onOutlookFilter(o.value)}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
-      <div className="search-box">
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => onSearch(e.target.value)}
-          placeholder="Search symbol…"
-          autoComplete="off"
+    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-slate-200 dark:bg-white/10 text-[10px] font-bold text-slate-600 dark:text-slate-300 ml-1 cursor-help" title={`${term}: ${text}`}>
+      i
+    </span>
+  );
+}
+
+const SIGNAL_OPTIONS: Array<{ value: SignalFilter; label: string }> = [
+  { value: '', label: 'All Actions' },
+  { value: 'BUY', label: 'Buy' },
+  { value: 'WATCH', label: 'Watch' },
+  { value: 'AVOID', label: 'Avoid' },
+];
+
+const OUTLOOK_OPTIONS: Array<{ value: OutlookFilter; label: string }> = [
+  { value: '', label: 'Any Outlook' },
+  { value: 'BULLISH', label: 'Bullish' },
+  { value: 'NEUTRAL', label: 'Neutral' },
+  { value: 'BEARISH', label: 'Bearish' },
+];
+
+function ConvictionRing({ value, size = 52 }: { value: number; size?: number }) {
+  const safe = Math.max(0, Math.min(100, value));
+  return (
+    <div className="relative flex shrink-0 items-center justify-center" style={{ width: size, height: size }}>
+      <svg viewBox="0 0 42 42" className="h-full w-full -rotate-90">
+        <circle cx="21" cy="21" r="16" fill="none" stroke="currentColor" className="text-slate-200 dark:text-[#1c2541]" strokeWidth="4" />
+        <circle
+          cx="21"
+          cy="21"
+          r="16"
+          fill="none"
+          stroke={safe >= 70 ? '#10b981' : safe >= 45 ? '#3b82f6' : '#f43f5e'}
+          strokeWidth="4"
+          strokeLinecap="round"
+          pathLength="100"
+          strokeDasharray={`${safe} 100`}
         />
+      </svg>
+      <span className="absolute font-mono text-xs font-black text-slate-900 dark:text-white">{safe}</span>
+    </div>
+  );
+}
+
+function BreadthDonut({ advancing, total }: { advancing: number; total: number }) {
+  const pct = total ? Math.round((advancing / total) * 100) : 0;
+  return (
+    <div className="relative flex h-20 w-20 shrink-0 items-center justify-center" aria-label={`${pct} percent of stocks advancing`}>
+      <svg viewBox="0 0 42 42" className="h-full w-full -rotate-90">
+        <circle cx="21" cy="21" r="16" fill="none" stroke="currentColor" className="text-slate-200 dark:text-white/10" strokeWidth="4" />
+        <circle
+          cx="21"
+          cy="21"
+          r="16"
+          fill="none"
+          stroke="#10b981"
+          strokeWidth="4"
+          strokeLinecap="round"
+          pathLength="100"
+          strokeDasharray={`${pct} 100`}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+        <span className="font-mono text-base font-black text-white">{pct}%</span>
+        <span className="text-[8.5px] font-extrabold uppercase tracking-wider text-emerald-400">ADV</span>
       </div>
     </div>
   );
 }
 
-function MarketMood({ indices, breadth, regime }: { indices: { symbol: string; level: number; changePct: number }[]; breadth: { advancing: number; declining: number; total: number } | null; regime: string }) {
+function RadarFilterBar({
+  signal,
+  outlook,
+  minConviction,
+  search,
+  onSignal,
+  onOutlook,
+  onMinConviction,
+  onSearch,
+}: {
+  signal: SignalFilter;
+  outlook: OutlookFilter;
+  minConviction: number;
+  search: string;
+  onSignal: (value: SignalFilter) => void;
+  onOutlook: (value: OutlookFilter) => void;
+  onMinConviction: (value: number) => void;
+  onSearch: (value: string) => void;
+}) {
   return (
-    <div className="rd-mood">
-      <div className="rd-mood-head">
-        <div className="rd-mood-title">
-          <span className="rd-mood-dot" />
-          Market mood today
-          <Badge className={regimeBadgeClass(regime)}>{regime}</Badge>
+    <div className="mb-4 flex flex-wrap items-center gap-4 rounded-2xl border border-slate-200 dark:border-[#1c2541] bg-slate-50 dark:bg-black/30 p-3.5">
+      <div className="flex flex-col gap-1">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Action</span>
+        <div className="flex items-center gap-1 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-black/40 p-1">
+          {SIGNAL_OPTIONS.map((option) => {
+            const isSel = signal === option.value;
+            return (
+              <button
+                key={option.value || 'all'}
+                type="button"
+                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                  isSel
+                    ? option.value === 'BUY'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : option.value === 'WATCH'
+                      ? 'bg-amber-600 text-white shadow-sm'
+                      : option.value === 'AVOID'
+                      ? 'bg-rose-600 text-white shadow-sm'
+                      : 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                onClick={() => onSignal(option.value)}
+              >
+                {option.label}
+              </button>
+            );
+          })}
         </div>
-        {breadth ? (
-          <span className="muted small">
-            {breadth.advancing} advancing · {breadth.declining} declining of {breadth.total}
-          </span>
-        ) : null}
       </div>
-      <div className="rd-index-row">
-        {indices.map((ix) => (
-          <div key={ix.symbol} className="rd-index-chip">
-            <span className="muted small">{ix.symbol}</span>
-            <span className="strong">{formatCurrency(ix.level)}</span>
-            <span className={ix.changePct >= 0 ? 'text-positive small' : 'text-negative small'}>{formatPct(ix.changePct)}</span>
-          </div>
-        ))}
+
+      <div className="flex flex-col gap-1">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Outlook</span>
+        <select
+          value={outlook}
+          onChange={(event) => onOutlook(event.target.value as OutlookFilter)}
+          className="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-blue-500"
+        >
+          {OUTLOOK_OPTIONS.map((option) => (
+            <option key={option.value || 'all'} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="flex min-w-[160px] flex-col gap-1">
+        <span className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <span>Min Score</span>
+          <strong className="text-slate-900 dark:text-white">{minConviction === 0 ? 'Any' : `${minConviction}+`}</strong>
+        </span>
+        <input
+          type="range"
+          min="0"
+          max="90"
+          step="5"
+          value={minConviction}
+          className="w-full accent-blue-600"
+          onChange={(event) => onMinConviction(Number(event.target.value))}
+        />
+      </div>
+
+      <div className="flex min-w-[180px] flex-1 flex-col gap-1">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Filter Stock</span>
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => onSearch(e.target.value)}
+          placeholder="Search symbol (e.g. RELIANCE)..."
+          className="w-full rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-black/40 px-3 py-1.5 text-xs font-bold text-slate-900 dark:text-white placeholder-slate-400 outline-none focus:border-blue-500 uppercase font-mono"
+        />
       </div>
     </div>
   );
@@ -111,365 +192,480 @@ function MarketMood({ indices, breadth, regime }: { indices: { symbol: string; l
 
 export function RadarPage() {
   const dispatch = useAppDispatch();
-  const { scanResult, scanning, lastScannedAt, opportunities, signals, loading, signalsLoading, error } = useAppSelector((s) => s.radar);
-  const { indices, allQuotes, breadth } = useAppSelector((s) => s.market);
+  const { scanResult, scanning, lastScannedAt, opportunities, signals, loading, signalsLoading, error } = useAppSelector((state) => state.radar);
+  const { indices, allQuotes, breadth: liveBreadth, lastUpdated } = useAppSelector((state) => state.market);
+  const sliderRef = useRef<HTMLDivElement>(null);
+
+  const [chatOpen, setChatOpen] = useState(false);
+  const [streamPage, setStreamPage] = useState(1);
+  const [streamSignal, setStreamSignal] = useState<SignalFilter>('');
+  const [streamOutlook, setStreamOutlook] = useState<OutlookFilter>('');
+  const [streamMinScore, setStreamMinScore] = useState(0);
+  const [streamSearch, setStreamSearch] = useState('');
+
+  const [explorerView, setExplorerView] = useState<ExplorerView>('opportunities');
   const [oppPage, setOppPage] = useState(1);
   const [sigPage, setSigPage] = useState(1);
-  const [gainPage, setGainPage] = useState(1);
-  const [losPage, setLosPage] = useState(1);
-  const [trendPage, setTrendPage] = useState(1);
-  const MOVER_PAGE = 5;
-  const TREND_PAGE = 20;
-  const SIGNAL_PAGE = 20;
-
-  // Trending now is already fully loaded client-side (one scan response), so
-  // its filter applies instantly with no extra requests. Saved Opportunities
-  // and Recent Signals are server-paginated, so their filters go through the
-  // API — the search box is debounced so typing doesn't fire a request per
-  // keystroke.
-  const [trendSignalFilter, setTrendSignalFilter] = useState<SignalFilter>('');
-  const [trendOutlookFilter, setTrendOutlookFilter] = useState<OutlookFilter>('');
-  const [trendSearch, setTrendSearch] = useState('');
-
-  const [oppSignalFilter, setOppSignalFilter] = useState<SignalFilter>('');
-  const [oppOutlookFilter, setOppOutlookFilter] = useState<OutlookFilter>('');
-  const [oppSearchInput, setOppSearchInput] = useState('');
-  const [oppSearch, setOppSearch] = useState('');
-
-  const [sigSignalFilter, setSigSignalFilter] = useState<SignalFilter>('');
-  const [sigOutlookFilter, setSigOutlookFilter] = useState<OutlookFilter>('');
-  const [sigSearchInput, setSigSearchInput] = useState('');
-  const [sigSearch, setSigSearch] = useState('');
+  const [explorerSignal, setExplorerSignal] = useState<SignalFilter>('');
+  const [explorerOutlook, setExplorerOutlook] = useState<OutlookFilter>('');
+  const [explorerMinScore, setExplorerMinScore] = useState(0);
+  const [explorerSearchInput, setExplorerSearchInput] = useState('');
+  const [explorerSearch, setExplorerSearch] = useState('');
 
   useEffect(() => {
-    const t = setTimeout(() => {
-      setOppSearch(oppSearchInput);
+    const timer = setTimeout(() => {
+      setExplorerSearch(explorerSearchInput.trim());
       setOppPage(1);
-    }, 300);
-    return () => clearTimeout(t);
-  }, [oppSearchInput]);
-
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setSigSearch(sigSearchInput);
       setSigPage(1);
     }, 300);
-    return () => clearTimeout(t);
-  }, [sigSearchInput]);
+    return () => clearTimeout(timer);
+  }, [explorerSearchInput]);
 
   useEffect(() => {
-    dispatch(fetchOpportunities({ page: oppPage, limit: 10, signal: oppSignalFilter || undefined, outlook: oppOutlookFilter || undefined, symbol: oppSearch || undefined }));
-  }, [dispatch, oppPage, oppSignalFilter, oppOutlookFilter, oppSearch, lastScannedAt]);
+    const filters = {
+      signal: explorerSignal || undefined,
+      outlook: explorerOutlook || undefined,
+      minConviction: explorerMinScore || undefined,
+      symbol: explorerSearch || undefined,
+    };
+    dispatch(fetchOpportunities({ page: oppPage, limit: 10, ...filters }));
+    dispatch(fetchSignals({ page: sigPage, limit: 20, ...filters }));
+  }, [dispatch, oppPage, sigPage, explorerSignal, explorerOutlook, explorerMinScore, explorerSearch, lastScannedAt]);
 
   useEffect(() => {
-    dispatch(fetchSignals({ page: sigPage, limit: SIGNAL_PAGE, signal: sigSignalFilter || undefined, outlook: sigOutlookFilter || undefined, symbol: sigSearch || undefined }));
-  }, [dispatch, sigPage, sigSignalFilter, sigOutlookFilter, sigSearch, lastScannedAt]);
-
-  useEffect(() => {
-    if (opportunities && oppPage > opportunities.meta.totalPages) {
-      setOppPage(opportunities.meta.totalPages);
-    }
+    if (opportunities && oppPage > opportunities.meta.totalPages) setOppPage(opportunities.meta.totalPages);
   }, [opportunities, oppPage]);
 
   useEffect(() => {
-    if (signals && sigPage > signals.meta.totalPages) {
-      setSigPage(signals.meta.totalPages);
-    }
+    if (signals && sigPage > signals.meta.totalPages) setSigPage(signals.meta.totalPages);
   }, [signals, sigPage]);
 
-  // Live radar: SSE pushes a fresh scan the moment one completes server-side
-  // (background scan now runs at most every 30s, market hours only), so the
-  // interval polls below are only a fallback in case a push is missed — not
-  // the primary update path. Previously these ran every 2s regardless of SSE,
-  // which meant 3 full requests/second per open tab (one of them,
-  // fetchAllQuotes, a full-universe DB query) — the main cause of the
-  // request flood on this page.
   useEffect(() => {
-    dispatch(runScan());
-    dispatch(fetchIndices());
+    dispatch(fetchLatestScan());
     dispatch(fetchAllQuotes());
-    dispatch(fetchBreadth());
-    const scanTimer = setInterval(() => dispatch(runScan()), 60000);
-    const indicesTimer = setInterval(() => dispatch(fetchIndices()), 30000);
     const quotesTimer = setInterval(() => dispatch(fetchAllQuotes()), 60000);
-    const breadthTimer = setInterval(() => dispatch(fetchBreadth()), 60000);
-    return () => {
-      clearInterval(scanTimer);
-      clearInterval(indicesTimer);
-      clearInterval(quotesTimer);
-      clearInterval(breadthTimer);
-    };
+    return () => clearInterval(quotesTimer);
   }, [dispatch]);
 
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    const source = new EventSource(`/api/stream?channel=radar&token=${encodeURIComponent(token)}`);
-    source.addEventListener('message', (e) => {
-      try {
-        const msg = JSON.parse(e.data);
-        if (msg.type === 'radar') dispatch(fetchLatestScan());
-      } catch {
-        // ignore non-JSON frames
-      }
-    });
-    return () => source.close();
-  }, [dispatch]);
+  const scanRows = scanResult?.opportunities ?? [];
+  const breadth = liveBreadth ?? scanResult?.breadth ?? null;
 
-  const gainers = [...allQuotes]
-    .filter((q) => q.symbol && q.lastPrice != null && q.changePct != null && q.changePct > 0)
-    .sort((a, b) => (b.changePct ?? 0) - (a.changePct ?? 0));
-  const losers = [...allQuotes]
-    .filter((q) => q.symbol && q.lastPrice != null && q.changePct != null && q.changePct < 0)
-    .sort((a, b) => (a.changePct ?? 0) - (b.changePct ?? 0));
+  const actionCounts = useMemo(() => ({
+    BUY: scanRows.filter((row) => row.signal === 'BUY').length,
+    WATCH: scanRows.filter((row) => row.signal === 'WATCH').length,
+    AVOID: scanRows.filter((row) => row.signal === 'AVOID').length,
+  }), [scanRows]);
 
-  const trending = (scanResult?.opportunities ?? []).filter((o) => {
-    if (trendSignalFilter && o.signal !== trendSignalFilter) return false;
-    if (trendOutlookFilter && o.directionalOutlook !== trendOutlookFilter) return false;
-    if (trendSearch && !o.symbol.toUpperCase().includes(trendSearch.toUpperCase())) return false;
-    return true;
-  });
-  const trendPages = Math.max(1, Math.ceil(trending.length / TREND_PAGE));
-  const safeTrendPage = Math.min(trendPage, trendPages);
-  const trendSlice = trending.slice((safeTrendPage - 1) * TREND_PAGE, safeTrendPage * TREND_PAGE);
+  const outlookCounts = useMemo(() => ({
+    BULLISH: scanRows.filter((row) => row.directionalOutlook === 'BULLISH').length,
+    NEUTRAL: scanRows.filter((row) => row.directionalOutlook === 'NEUTRAL').length,
+    BEARISH: scanRows.filter((row) => row.directionalOutlook === 'BEARISH').length,
+  }), [scanRows]);
 
-  const gainPages = Math.max(1, Math.ceil(gainers.length / MOVER_PAGE));
-  const safeGainPage = Math.min(gainPage, gainPages);
-  const gainSlice = gainers.slice((safeGainPage - 1) * MOVER_PAGE, safeGainPage * MOVER_PAGE);
+  const averageConviction = scanRows.length
+    ? Math.round(scanRows.reduce((sum, row) => sum + row.convictionScore, 0) / scanRows.length)
+    : 0;
+  const highConviction = scanRows.filter((row) => row.convictionScore >= 70).length;
+  const quotedStocks = allQuotes.filter((quote) => quote.lastPrice != null).length;
 
-  const losPages = Math.max(1, Math.ceil(losers.length / MOVER_PAGE));
-  const safeLosPage = Math.min(losPage, losPages);
-  const losSlice = losers.slice((safeLosPage - 1) * MOVER_PAGE, safeLosPage * MOVER_PAGE);
+  const quoteBySymbol = useMemo(() => new Map(allQuotes.map((q) => [q.symbol, q])), [allQuotes]);
+
+  const streamRows = useMemo(() => {
+    let rows = [...scanRows];
+    if (streamSignal) rows = rows.filter((r) => r.signal === streamSignal);
+    if (streamOutlook) rows = rows.filter((r) => r.directionalOutlook === streamOutlook);
+    if (streamMinScore > 0) rows = rows.filter((r) => r.convictionScore >= streamMinScore);
+    const q = streamSearch.trim().toUpperCase();
+    if (q) rows = rows.filter((r) => r.symbol.toUpperCase().includes(q));
+    return rows;
+  }, [scanRows, streamSignal, streamOutlook, streamMinScore, streamSearch]);
+
+  const STREAM_PAGE_SIZE = 8;
+  const streamPages = Math.max(1, Math.ceil(streamRows.length / STREAM_PAGE_SIZE));
+  const safeStreamPage = Math.min(streamPage, streamPages);
+  const visibleStream = useMemo(() => {
+    const start = (safeStreamPage - 1) * STREAM_PAGE_SIZE;
+    return streamRows.slice(start, start + STREAM_PAGE_SIZE);
+  }, [streamRows, safeStreamPage]);
+
+  const gainers = useMemo(() => {
+    return [...allQuotes].filter((q) => q.changePct != null).sort((a, b) => (b.changePct ?? 0) - (a.changePct ?? 0)).slice(0, 5);
+  }, [allQuotes]);
+
+  const losers = useMemo(() => {
+    return [...allQuotes].filter((q) => q.changePct != null).sort((a, b) => (a.changePct ?? 0) - (b.changePct ?? 0)).slice(0, 5);
+  }, [allQuotes]);
+
+  const scrollSlider = (direction: number) => {
+    if (!sliderRef.current) return;
+    sliderRef.current.scrollBy({ left: direction * sliderRef.current.clientWidth, behavior: 'smooth' });
+  };
 
   return (
-    <div className="page">
-      <header className="page-header">
-        <div>
-          <h1>Opportunity Radar</h1>
-          <p className="muted">Technical scan of the market data currently stored by TradeBuddy</p>
+    <div className="space-y-4">
+      {/* ── TOP HERO BANNER ── */}
+      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950 p-5 sm:p-6 text-white border border-slate-200/20 dark:border-[#1c2541] shadow-xl">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-blue-600/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="relative z-10 flex flex-wrap items-start justify-between gap-4 pb-4 border-b border-white/10">
+          <div>
+            <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-blue-950/80 border border-blue-400/30 text-blue-300 text-[10.5px] font-mono font-bold tracking-wider mb-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              NIFTY 100 MARKET INTELLIGENCE
+            </div>
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black tracking-tight text-white">
+              Opportunity Radar
+            </h1>
+            <p className="mt-0.5 max-w-xl text-xs text-slate-300 leading-relaxed font-light">
+              Systematic screening of available Nifty 100 data, with clear trend context, risk filters and AI-validated actions.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/40 border border-white/10 text-xs font-mono font-semibold text-slate-300">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              {lastScannedAt ? `UPDATED ${formatTimeAgo(lastScannedAt).toUpperCase()}` : 'AWAITING SCAN'}
+            </span>
+            <button
+              type="button"
+              className="px-3.5 py-2 rounded-xl bg-white text-xs font-bold text-slate-900 shadow-md hover:bg-slate-100 transition-colors cursor-pointer"
+              onClick={() => dispatch(runScan())}
+              disabled={scanning}
+            >
+              {scanning ? 'Scanning market...' : '⚡ Scan market now'}
+            </button>
+            <button
+              type="button"
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold text-xs shadow-md shadow-blue-600/30 transition-all cursor-pointer"
+              onClick={() => setChatOpen(true)}
+            >
+              Ask TradePanda 🐼
+            </button>
+          </div>
         </div>
-        <div className="sg-header-right">
-          <span className="sg-live-badge">
-            <span className="sg-live-dot" />
-            {lastScannedAt ? `auto scan updated ${formatTimeAgo(lastScannedAt)}` : 'starting scan'}
-          </span>
-          <button type="button" className="btn btn-primary" onClick={() => dispatch(runScan())} disabled={scanning}>
-            {scanning ? 'Scanning...' : 'Scan Now'}
-          </button>
+
+        <div className="relative z-10 pt-4 flex flex-wrap items-center gap-5 sm:gap-7">
+          <BreadthDonut advancing={breadth?.advancing ?? 0} total={breadth?.total ?? 0} />
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Market Trend</div>
+            <div className="font-mono text-base font-black text-white mt-0.5">{scanResult?.regime ?? 'NEUTRAL'}</div>
+          </div>
+          <div className="hidden sm:block w-px h-8 bg-white/10" />
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Data Coverage</div>
+            <div className="font-mono text-base font-black text-white mt-0.5">{quotedStocks}/{allQuotes.length || 100} quoted</div>
+          </div>
+          <div className="hidden sm:block w-px h-8 bg-white/10" />
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Strong Signals</div>
+            <div className="font-mono text-base font-black text-emerald-400 mt-0.5">{highConviction} at 70+</div>
+          </div>
+          <div className="hidden sm:block w-px h-8 bg-white/10" />
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Avg Conviction</div>
+            <div className="font-mono text-base font-black text-blue-400 mt-0.5">{averageConviction}/100</div>
+          </div>
         </div>
-      </header>
+      </section>
 
-      {error ? <ErrorBox message={error} onRetry={() => dispatch(runScan())} /> : null}
-
-      {indices.length > 0 ? (
-        <MarketMood indices={indices.map((i) => ({ symbol: i.symbol, level: i.level, changePct: i.changePct }))} breadth={breadth} regime={scanResult?.regime ?? 'NEUTRAL'} />
+      {/* ── BENCHMARK INDICES BAR ── */}
+      {indices.length ? (
+        <div className="flex items-center gap-3 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+          {indices.slice(0, 5).map((index) => (
+            <div
+              key={index.symbol}
+              className={`flex min-w-[150px] shrink-0 flex-col gap-1 rounded-2xl border p-3 bg-white dark:bg-[#0b132b]/80 shadow-sm ${
+                index.changePct >= 0
+                  ? 'border-emerald-200 dark:border-emerald-500/20 text-slate-900 dark:text-white'
+                  : 'border-rose-200 dark:border-rose-500/20 text-slate-900 dark:text-white'
+              }`}
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{index.symbol}</span>
+                <span className="text-[9px] font-mono text-slate-400">INDEX</span>
+              </div>
+              <strong className="text-sm font-black font-mono text-slate-900 dark:text-white">{index.level.toLocaleString('en-IN', { maximumFractionDigits: 1 })}</strong>
+              <span className={`text-[11px] font-mono font-bold ${index.changePct >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                {formatPct(index.changePct)}
+              </span>
+            </div>
+          ))}
+        </div>
       ) : null}
 
-      <div className="rd-movers-grid">
-        <Card title="Top gainers">
-          {gainSlice.length ? (
-            <div className="rd-mover-list">
-              {gainSlice.map((g, index) => (
-                <Link key={g.symbol} to={`/radar/${g.symbol}`} className="rd-mover-row">
-                  <span className="strong">#{(safeGainPage - 1) * MOVER_PAGE + index + 1} {g.symbol}</span>
-                  <span className="muted small">{formatCurrency(g.lastPrice)}</span>
-                  <span className="text-positive small">{formatPct(g.changePct)}</span>
-                </Link>
-              ))}
+      {error ? <ErrorBox message={error} onRetry={() => dispatch(fetchLatestScan())} /> : null}
+
+      {/* ── ACTION BREAKDOWN & MARKET MOVERS BENTO ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card title="Recommended Actions Breakdown">
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/30">
+                <div className="text-[10px] font-bold uppercase text-emerald-800 dark:text-emerald-400">BUY</div>
+                <div className="font-mono text-2xl font-black text-emerald-700 dark:text-emerald-400 mt-1">{actionCounts.BUY}</div>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/30">
+                <div className="text-[10px] font-bold uppercase text-amber-800 dark:text-amber-400">WATCH</div>
+                <div className="font-mono text-2xl font-black text-amber-700 dark:text-amber-400 mt-1">{actionCounts.WATCH}</div>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800/30">
+                <div className="text-[10px] font-bold uppercase text-rose-800 dark:text-rose-400">AVOID</div>
+                <div className="font-mono text-2xl font-black text-rose-700 dark:text-rose-400 mt-1">{actionCounts.AVOID}</div>
+              </div>
             </div>
-          ) : (
-            <EmptyState title="No quotes yet" />
-          )}
-          <PaginationBar page={safeGainPage} totalPages={gainPages} onPage={setGainPage} />
+
+            <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541] text-xs font-bold">
+              <span className="text-emerald-600 dark:text-emerald-400">● {outlookCounts.BULLISH} Bullish</span>
+              <span className="text-slate-500">● {outlookCounts.NEUTRAL} Neutral</span>
+              <span className="text-rose-600 dark:text-rose-400">● {outlookCounts.BEARISH} Bearish</span>
+            </div>
+          </div>
         </Card>
-        <Card title="Top losers">
-          {losSlice.length ? (
-            <div className="rd-mover-list">
-              {losSlice.map((l, index) => (
-                <Link key={l.symbol} to={`/radar/${l.symbol}`} className="rd-mover-row">
-                  <span className="strong">#{(safeLosPage - 1) * MOVER_PAGE + index + 1} {l.symbol}</span>
-                  <span className="muted small">{formatCurrency(l.lastPrice)}</span>
-                  <span className="text-negative small">{formatPct(l.changePct)}</span>
-                </Link>
-              ))}
+
+        <Card title="Market Movers (Real-time)">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-50/50 dark:bg-emerald-500/[0.03] p-3.5 space-y-2">
+              <span className="text-[10.5px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Top Gainers</span>
+              <div className="space-y-1.5">
+                {gainers.map((quote, index) => (
+                  <Link
+                    key={quote.symbol}
+                    to={`/ai-picks?symbol=${quote.symbol}`}
+                    className="flex items-center justify-between p-2 rounded-xl hover:bg-white/80 dark:hover:bg-white/[0.04] transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs font-bold text-slate-400">#{index + 1}</span>
+                      <strong className="text-xs font-bold text-slate-900 dark:text-white">{quote.symbol}</strong>
+                    </div>
+                    <span className="font-mono text-xs font-extrabold text-emerald-600 dark:text-emerald-400">{formatPct(quote.changePct)}</span>
+                  </Link>
+                ))}
+              </div>
             </div>
-          ) : (
-            <EmptyState title="No quotes yet" />
-          )}
-          <PaginationBar page={safeLosPage} totalPages={losPages} onPage={setLosPage} />
+
+            <div className="rounded-2xl border border-rose-500/20 bg-rose-50/50 dark:bg-rose-500/[0.03] p-3.5 space-y-2">
+              <span className="text-[10.5px] font-black uppercase tracking-wider text-rose-700 dark:text-rose-400">Top Decliners</span>
+              <div className="space-y-1.5">
+                {losers.map((quote, index) => (
+                  <Link
+                    key={quote.symbol}
+                    to={`/ai-picks?symbol=${quote.symbol}`}
+                    className="flex items-center justify-between p-2 rounded-xl hover:bg-white/80 dark:hover:bg-white/[0.04] transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs font-bold text-slate-400">#{index + 1}</span>
+                      <strong className="text-xs font-bold text-slate-900 dark:text-white">{quote.symbol}</strong>
+                    </div>
+                    <span className="font-mono text-xs font-extrabold text-rose-600 dark:text-rose-400">{formatPct(quote.changePct)}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </div>
         </Card>
       </div>
 
+      {/* ── OPPORTUNITY SLIDER CARDS ── */}
       <Card
-        title="Trending now"
+        title="Top Radar Ranked Opportunities"
+        action={<span className="text-xs text-slate-500 font-mono">{streamRows.length} matching setups</span>}
+      >
+        <RadarFilterBar
+          signal={streamSignal}
+          outlook={streamOutlook}
+          minConviction={streamMinScore}
+          search={streamSearch}
+          onSignal={(value) => { setStreamSignal(value); setStreamPage(1); }}
+          onOutlook={(value) => { setStreamOutlook(value); setStreamPage(1); }}
+          onMinConviction={(value) => { setStreamMinScore(value); setStreamPage(1); }}
+          onSearch={(value) => { setStreamSearch(value); setStreamPage(1); }}
+        />
+
+        {scanning && !scanResult ? (
+          <Spinner label="Scanning Nifty 100 signal matrix..." />
+        ) : visibleStream.length ? (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400">
+              <span>Showing {visibleStream.length} of {streamRows.length} setups</span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => scrollSlider(-1)}
+                  className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-white/10 text-xs font-bold hover:bg-slate-200 transition-colors cursor-pointer"
+                >
+                  &larr; Prev
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollSlider(1)}
+                  className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-white/10 text-xs font-bold hover:bg-slate-200 transition-colors cursor-pointer"
+                >
+                  Next &rarr;
+                </button>
+              </div>
+            </div>
+
+            <div
+              className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-4 pt-1"
+              style={{ scrollbarWidth: 'none' }}
+              ref={sliderRef}
+            >
+              {visibleStream.map((row, index) => (
+                <Link
+                  key={row.symbol}
+                  to={`/ai-picks?symbol=${row.symbol}`}
+                  className="flex w-[290px] shrink-0 snap-start flex-col gap-3 rounded-3xl border border-slate-200 dark:border-[#1c2541] bg-white dark:bg-[#0b132b]/95 p-5 shadow-sm dark:shadow-xl dark:shadow-black/20 hover:border-blue-500/50 hover:shadow-lg transition-all"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <span className="text-[10px] font-mono font-bold text-slate-400">#{(safeStreamPage - 1) * STREAM_PAGE_SIZE + index + 1}</span>
+                      <div className="text-base font-black text-slate-900 dark:text-white">{row.symbol}</div>
+                      <div className="truncate text-xs text-slate-500 dark:text-slate-400 max-w-[150px]">{quoteBySymbol.get(row.symbol)?.name ?? 'NSE Equity'}</div>
+                    </div>
+                    <Badge className={signalBadgeClass(row.signal)}>{row.signal}</Badge>
+                  </div>
+
+                  <div className="flex items-center gap-3.5 pt-1">
+                    <ConvictionRing value={row.convictionScore} />
+                    <div className="flex flex-col gap-1">
+                      <strong className="font-mono text-base font-black text-slate-900 dark:text-white">{formatCurrency(row.price)}</strong>
+                      <Badge className={regimeBadgeClass(row.directionalOutlook ?? 'NEUTRAL')}>{row.directionalOutlook ?? 'Neutral'}</Badge>
+                    </div>
+                  </div>
+
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mt-1">Signal Rationale</div>
+                  <p className="line-clamp-3 text-xs leading-relaxed text-slate-700 dark:text-slate-300 font-light">
+                    {row.explanation.replace(/^AI Strategy:\s*(BUY|WATCH|AVOID)\s*\(score\s*\d+\)\s*[\u2014-]\s*/i, '')}
+                  </p>
+
+                  <div className="mt-auto pt-2 text-xs font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                    Analyze stock &rarr;
+                  </div>
+                </Link>
+              ))}
+            </div>
+
+            <PaginationBar page={safeStreamPage} totalPages={streamPages} onPage={setStreamPage} />
+          </div>
+        ) : (
+          <EmptyState title="No setups match this filter" hint="Adjust the minimum score or reset the action filter." />
+        )}
+      </Card>
+
+      {/* ── ALL SIGNALS EXPLORER TABLE ── */}
+      <Card
+        title="Stock Signals & Multi-Factor Explorer"
         action={
-          scanResult ? (
-<span className="muted small">
-            scan #{scanResult.scanId} · {trending.length} stocks
-          </span>
-        ) : undefined
+          <div className="flex items-center gap-1 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-black/30 p-1">
+            <button
+              type="button"
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${explorerView === 'opportunities' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400'}`}
+              onClick={() => setExplorerView('opportunities')}
+            >
+              Ranked Setups
+            </button>
+            <button
+              type="button"
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${explorerView === 'signals' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400'}`}
+              onClick={() => setExplorerView('signals')}
+            >
+              Technical Signals
+            </button>
+          </div>
         }
       >
-        <FilterBar
-          signalFilter={trendSignalFilter}
-          onSignalFilter={(v) => {
-            setTrendSignalFilter(v);
-            setTrendPage(1);
-          }}
-          outlookFilter={trendOutlookFilter}
-          onOutlookFilter={(v) => {
-            setTrendOutlookFilter(v);
-            setTrendPage(1);
-          }}
-          search={trendSearch}
-          onSearch={(v) => {
-            setTrendSearch(v);
-            setTrendPage(1);
-          }}
+        <RadarFilterBar
+          signal={explorerSignal}
+          outlook={explorerOutlook}
+          minConviction={explorerMinScore}
+          search={explorerSearchInput}
+          onSignal={(value) => { setExplorerSignal(value); setOppPage(1); setSigPage(1); }}
+          onOutlook={(value) => { setExplorerOutlook(value); setOppPage(1); setSigPage(1); }}
+          onMinConviction={(value) => { setExplorerMinScore(value); setOppPage(1); setSigPage(1); }}
+          onSearch={setExplorerSearchInput}
         />
-        {scanning ? (
-          <Spinner label="Scanning the market…" />
-        ) : trendSlice.length ? (
-          <>
-            <div className="rd-trend-grid">
-              {trendSlice.map((o) => {
-                const t = tone(o.signal);
-                return (
-                  <Link key={o.symbol} to={`/radar/${o.symbol}`} className="rd-trend-card">
-                    <div className="rd-trend-head">
-                      <span className="strong">{o.symbol}</span>
-                      <Badge className={signalBadgeClass(o.signal)}>{o.signal}</Badge>
-                      {o.directionalOutlook ? (
-                        <Badge className={regimeBadgeClass(o.directionalOutlook)}>Stock {o.directionalOutlook}</Badge>
-                      ) : (
-                        <Badge className="badge badge-muted">Stock UNKNOWN</Badge>
-                      )}
-                    </div>
-                    <div className="rd-trend-price">
-                      <span className="strong">{formatCurrency(o.price)}</span>
-                      <span className="muted small">· conviction</span>
-                    </div>
-                    <div className="conviction">
-                      <ProgressBar value={o.convictionScore} />
-                      <span className="small">{o.convictionScore}/100</span>
-                    </div>
-                    <p className="rd-trend-why">{o.explanation}</p>
-                    <span className={`rd-trend-cta ${t}`}>Why this pick →</span>
-                  </Link>
-                );
-              })}
-            </div>
-            <PaginationBar page={safeTrendPage} totalPages={trendPages} onPage={setTrendPage} />
-          </>
-        ) : scanResult ? (
-          <EmptyState title="No matches" hint="Try clearing the filters above" />
-        ) : (
-          <EmptyState title="No scan run yet" hint="Click Run Scan to analyze the market" />
-        )}
-      </Card>
 
-      <Card title="Current Scan Opportunities">
-        <FilterBar
-          signalFilter={oppSignalFilter}
-          onSignalFilter={(v) => {
-            setOppSignalFilter(v);
-            setOppPage(1);
-          }}
-          outlookFilter={oppOutlookFilter}
-          onOutlookFilter={(v) => {
-            setOppOutlookFilter(v);
-            setOppPage(1);
-          }}
-          search={oppSearchInput}
-          onSearch={setOppSearchInput}
-        />
-        {loading ? (
-          <Spinner />
-        ) : opportunities && opportunities.data.length > 0 ? (
+        {loading || signalsLoading ? (
+          <Spinner label="Loading signal explorer..." />
+        ) : explorerView === 'opportunities' && opportunities?.data.length ? (
           <>
-            <Table headers={['Symbol', 'Action Signal', 'Stock Outlook', 'Conviction', 'Date']}>
-              {opportunities.data.map((o) => (
-                <tr key={o.id}>
-                  <td>
-                    <Link to={`/radar/${o.symbol}`} className="strong">
-                      {o.symbol}
-                    </Link>
-                  </td>
-                  <td>
-                    <Badge className={signalBadgeClass(o.signal)}>{o.signal}</Badge>
-                  </td>
-                  <td>
-                    {o.directionalOutlook ? (
-                      <Badge className={regimeBadgeClass(o.directionalOutlook)}>
-                        {o.directionalOutlook}
-                      </Badge>
-                    ) : (
-                      <span className="muted">—</span>
-                    )}
-                  </td>
-                  <td>{o.convictionScore}</td>
-                  <td className="muted small">{formatDateTime(o.createdAt)}</td>
-                </tr>
-              ))}
-            </Table>
+            <div className="w-full rounded-xl border border-slate-200 dark:border-[#1c2541] overflow-hidden">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-slate-200 dark:border-[#1c2541] bg-slate-100/90 dark:bg-[#070d1e]/80 text-[10px] sm:text-[10.5px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+                  <tr>
+                    <th className="hidden sm:table-cell px-3 py-2.5">Rank</th>
+                    <th className="px-3 py-2.5">Stock</th>
+                    <th className="px-3 py-2.5">Action</th>
+                    <th className="hidden sm:table-cell px-3 py-2.5">Direction</th>
+                    <th className="px-3 py-2.5">Signal Strength</th>
+                    <th className="hidden md:table-cell px-3 py-2.5">Last Scanned</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-[#1c2541]/60 text-slate-800 dark:text-slate-200">
+                  {opportunities.data.map((row, index) => (
+                    <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors">
+                      <td className="hidden sm:table-cell px-3 py-2.5 font-mono text-slate-500">#{(oppPage - 1) * 10 + index + 1}</td>
+                      <td className="px-3 py-2.5">
+                        <Link to={`/ai-picks?symbol=${row.symbol}`} className="font-extrabold text-slate-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+                          {row.symbol}
+                          <span className="ml-1 text-[10px] text-slate-400">{row.exchange}</span>
+                        </Link>
+                      </td>
+                      <td className="px-3 py-2.5"><Badge className={signalBadgeClass(row.signal)}>{row.signal}</Badge></td>
+                      <td className="hidden sm:table-cell px-3 py-2.5"><Badge className={regimeBadgeClass(row.directionalOutlook ?? 'NEUTRAL')}>{row.directionalOutlook ?? 'Neutral'}</Badge></td>
+                      <td className="px-3 py-2.5">
+                        <div className="flex h-5 w-20 sm:w-24 items-center rounded-lg bg-slate-100 dark:bg-white/5 relative overflow-hidden border border-slate-200 dark:border-white/10">
+                          <span className="absolute inset-y-0 left-0 bg-gradient-to-r from-blue-600 to-blue-400" style={{ width: `${row.convictionScore}%` }} />
+                          <strong className="relative z-10 w-full text-center font-mono text-[10px] sm:text-[10.5px] font-black text-slate-900 dark:text-white">{row.convictionScore}/100</strong>
+                        </div>
+                      </td>
+                      <td className="hidden md:table-cell px-3 py-2.5 font-mono text-[11px] text-slate-500 dark:text-slate-400">{formatDateTime(row.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <PaginationBar page={oppPage} totalPages={opportunities.meta.totalPages} onPage={setOppPage} />
           </>
-        ) : (
-          <EmptyState title="No saved opportunities" />
-        )}
-      </Card>
-
-      <Card
-        title="Current Technical Signals — 100 Nifty Stocks"
-        action={signals ? <span className="muted small">{signals.meta.total} matching · {scanResult?.opportunities.length ?? 0} scanned</span> : undefined}
-      >
-        <FilterBar
-          signalFilter={sigSignalFilter}
-          onSignalFilter={(v) => {
-            setSigSignalFilter(v);
-            setSigPage(1);
-          }}
-          outlookFilter={sigOutlookFilter}
-          onOutlookFilter={(v) => {
-            setSigOutlookFilter(v);
-            setSigPage(1);
-          }}
-          search={sigSearchInput}
-          onSearch={setSigSearchInput}
-        />
-        {signalsLoading ? (
-          <Spinner />
-        ) : signals && signals.data.length > 0 ? (
+        ) : explorerView === 'signals' && signals?.data.length ? (
           <>
-            <Table headers={['Symbol', 'AI-Validated Action', 'Stock Outlook', 'Conviction', 'Timestamp']}>
-              {signals.data.map((s) => (
-                <tr key={s.id}>
-                  <td>
-                    <Link to={`/radar/${s.symbol}`} className="strong">
-                      {s.symbol}
-                    </Link>
-                  </td>
-                  <td>
-                    <Badge className={signalBadgeClass(s.signal)}>{s.signal}</Badge>
-                  </td>
-                  <td>
-                    {s.directionalOutlook ? (
-                      <Badge className={regimeBadgeClass(s.directionalOutlook)}>{s.directionalOutlook}</Badge>
-                    ) : (
-                      <span className="muted">—</span>
-                    )}
-                  </td>
-                  <td>{s.convictionScore}</td>
-                  <td className="muted small">{formatDateTime(s.timestamp)}</td>
-                </tr>
-              ))}
-            </Table>
+            <div className="w-full rounded-xl border border-slate-200 dark:border-[#1c2541] overflow-hidden">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-slate-200 dark:border-[#1c2541] bg-slate-100/90 dark:bg-[#070d1e]/80 text-[10px] sm:text-[10.5px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+                  <tr>
+                    <th className="px-3 py-2.5">Stock</th>
+                    <th className="px-3 py-2.5">Action</th>
+                    <th className="hidden sm:table-cell px-3 py-2.5">Direction</th>
+                    <th className="px-3 py-2.5">Strength</th>
+                    <th className="hidden sm:table-cell px-3 py-2.5">Why this signal</th>
+                    <th className="hidden md:table-cell px-3 py-2.5">Last Scanned</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-[#1c2541]/60 text-slate-800 dark:text-slate-200">
+                  {signals.data.map((row) => (
+                    <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors">
+                      <td className="px-3 py-2.5">
+                        <Link to={`/ai-picks?symbol=${row.symbol}`} className="font-extrabold text-slate-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+                          {row.symbol}
+                          <span className="ml-1 text-[10px] text-slate-400">{row.exchange}</span>
+                        </Link>
+                      </td>
+                      <td className="px-3 py-2.5"><Badge className={signalBadgeClass(row.signal)}>{row.signal}</Badge></td>
+                      <td className="hidden sm:table-cell px-3 py-2.5"><Badge className={regimeBadgeClass(row.directionalOutlook ?? 'NEUTRAL')}>{row.directionalOutlook ?? 'Neutral'}</Badge></td>
+                      <td className="px-3 py-2.5 font-mono font-bold text-slate-900 dark:text-white">{row.convictionScore}</td>
+                      <td className="hidden sm:table-cell px-3 py-2.5 max-w-xs truncate text-xs text-slate-700 dark:text-slate-300 font-light" title={row.reason}>{row.reason}</td>
+                      <td className="hidden md:table-cell px-3 py-2.5 font-mono text-[11px] text-slate-500 dark:text-slate-400">{formatDateTime(row.timestamp)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <PaginationBar page={sigPage} totalPages={signals.meta.totalPages} onPage={setSigPage} />
           </>
         ) : (
-          <EmptyState title="No signals yet" />
+          <EmptyState title="No matching records found" />
         )}
       </Card>
+
+      <TradePandaChat open={chatOpen} onClose={() => setChatOpen(false)} />
     </div>
   );
 }

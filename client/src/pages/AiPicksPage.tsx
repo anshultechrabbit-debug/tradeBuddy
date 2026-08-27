@@ -5,7 +5,7 @@ import { analyzeMany, analyzeSymbol, searchSymbols, suggestMarket } from '../sto
 import { fetchWatchlist } from '../store/watchlistSlice';
 import { fetchLatestScan } from '../store/radarSlice';
 import { fetchAllQuotes } from '../store/marketSlice';
-import { Card, Spinner, EmptyState, ErrorBox } from '../components/ui';
+import { Card, Spinner, EmptyState, ErrorBox, Badge } from '../components/ui';
 import { formatCurrency, formatPct, formatTimeAgo } from '../lib/format';
 import { CandleChart } from '../components/CandleChart';
 import { PredictionTrackerPanel } from '../components/PredictionTrackerPanel';
@@ -27,31 +27,31 @@ const FACTORS: { key: keyof AiAnalysis['factorScores']; label: string; icon: str
 ];
 
 function ScoreGauge({ value, signal }: { value: number; signal: string }) {
-  const radius = 44;
+  const radius = 42;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference * (1 - value / 100);
   const tone = signalTone(signal);
-  const color = tone === 'buy' ? '#00a34d' : tone === 'avoid' ? '#e3452f' : '#f59e0b';
+  const color = tone === 'buy' ? '#10b981' : tone === 'avoid' ? '#f43f5e' : '#f59e0b';
   return (
-    <div className="sg-gauge">
-      <svg viewBox="0 0 110 110" width="110" height="110">
-        <circle cx="55" cy="55" r={radius} fill="none" stroke="#eef0f2" strokeWidth="10" />
+    <div className="relative flex h-24 w-24 shrink-0 items-center justify-center">
+      <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">
+        <circle cx="50" cy="50" r={radius} fill="none" className="stroke-slate-200 dark:stroke-[#1c2541]" strokeWidth="8" />
         <circle
-          cx="55"
-          cy="55"
+          cx="50"
+          cy="50"
           r={radius}
           fill="none"
           stroke={color}
-          strokeWidth="10"
+          strokeWidth="8"
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={offset}
-          transform="rotate(-90 55 55)"
+          className="transition-all duration-700"
         />
       </svg>
-      <div className="sg-gauge-text">
-        <span className="sg-gauge-value">{value}</span>
-        <span className="sg-gauge-sub">/100</span>
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+        <span className="font-mono text-xl font-black text-slate-900 dark:text-white leading-none">{value}</span>
+        <span className="text-[10px] font-mono text-slate-400">/100</span>
       </div>
     </div>
   );
@@ -60,33 +60,33 @@ function ScoreGauge({ value, signal }: { value: number; signal: string }) {
 function FactorRow({ factor, score, reason }: { factor: (typeof FACTORS)[number]; score: number | null; reason: string }) {
   if (score == null) {
     return (
-      <div className="sg-factor">
-        <div className="sg-factor-top">
-          <span className="sg-factor-label">
-            {factor.icon} {factor.label}
-          </span>
-          <span className="sg-factor-score sg-unknown">UNKNOWN</span>
+      <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541] space-y-1.5">
+        <div className="flex items-center justify-between text-xs">
+          <span className="font-bold text-slate-700 dark:text-slate-300">{factor.icon} {factor.label}</span>
+          <span className="text-[10px] font-mono font-bold text-slate-400">UNKNOWN</span>
         </div>
-        <div className="sg-factor-bar">
-          <div className="sg-factor-fill sg-unknown" style={{ width: '100%' }} />
-        </div>
-        <p className="sg-factor-reason">{reason || 'Data unavailable — not scored.'}</p>
+        <div className="h-1.5 w-full bg-slate-200 dark:bg-white/10 rounded-full overflow-hidden" />
+        <p className="text-xs text-slate-500 font-light">{reason || 'Data unavailable — not scored.'}</p>
       </div>
     );
   }
-  const tone = score >= 65 ? 'sg-good' : score <= 40 ? 'sg-bad' : '';
+  const isGood = score >= 65;
+  const isBad = score <= 40;
   return (
-    <div className="sg-factor">
-      <div className="sg-factor-top">
-        <span className="sg-factor-label">
-          {factor.icon} {factor.label}
+    <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541] space-y-1.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-bold text-slate-900 dark:text-white">{factor.icon} {factor.label}</span>
+        <span className={`font-mono text-xs font-black ${isGood ? 'text-emerald-600 dark:text-emerald-400' : isBad ? 'text-rose-600 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400'}`}>
+          {score}/100
         </span>
-        <span className={`sg-factor-score ${tone}`}>{score}/100</span>
       </div>
-      <div className="sg-factor-bar">
-        <div className={`sg-factor-fill ${tone}`} style={{ width: `${score}%` }} />
+      <div className="h-1.5 w-full bg-slate-200 dark:bg-white/10 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${isGood ? 'bg-emerald-500' : isBad ? 'bg-rose-500' : 'bg-amber-500'}`}
+          style={{ width: `${score}%` }}
+        />
       </div>
-      <p className="sg-factor-reason">{reason || 'Reason unavailable.'}</p>
+      <p className="text-xs text-slate-600 dark:text-slate-400 font-light leading-relaxed">{reason || 'Reason unavailable.'}</p>
     </div>
   );
 }
@@ -139,8 +139,6 @@ export function AiPicksPage() {
     };
     scanResult?.opportunities.slice(0, 10).forEach((o) => push(o.symbol));
     watchlist?.items.slice(0, 10).forEach((i) => push(i.symbol));
-    // No watchlist or scan data? Fall back to today's top market movers so
-    // the page still suggests stocks even when the user didn't search.
     if (!symbols.length) {
       const movers = [...allQuotes]
         .filter((q) => q.symbol && q.lastPrice != null && q.changePct != null)
@@ -165,16 +163,6 @@ export function AiPicksPage() {
     }
   }, [autoLoaded, defaultSymbols, bySymbol, added, analyzing, dispatch]);
 
-  // Re-score periodically so news/market shifts show up without a manual
-  // refresh. This used to fire every 2s — each tick re-runs a full 7-factor
-  // analysis (quote + 280 candles + news + fundamentals) for up to 10 stocks,
-  // which saturates the same limited Python-bridge/DB capacity that page
-  // load, search, and candle requests all share too. 20s still feels live
-  // for a research tool without constantly starving everything else on the
-  // page (and matches analyzeStock's own server-side cache window better —
-  // 2s was tight enough to miss its cache almost every single tick).
-  // Cap to the top 10 picks — the server only scores 10 anyway, and a longer
-  // array would be rejected by the request validation.
   useEffect(() => {
     if (!picks.length || analyzing) return;
     const timer = setInterval(() => {
@@ -192,7 +180,6 @@ export function AiPicksPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [showWhy]);
 
-  // Debounced live symbol search (as you type).
   useEffect(() => {
     if (!symbolInput.trim()) {
       dispatch(searchSymbols(''));
@@ -237,85 +224,141 @@ export function AiPicksPage() {
   };
 
   const tone = active ? signalTone(active.finalSignal) : 'watch';
-  const toneClass = tone === 'buy' ? 'sg-badge-buy' : tone === 'avoid' ? 'sg-badge-avoid' : 'sg-badge-watch';
+  const toneBadge = tone === 'buy' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : tone === 'avoid' ? 'border-rose-500/40 bg-rose-500/10 text-rose-600 dark:text-rose-400' : 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400';
   const changeUp = active?.quote?.changePct != null && active.quote.changePct >= 0;
 
   return (
-    <div className="page">
-      <header className="page-header">
-        <div>
-          <h1>AI Picks</h1>
-          <p className="muted">Algorithmic research on live market data + news — every score explained</p>
+    <div className="space-y-4">
+      {/* ── HEADER BANNER ── */}
+      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950 p-5 sm:p-6 text-white border border-slate-200/20 dark:border-[#1c2541] shadow-xl">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-electric-600/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="relative z-10 flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-white/10">
+          <div>
+            <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-electric-950/80 border border-electric-500/30 text-electric-300 text-[10.5px] font-mono font-bold tracking-wider mb-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              QUANTILOT 7-FACTOR ENGINE
+            </div>
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold tracking-tight text-white">
+              AI Strategy Picks
+            </h1>
+            <p className="mt-0.5 text-xs text-slate-300">
+              Algorithmic research on live Nifty data + news catalyst scoring — every factor explained.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="px-3 py-1.5 rounded-xl bg-white/10 text-xs font-mono font-semibold text-slate-300">
+              Updated {lastUpdated ? formatTimeAgo(lastUpdated) : 'Live'}
+            </span>
+            <button
+              onClick={onRefresh}
+              disabled={analyzing}
+              className="px-3.5 py-1.5 rounded-xl bg-white text-slate-900 text-xs font-bold shadow-md hover:bg-slate-100 transition-colors cursor-pointer"
+            >
+              ↻ Refresh
+            </button>
+          </div>
         </div>
-        <div className="sg-header-right">
-          <span className="sg-live-badge">
-            <span className="sg-live-dot" />
-            Auto-refresh · updated {lastUpdated ? formatTimeAgo(lastUpdated) : '—'}
-          </span>
-          <div className="sg-suggest-control">
-            <span className="sg-suggest-label">Suggest from market:</span>
+
+        {/* Search & Suggest Controls */}
+        <div className="relative z-20 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="relative w-full sm:max-w-md">
             <input
-              className="sg-suggest-input"
+              type="text"
+              placeholder="Search symbol (e.g. RELIANCE, TCS)..."
+              value={symbolInput}
+              onChange={(e) => setSymbolInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') onAnalyze();
+                else if (e.key === 'Escape') setShowSuggestions(false);
+              }}
+              onFocus={() => setShowSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+              className="w-full px-4 py-2.5 rounded-2xl border border-white/20 bg-black/40 text-xs sm:text-sm text-white placeholder-slate-400 outline-none focus:border-blue-400 font-mono"
+            />
+            {showSuggestions && symbolInput.trim() && (
+              <div className="absolute top-full left-0 right-0 mt-2 rounded-2xl bg-slate-900 border border-[#1c2541] shadow-2xl p-2 z-50">
+                {searching && !suggestions.length ? <div className="p-2 text-xs text-slate-400">Searching…</div> : null}
+                {suggestions.map((s) => (
+                  <button
+                    key={s.symbol}
+                    type="button"
+                    className="w-full p-2 rounded-xl hover:bg-white/10 flex items-center justify-between text-left cursor-pointer"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      onSelectSuggestion(s);
+                    }}
+                  >
+                    <span className="font-bold text-white text-xs">{s.symbol}</span>
+                    <span className="text-[10px] text-slate-400">{s.name ?? s.sector ?? 'NSE stock'}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+            <span className="text-xs text-slate-300 font-medium whitespace-nowrap">Suggest Top:</span>
+            <input
               type="number"
               min={1}
               max={10}
               value={suggestCount}
               onChange={(e) => setSuggestCount(Number(e.target.value))}
               disabled={analyzing}
+              className="w-16 px-2.5 py-1.5 rounded-xl border border-white/20 bg-black/40 text-xs font-mono font-bold text-white text-center outline-none"
             />
-            <button type="button" className="btn btn-primary" onClick={onSuggestMarket} disabled={analyzing}>
-              Suggest
-            </button>
-          </div>
-          <div className="sg-search-row">
-            <div className="sg-search-wrap">
-              <input
-                className="ai-search-input"
-                placeholder="Search a symbol, e.g. RELIANCE"
-                value={symbolInput}
-                onChange={(e) => setSymbolInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') onAnalyze();
-                  else if (e.key === 'Escape') setShowSuggestions(false);
-                }}
-                onFocus={() => setShowSuggestions(true)}
-                onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-              />
-              {showSuggestions && symbolInput.trim() && (
-                <div className="sg-suggestions">
-                  {searching && !suggestions.length ? <div className="sg-suggestion-hint">Searching…</div> : null}
-                  {suggestions.length ? (
-                    suggestions.map((s) => (
-                      <button
-                        key={s.symbol}
-                        type="button"
-                        className="sg-suggestion-item"
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          onSelectSuggestion(s);
-                        }}
-                      >
-                        <span className="strong">{s.symbol}</span>
-                        <span className="muted small">{s.name ?? s.sector ?? 'NSE stock'}</span>
-                      </button>
-                    ))
-                  ) : searching ? null : (
-                    <div className="sg-suggestion-hint">No matches — press Enter to try anyway</div>
-                  )}
-                </div>
-              )}
-            </div>
-            <button type="button" className="btn btn-primary" onClick={() => onAnalyze()} disabled={!symbolInput.trim()}>
-              Analyze
-            </button>
-            <button type="button" className="btn btn-outline" onClick={onRefresh} disabled={analyzing}>
-              Refresh
+            <button
+              onClick={onSuggestMarket}
+              disabled={analyzing}
+              className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 text-white font-bold text-xs shadow-md cursor-pointer"
+            >
+              Run
             </button>
           </div>
         </div>
-      </header>
+      </section>
 
       {error ? <ErrorBox message={error} /> : null}
+
+      {/* ── SYMBOL SELECTOR CHIPS ── */}
+      {picks.length > 0 && (
+        <div className="flex items-center gap-2 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
+          {searched && (
+            <button
+              type="button"
+              onClick={clearSearch}
+              className="px-3.5 py-2 rounded-2xl border border-slate-200 dark:border-[#1c2541] bg-slate-100 dark:bg-white/5 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200 transition-colors shrink-0 cursor-pointer"
+            >
+              ← All Picks
+            </button>
+          )}
+          {picks.map((p, i) => {
+            const isSel = p.symbol === active?.symbol;
+            const t = signalTone(p.finalSignal);
+            const badgeCls = t === 'buy' ? 'text-emerald-500 dark:text-emerald-400' : t === 'avoid' ? 'text-rose-500 dark:text-rose-400' : 'text-amber-500 dark:text-amber-400';
+            return (
+              <button
+                key={p.symbol}
+                type="button"
+                onClick={() => {
+                  setSearched(null);
+                  setSelected(p.symbol);
+                }}
+                className={`flex items-center gap-2.5 px-4 py-2.5 rounded-2xl border transition-all shrink-0 cursor-pointer ${
+                  isSel
+                    ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-500 shadow-md ring-2 ring-blue-500/20'
+                    : 'bg-white dark:bg-[#0b132b]/80 border-slate-200 dark:border-[#1c2541] hover:bg-slate-50 dark:hover:bg-white/[0.04]'
+                }`}
+              >
+                <span className="text-[10px] font-mono font-bold text-slate-400">#{i + 1}</span>
+                <span className="font-black text-xs text-slate-900 dark:text-white">{p.symbol}</span>
+                <span className={`text-[10px] font-bold font-mono ${badgeCls}`}>{p.finalSignal}</span>
+                <span className="font-mono text-xs font-extrabold text-slate-700 dark:text-slate-300">{p.overallScore}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {searched && !active ? (
         analyzing ? (
@@ -328,373 +371,383 @@ export function AiPicksPage() {
         )
       ) : picks.length === 0 ? (
         analyzing ? (
-          <Spinner label="Running 7-factor AI analysis on live data…" />
+          <Spinner label="Running 7-factor AI analysis on live market data…" />
         ) : (
           <EmptyState
-            title="No AI analysis yet"
-            hint={
-              defaultSymbols.length
-                ? 'Type a symbol above and hit Analyze'
-                : 'Run a scan on the Radar page to find your top pick — or type a symbol above'
-            }
+            title="No AI analysis loaded yet"
+            hint="Type a stock ticker symbol above and press Analyze, or run Suggest from Market."
           />
         )
       ) : active ? (
-        <>
-          {searched ? (
-            <div className="sg-search-view-head">
-              <span className="sg-live-badge">
-                <span className="sg-live-dot" />
-                Focusing on {searched} — live every 2s
-              </span>
-              <button type="button" className="btn btn-outline btn-sm" onClick={clearSearch}>
-                ← Show all picks
-              </button>
+        <div className="space-y-6">
+          {/* ── HERO STOCK OVERVIEW BENTO ── */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2">
+              <Card title={`${active.symbol} — Interactive Price Action & Chart`}>
+                <div className="h-[360px] w-full">
+                  <CandleChart
+                    symbol={active.symbol}
+                    livePrice={active.quote?.lastPrice}
+                    lastUpdated={active.dataTimestamp}
+                    dayChangePct={active.quote?.changePct}
+                  />
+                </div>
+              </Card>
             </div>
-          ) : (
-            <div className="sg-stock-bar">
-              {picks.map((p, i) => {
-                const t = signalTone(p.finalSignal);
-                const cls = t === 'buy' ? 'sg-badge-buy' : t === 'avoid' ? 'sg-badge-avoid' : 'sg-badge-watch';
-                return (
-                  <button
-                    key={p.symbol}
-                    type="button"
-                    className={`sg-stock-chip${p.symbol === active.symbol ? ' active' : ''}`}
-                    onClick={() => setSelected(p.symbol)}
-                  >
-                    <span className="sg-rank">{i + 1}</span>
-                    {i === 0 ? <span className="sg-top-badge">TOP PICK</span> : null}
-                    <span className="strong">{p.symbol}</span>
-                    <span className={`sg-chip-badge ${cls}`}>{p.finalSignal}</span>
-                    <span className="sg-chip-score">{p.overallScore}</span>
-                  </button>
-                );
-              })}
+
+            <div>
+              <Card>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h2 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+                      <Link to={`/ai-picks?symbol=${active.symbol}`} className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+                        {active.symbol}
+                      </Link>
+                      {active.symbol === picks[0]?.symbol && (
+                        <span className="px-2 py-0.5 rounded text-[9px] font-black bg-blue-600 text-white font-mono">
+                          TOP PICK
+                        </span>
+                      )}
+                    </h2>
+                    <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">{active.companyName}</div>
+                  </div>
+                  <ScoreGauge value={active.overallScore} signal={active.finalSignal} />
+                </div>
+
+                <div className="mt-4 flex items-baseline gap-3">
+                  <span className="font-mono text-3xl font-black text-slate-900 dark:text-white">
+                    {formatCurrency(active.quote?.lastPrice)}
+                  </span>
+                  {active.quote?.changePct != null && (
+                    <span className={`font-mono text-sm font-bold ${changeUp ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                      {formatPct(active.quote.changePct)}
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <span className={`px-3 py-1 rounded-xl border text-xs font-bold font-mono ${toneBadge}`}>
+                    {active.finalSignal}
+                  </span>
+                  <span className="px-3 py-1 rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-xs font-mono font-semibold text-slate-700 dark:text-slate-300">
+                    {active.confidence} confidence
+                  </span>
+                  {active.flags?.map((f) => (
+                    <span key={f} className="px-2 py-0.5 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 text-amber-700 dark:text-amber-400 text-[10px] font-bold font-mono">
+                      ⚠️ {f}
+                    </span>
+                  ))}
+                </div>
+
+                <p className="mt-4 text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed font-light">
+                  {active.oneLiner}
+                </p>
+
+                {/* Plain language note */}
+                {active.simpleNote && (
+                  <div className="mt-3 p-3 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200/60 dark:border-blue-800/30 text-xs text-slate-800 dark:text-slate-200 leading-relaxed">
+                    <span className="font-bold text-blue-600 dark:text-blue-400 uppercase text-[10px] tracking-wider block mb-1">
+                      In Plain Language
+                    </span>
+                    {active.simpleNote}
+                  </div>
+                )}
+
+                {/* Predicted Closing Range line */}
+                <div className="mt-3 p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/25 border border-emerald-200 dark:border-emerald-800/40 text-xs text-slate-800 dark:text-slate-200">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-emerald-700 dark:text-emerald-400 uppercase text-[10px] tracking-wider flex items-center gap-1.5">
+                      <span>🎯</span> Predicted Closing Range
+                    </span>
+                    {(active.expectedPct != null || active.engine?.closingRange?.expectedMovePct != null || active.morningBaseline?.expectedMovePct != null) && (
+                      <span className="font-mono text-xs font-black text-emerald-600 dark:text-emerald-400">
+                        {active.expectedPct != null
+                          ? (active.expectedPct >= 0 ? `+${active.expectedPct.toFixed(2)}%` : `${active.expectedPct.toFixed(2)}%`)
+                          : active.engine?.closingRange?.expectedMovePct != null
+                          ? `${active.engine.closingRange.expectedMovePct >= 0 ? '+' : ''}${active.engine.closingRange.expectedMovePct.toFixed(2)}%`
+                          : `${(active.morningBaseline?.expectedMovePct ?? 0) >= 0 ? '+' : ''}${(active.morningBaseline?.expectedMovePct ?? 0).toFixed(2)}%`}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 flex items-baseline justify-between">
+                    <span className="font-mono text-sm font-black text-slate-900 dark:text-white">
+                      {active.engine?.closingRange?.bear != null && active.engine?.closingRange?.bull != null
+                        ? `${formatCurrency(active.engine.closingRange.bear)} – ${formatCurrency(active.engine.closingRange.bull)}`
+                        : active.morningBaseline?.bearCase != null && active.morningBaseline?.bullCase != null
+                        ? `${formatCurrency(active.morningBaseline.bearCase)} – ${formatCurrency(active.morningBaseline.bullCase)}`
+                        : active.expectedClose != null
+                        ? formatCurrency(active.expectedClose)
+                        : active.quote?.lastPrice != null
+                        ? `${formatCurrency(active.quote.lastPrice * 0.985)} – ${formatCurrency(active.quote.lastPrice * 1.025)}`
+                        : '—'}
+                    </span>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                      Target: {formatCurrency(active.engine?.closingRange?.base ?? active.morningBaseline?.baseCase ?? active.expectedClose ?? active.quote?.lastPrice)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Engine prediction */}
+                {active.prediction && (
+                  <div className="mt-3 p-3 rounded-xl bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200/60 dark:border-purple-800/30 text-xs text-slate-800 dark:text-slate-200 leading-relaxed">
+                    <span className="font-bold text-purple-600 dark:text-purple-400 uppercase text-[10px] tracking-wider block mb-1">
+                      🔮 Algorithmic Prediction
+                    </span>
+                    {active.prediction}
+                  </div>
+                )}
+
+                <div className="mt-4 grid grid-cols-2 gap-3 pt-3 border-t border-slate-200/80 dark:border-[#1c2541]">
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541]">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Entry Zone</div>
+                    <div className="font-mono text-xs font-bold text-slate-900 dark:text-white mt-0.5">
+                      {formatCurrency(active.entry.zoneLow)} – {formatCurrency(active.entry.zoneHigh)}
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541]">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Stop Loss</div>
+                    <div className="font-mono text-xs font-bold text-rose-500 dark:text-rose-400 mt-0.5">
+                      {formatCurrency(active.entry.stopLoss)}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowWhy(true)}
+                  className="mt-4 w-full py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold text-xs shadow-md shadow-blue-600/30 transition-all cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <span>🧠 Full Factor Breakdown</span>
+                  <span>→</span>
+                </button>
+              </Card>
+            </div>
+          </div>
+
+          {/* ── MORNING BASELINE FORECAST (LOCKED TARGET) ── */}
+          {active.morningBaseline && (
+            <div className="p-5 rounded-3xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541] space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-base">📌</span>
+                  <h3 className="font-black text-sm text-slate-900 dark:text-white">Morning Baseline Forecast (Locked Target)</h3>
+                </div>
+                <span className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono ${
+                  active.morningBaseline.trajectoryStatus === 'ON_TRACK'
+                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/50'
+                    : active.morningBaseline.trajectoryStatus === 'INVALIDATED'
+                    ? 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300 border border-rose-300 dark:border-rose-800/50'
+                    : active.morningBaseline.trajectoryStatus === 'PULLBACK'
+                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-300 dark:border-amber-800/50'
+                    : 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border border-blue-300 dark:border-blue-800/50'
+                }`}>
+                  {active.morningBaseline.trajectoryStatus === 'ON_TRACK'
+                    ? '🟢 ON TRACK'
+                    : active.morningBaseline.trajectoryStatus === 'INVALIDATED'
+                    ? '🔴 THESIS INVALIDATED'
+                    : active.morningBaseline.trajectoryStatus === 'PULLBACK'
+                    ? '🟡 PULLBACK'
+                    : '🔵 NEUTRAL RANGE'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                <div className="p-3 rounded-2xl bg-white dark:bg-black/30 border border-slate-200 dark:border-white/5">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Morning Outlook</span>
+                  <div className="font-bold text-xs text-slate-900 dark:text-white mt-0.5">
+                    {active.morningBaseline.directionalOutlook} (recorded at {formatCurrency(active.morningBaseline.predictionPrice)})
+                  </div>
+                </div>
+                <div className="p-3 rounded-2xl bg-white dark:bg-black/30 border border-slate-200 dark:border-white/5">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Expected Closing Range</span>
+                  <div className="font-mono font-bold text-xs text-slate-900 dark:text-white mt-0.5">
+                    {active.morningBaseline.bearCase != null && active.morningBaseline.bullCase != null
+                      ? `${formatCurrency(active.morningBaseline.bearCase)} – ${formatCurrency(active.morningBaseline.bullCase)}`
+                      : 'n/a'}
+                  </div>
+                </div>
+                <div className="p-3 rounded-2xl bg-white dark:bg-black/30 border border-slate-200 dark:border-white/5">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Invalidation Level</span>
+                  <div className="font-mono font-bold text-xs text-rose-500 dark:text-rose-400 mt-0.5">
+                    {active.morningBaseline.invalidationPrice != null ? formatCurrency(active.morningBaseline.invalidationPrice) : 'n/a'}
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-light leading-relaxed">
+                {active.morningBaseline.trajectoryReason}. Official EOD evaluation at 15:30 IST is judged against this locked morning target.
+              </p>
             </div>
           )}
 
-          <div className="sg-hero">
-            <div className="sg-hero-chart">
-              <CandleChart
-                symbol={active.symbol}
-                livePrice={active.quote?.lastPrice}
-                lastUpdated={active.dataTimestamp}
-                dayChangePct={active.quote?.changePct}
-              />
-            </div>
-            <div className="sg-hero-panel">
-              <div className="sg-symbol-row">
-                <div>
-                  <div className="sg-symbol">
-                    <Link to={`/radar/${active.symbol}`}>{active.symbol}</Link>
-                    {active.symbol === picks[0]?.symbol ? <span className="sg-top-badge sg-top-hero">TOP PICK</span> : null}
-                  </div>
-                  <div className="muted small">{active.companyName}</div>
-                </div>
-                <ScoreGauge value={active.overallScore} signal={active.finalSignal} />
-              </div>
-
-              <div className="sg-price-row">
-                <div className="sg-price">{formatCurrency(active.quote?.lastPrice)}</div>
-                {active.quote?.changePct != null ? (
-                  <div className={changeUp ? 'sg-change text-positive' : 'sg-change text-negative'}>
-                    {formatPct(active.quote.changePct)}
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="sg-badges">
-                <span className={`sg-badge-big ${toneClass}`}>{active.finalSignal}</span>
-                <span className="sg-badge-small">{active.confidence} confidence</span>
-                {active.flags.map((f) => (
-                  <span key={f} className="sg-badge-warn">
-                    {f}
-                  </span>
-                ))}
-              </div>
-
-              <p className="sg-oneliner">{active.oneLiner}</p>
-
-              <button type="button" className="why-cta" onClick={() => setShowWhy(true)}>
-                <span className="why-cta-dot" />
-                What this signal?
-                <span className="why-cta-arrow">→</span>
-              </button>
-
-              {active.simpleNote ? (
-                <div className="sg-plaintalk">
-                  <span className="sg-plaintalk-label">In plain language</span>
-                  <p className="sg-plaintalk-text">{active.simpleNote}</p>
-                </div>
-              ) : null}
-
-              {active.prediction ? (
-                <div className={`sg-prediction sg-pred-${signalTone(active.finalSignal)}`}>
-                  <span className="sg-prediction-label">🔮 Prediction</span>
-                  <p className="sg-prediction-text">{active.prediction}</p>
-                </div>
-              ) : null}
-
-              {active.engine ? (
-                <div className="sg-engine">
-                  <span className="sg-prediction-label">
-                    Outlook: {active.engine.directionalOutlook} · Signal: {active.engine.signal} · Trade decision: {active.engine.tradeStatus}
-                  </span>
-                  {active.engine.sessionOver ? (
-                    <p className="sg-plaintalk-text muted small">
-                      Today's session is closed — the range below is a next-session estimate, not a same-day forecast anymore.
-                    </p>
-                  ) : null}
-                  <p className="sg-plaintalk-text">
-                    {active.engine.sessionOver ? 'Next-session estimate' : 'Expected close range'}{' '}
-                    {active.engine.closingRange.range
-                      ? `${formatCurrency(active.engine.closingRange.range[0])}–${formatCurrency(active.engine.closingRange.range[1])}`
-                      : 'n/a'}{' '}
-                    · confidence {active.engine.closingRange.confidenceScore}/100
-                    {active.engine.isBuy && active.engine.buy ? (
-                      <>
-                        <br />
-                        Entry {formatCurrency(active.engine.buy.preferredEntryRange[0])}–
-                        {formatCurrency(active.engine.buy.preferredEntryRange[1])} · T1{' '}
-                        {formatCurrency(active.engine.buy.target1)} · Stop{' '}
-                        {formatCurrency(active.engine.buy.stopLoss)} · R:R{' '}
-                        {active.engine.buy.riskReward ?? 'n/a'} · P(T1){' '}
-                        {active.engine.buy.probabilityTarget1 ?? 'n/a'}%
-                        {active.engine.gatesPassed === false ? ' · BUY gated → WATCH' : ''}
-                      </>
-                    ) : null}
-                    {((active.engine.coverage?.unknownFactors as string[] | undefined)?.length
-                      ? ` · UNKNOWN: ${(active.engine.coverage?.unknownFactors as string[]).join(', ')}`
-                      : '')}
-                  </p>
-                </div>
-              ) : null}
-
-              {active.morningBaseline ? (
-                <div style={{ marginTop: '0.75rem', padding: '0.75rem 1rem', backgroundColor: '#f8fafc', borderRadius: '0.375rem', border: '1px solid #e2e8f0' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-                    <span style={{ fontWeight: 600, fontSize: '0.85rem', color: '#1e293b' }}>
-                      📌 Morning Baseline Forecast (Locked Target)
-                    </span>
-                    <span
-                      style={{
-                        fontWeight: 600,
-                        fontSize: '0.75rem',
-                        padding: '2px 8px',
-                        borderRadius: '4px',
-                        backgroundColor:
-                          active.morningBaseline.trajectoryStatus === 'ON_TRACK'
-                            ? '#dcfce7'
-                            : active.morningBaseline.trajectoryStatus === 'INVALIDATED'
-                            ? '#fee2e2'
-                            : '#fef3c7',
-                        color:
-                          active.morningBaseline.trajectoryStatus === 'ON_TRACK'
-                            ? '#166534'
-                            : active.morningBaseline.trajectoryStatus === 'INVALIDATED'
-                            ? '#991b1b'
-                            : '#92400e',
-                      }}
-                    >
-                      {active.morningBaseline.trajectoryStatus === 'ON_TRACK'
-                        ? '🟢 ON TRACK'
-                        : active.morningBaseline.trajectoryStatus === 'INVALIDATED'
-                        ? '🔴 THESIS INVALIDATED'
-                        : active.morningBaseline.trajectoryStatus === 'PULLBACK'
-                        ? '🟡 PULLBACK'
-                        : '🔵 NEUTRAL RANGE'}
-                    </span>
-                  </div>
-                  <div className="small" style={{ color: '#475569' }}>
-                    • Morning Outlook: <strong>{active.morningBaseline.directionalOutlook}</strong> (recorded at {formatCurrency(active.morningBaseline.predictionPrice)})<br />
-                    • Expected Closing Range: <strong>{active.morningBaseline.bearCase != null && active.morningBaseline.bullCase != null ? `${formatCurrency(active.morningBaseline.bearCase)}–${formatCurrency(active.morningBaseline.bullCase)}` : 'n/a'}</strong><br />
-                    • Invalidation / Support: <strong>{active.morningBaseline.invalidationPrice != null ? formatCurrency(active.morningBaseline.invalidationPrice) : 'n/a'}</strong><br />
-                    <span className="muted" style={{ fontSize: '0.75rem' }}>
-                      {active.morningBaseline.trajectoryReason}. Official EOD evaluation at 15:30 IST is judged against this locked morning target.
-                    </span>
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="sg-action-box">
-                <div className="sg-action-item">
-                  <span className="sg-action-label">Entry zone</span>
-                  <span className="strong">
+          {/* ── ACTION PLAN & KEY FACTORS BENTO ── */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card title="Detailed Action Plan">
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541]">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">Entry Range</span>
+                  <span className="font-mono font-bold text-xs text-slate-900 dark:text-white">
                     {formatCurrency(active.entry.zoneLow)} – {formatCurrency(active.entry.zoneHigh)}
                   </span>
                 </div>
-                <div className="sg-action-item">
-                  <span className="sg-action-label">Stop-loss</span>
-                  <span className="strong text-negative">{formatCurrency(active.entry.stopLoss)}</span>
-                </div>
-                <div className="sg-action-item">
-                  <span className="sg-action-label">Updated</span>
-                  <span className="strong small">{formatTimeAgo(active.dataTimestamp)}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid-2">
-            <Card title="Action plan">
-              <div className="sg-plan">
-                <div className="sg-plan-row">
-                  <span className="muted small">Entry</span>
-                  <span className="strong">
-                    {formatCurrency(active.entry.zoneLow)} – {formatCurrency(active.entry.zoneHigh)}
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541]">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">Stop-Loss (Hard Exit)</span>
+                  <span className="font-mono font-bold text-xs text-rose-500 dark:text-rose-400">
+                    {formatCurrency(active.entry.stopLoss)}
                   </span>
                 </div>
-                <div className="sg-plan-row">
-                  <span className="muted small">Stop-loss</span>
-                  <span className="strong text-negative">{formatCurrency(active.entry.stopLoss)}</span>
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541]">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">Primary Support (Floor)</span>
+                  <span className="font-mono font-bold text-xs text-slate-900 dark:text-white">
+                    {formatCurrency(active.technical.primarySupport)}
+                  </span>
                 </div>
-                <div className="sg-plan-row">
-                  <span className="muted small">Support (buy zone floor)</span>
-                  <span className="strong">{formatCurrency(active.technical.primarySupport)}</span>
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541]">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">Primary Resistance (Ceiling)</span>
+                  <span className="font-mono font-bold text-xs text-slate-900 dark:text-white">
+                    {formatCurrency(active.technical.primaryResistance)}
+                  </span>
                 </div>
-                <div className="sg-plan-row">
-                  <span className="muted small">Resistance (sell ceiling)</span>
-                  <span className="strong">{formatCurrency(active.technical.primaryResistance)}</span>
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541]">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">Trend & Buying Pressure</span>
+                  <span className="font-mono font-bold text-xs text-slate-900 dark:text-white">
+                    {active.technical.trend} · RSI {active.technical.rsi?.toFixed(1) ?? '—'}/100
+                  </span>
                 </div>
-                <div className="sg-plan-row">
-                  <span className="muted small">Trend</span>
-                  <span className="strong">{active.technical.trend}</span>
-                </div>
-                <div className="sg-plan-row">
-                  <span className="muted small">Buying pressure</span>
-                  <span className="strong">{active.technical.rsi?.toFixed(1) ?? '—'}/100</span>
-                </div>
-                <p className="sg-plan-reason muted small">{active.entry.note || active.entry.reason}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-light pt-1">
+                  {active.entry.note || active.entry.reason}
+                </p>
               </div>
             </Card>
 
-            <Card title="Key factors">
-              <div className="sg-keyfactors">
-                {active.positiveFactors.map((f) => (
-                  <div key={f} className="sg-kf sg-kf-good">
-                    ▲ {f}
-                  </div>
-                ))}
-                {active.negativeFactors.map((f) => (
-                  <div key={f} className="sg-kf sg-kf-bad">
-                    ▼ {f}
-                  </div>
-                ))}
-              </div>
-            </Card>
-          </div>
-
-          <Card title="Why this signal? — in plain language">
-            {active.engineWhy ? (
-              <div className="why-section">
-                <p className="why-summary-text">{active.engineWhy.summary}</p>
-                <div className="why-cols">
-                  <div className="why-col why-invest">
-                    <h4>Why you might invest</h4>
-                    <ul>
-                      {active.engineWhy.investReasons.map((r, i) => (
-                        <li key={i}>{r}</li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div className="why-col why-loss">
-                    <h4>Why it could go to a loss</h4>
-                    <ul>
-                      {active.engineWhy.lossReasons.map((r, i) => (
-                        <li key={i}>{r}</li>
-                      ))}
-                    </ul>
-                  </div>
+            <Card title="Confluence Factors">
+              <div className="space-y-3">
+                <div className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                  ▲ Bullish Drivers & Catalysts
                 </div>
-                <div className="sg-factors">
-                  {FACTORS.map((f) => (
-                    <FactorRow key={f.key} factor={f} score={active.factorScores[f.key]} reason={active.reasons[f.key]} />
+                <div className="flex flex-wrap gap-2">
+                  {active.positiveFactors?.map((f) => (
+                    <span key={f} className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-300 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300 text-xs font-medium">
+                      ▲ {f}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="pt-2 text-xs font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">
+                  ▼ Bearish Risks & Friction
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {active.negativeFactors?.map((f) => (
+                    <span key={f} className="px-3 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-300 dark:border-rose-500/30 text-rose-800 dark:text-rose-300 text-xs font-medium">
+                      ▼ {f}
+                    </span>
                   ))}
                 </div>
               </div>
-            ) : (
-              <div className="sg-factors">
+            </Card>
+          </div>
+
+          {/* ── 7-FACTOR MODEL & NEWS BENTO ── */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card title="7-Factor Model Quant Scores">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {FACTORS.map((f) => (
                   <FactorRow key={f.key} factor={f} score={active.factorScores[f.key]} reason={active.reasons[f.key]} />
                 ))}
               </div>
-            )}
-          </Card>
+            </Card>
 
-          <Card title="News">
-            <div className="sg-news-head">
-              <div>
-                <span className="sg-news-sent">{active.news.overall} sentiment</span>
-                <span className="muted small"> · score {active.news.sentimentScore}/100</span>
-              </div>
-              <div className="sg-news-counts">
-                <span className="text-positive">{active.news.positive} positive</span>
-                <span className="muted">{active.news.neutral} neutral</span>
-                <span className="text-negative">{active.news.negative} negative</span>
-              </div>
-            </div>
-            <div className="sg-catalysts">
-              {active.news.positiveCatalysts.map((c) => (
-                <span key={c} className="sg-cat sg-cat-good">
-                  ▲ {c}
-                </span>
-              ))}
-              {active.news.negativeCatalysts.map((c) => (
-                <span key={c} className="sg-cat sg-cat-bad">
-                  ▼ {c}
-                </span>
-              ))}
-            </div>
-            <div className="sg-news-list">
-              {active.news.articles.slice(0, 6).map((a, i) => (
-                <a key={i} href={a.link} target="_blank" rel="noreferrer" className="sg-news-item">
-                  <span className={`sg-news-dot ${a.sentiment === 'positive' ? 'sg-dot-good' : a.sentiment === 'negative' ? 'sg-dot-bad' : 'sg-dot-neut'}`} />
-                  <span className="flex-1">{a.title}</span>
-                  <span className="muted small">{formatTimeAgo(a.publishedAt)}</span>
-                </a>
-              ))}
-            </div>
-            {!active.news.available ? (
-              <p className="muted small">News feed unavailable — sentiment scored neutral.</p>
-            ) : null}
-          </Card>
+            <Card title="Live News & Market Catalysts">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541]">
+                  <div>
+                    <span className="font-bold text-xs text-slate-900 dark:text-white uppercase">{active.news.overall} sentiment</span>
+                    <span className="text-[10px] text-slate-400 font-mono ml-1">({active.news.sentimentScore}/100)</span>
+                  </div>
+                  <div className="flex gap-2 text-xs font-bold font-mono">
+                    <span className="text-emerald-600 dark:text-emerald-400">+{active.news.positive}</span>
+                    <span className="text-slate-400">{active.news.neutral}</span>
+                    <span className="text-rose-600 dark:text-rose-400">-{active.news.negative}</span>
+                  </div>
+                </div>
 
-          {searched ? (
-            <div className="sg-back-footer">
-              <button type="button" className="btn btn-outline" onClick={clearSearch}>
-                ← Back to all picks
-              </button>
-            </div>
-          ) : null}
+                {/* News Catalysts Tags */}
+                {(active.news.positiveCatalysts?.length > 0 || active.news.negativeCatalysts?.length > 0) && (
+                  <div className="flex flex-wrap gap-2">
+                    {active.news.positiveCatalysts?.map((c) => (
+                      <span key={c} className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40 text-emerald-700 dark:text-emerald-300 text-[11px] font-semibold">
+                        ▲ {c}
+                      </span>
+                    ))}
+                    {active.news.negativeCatalysts?.map((c) => (
+                      <span key={c} className="px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/40 text-rose-700 dark:text-rose-300 text-[11px] font-semibold">
+                        ▼ {c}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                  {active.news.articles.slice(0, 6).map((a, i) => (
+                    <a
+                      key={i}
+                      href={a.link}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="p-3 rounded-xl bg-slate-50/70 dark:bg-white/[0.02] border border-slate-200/60 dark:border-white/5 hover:border-blue-500 flex items-start gap-3 transition-colors block"
+                    >
+                      <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${a.sentiment === 'positive' ? 'bg-emerald-500' : a.sentiment === 'negative' ? 'bg-rose-500' : 'bg-slate-400'}`} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-semibold text-slate-900 dark:text-slate-200 leading-snug truncate">{a.title}</div>
+                        <div className="text-[10px] text-slate-400 font-mono mt-0.5">{formatTimeAgo(a.publishedAt)}</div>
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            </Card>
+          </div>
 
           <PredictionTrackerPanel />
-        </>
+        </div>
       ) : null}
 
-      {showWhy && active ? (
-        <div className="modal-backdrop" onClick={() => setShowWhy(false)}>
-          <div className="modal-card" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-            <button type="button" className="modal-close" onClick={() => setShowWhy(false)} aria-label="Close">
-              ×
-            </button>
-            <h3 className="modal-title">Why this signal? — factor breakdown</h3>
+      {/* ── WHY MODAL ── */}
+      {showWhy && active && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4" onClick={() => setShowWhy(false)}>
+          <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-3xl bg-white dark:bg-[#0b132b] border border-slate-200 dark:border-[#1c2541] shadow-2xl p-6 sm:p-8 space-y-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-[#1c2541] pb-4">
+              <div>
+                <h3 className="text-xl font-black text-slate-900 dark:text-white">Factor Breakdown: {active.symbol}</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Deep mathematical and fundamental rationale behind the signal</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowWhy(false)}
+                className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-white/10 text-xs font-bold text-slate-800 dark:text-white cursor-pointer"
+              >
+                ✕ Close
+              </button>
+            </div>
 
-            {active.engineWhy ? (
-              <div className="why-modal-summary">
-                <p className="why-modal-summary-text">{active.engineWhy.summary}</p>
-                <div className="why-modal-cols">
-                  <div className="why-modal-col why-invest">
-                    <h4>Why you might invest</h4>
-                    <ul>
+            {active.engineWhy && (
+              <div className="space-y-4">
+                <p className="text-xs sm:text-sm text-slate-800 dark:text-slate-200 font-light leading-relaxed">
+                  {active.engineWhy.summary}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/30">
+                    <h4 className="font-black text-xs text-emerald-800 dark:text-emerald-300 uppercase tracking-wider mb-2">Why You Might Invest</h4>
+                    <ul className="space-y-1 text-xs text-slate-700 dark:text-slate-300 list-disc list-inside font-light">
                       {active.engineWhy.investReasons.map((r, i) => (
                         <li key={i}>{r}</li>
                       ))}
                     </ul>
                   </div>
-                  <div className="why-modal-col why-loss">
-                    <h4>Why it could go to a loss</h4>
-                    <ul>
+
+                  <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800/30">
+                    <h4 className="font-black text-xs text-rose-800 dark:text-rose-300 uppercase tracking-wider mb-2">Why It Could Go To A Loss</h4>
+                    <ul className="space-y-1 text-xs text-slate-700 dark:text-slate-300 list-disc list-inside font-light">
                       {active.engineWhy.lossReasons.map((r, i) => (
                         <li key={i}>{r}</li>
                       ))}
@@ -702,16 +755,16 @@ export function AiPicksPage() {
                   </div>
                 </div>
               </div>
-            ) : null}
+            )}
 
-            <div className="sg-factors">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {FACTORS.map((f) => (
                 <FactorRow key={f.key} factor={f} score={active.factorScores[f.key]} reason={active.reasons[f.key]} />
               ))}
             </div>
           </div>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }

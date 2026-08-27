@@ -101,187 +101,76 @@ export function TradePandaChat({ open, onClose }: Props) {
     /* ── Full-screen overlay ── */
     <div
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 9990,
-        background: 'rgba(0,0,0,0.55)',
-        backdropFilter: 'blur(4px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '24px',
-        animation: 'pandaFadeIn 0.18s ease',
-      }}
+      className="fixed inset-0 z-[9990] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 sm:p-6"
     >
       {/* ── Modal panel ── */}
-      <div
-        style={{
-          width: '100%',
-          maxWidth: 860,
-          height: '88vh',
-          maxHeight: 760,
-          borderRadius: 24,
-          background: 'var(--bg-elev)',
-          border: '1px solid var(--border)',
-          boxShadow: '0 32px 120px rgba(0,0,0,0.35)',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          animation: 'pandaSlideUp 0.22s ease',
-        }}
-      >
+      <div className="w-full max-w-3xl h-[88vh] max-h-[760px] rounded-3xl bg-white dark:bg-[#0b132b]/95 border border-slate-200 dark:border-[#1c2541] shadow-2xl shadow-black/40 flex flex-col overflow-hidden backdrop-blur-2xl">
         {/* ── Header ── */}
-        <div style={{
-          background: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)',
-          padding: '18px 24px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 14,
-          flexShrink: 0,
-        }}>
-          <div style={{
-            width: 48,
-            height: 48,
-            borderRadius: '50%',
-            background: 'rgba(255,255,255,0.18)',
-            border: '2px solid rgba(255,255,255,0.35)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 26,
-            flexShrink: 0,
-          }}>
-            🐼
-          </div>
-
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 900, fontSize: 18, color: 'white', letterSpacing: '-0.02em' }}>
-              TradePanda AI
+        <div className="bg-gradient-to-r from-blue-700 via-blue-800 to-indigo-900 px-6 py-4 flex items-center justify-between text-white border-b border-white/10 shrink-0">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-2xl bg-white/20 border border-white/30 flex items-center justify-center text-2xl shadow-lg">
+              🐼
             </div>
-            <div style={{
-              fontSize: 12,
-              color: 'rgba(255,255,255,0.75)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              marginTop: 2,
-            }}>
-              <span style={{
-                width: 7,
-                height: 7,
-                borderRadius: '50%',
-                background: '#22c55e',
-                display: 'inline-block',
-                boxShadow: '0 0 6px #22c55e',
-              }} />
-              Live · Market-aware AI co-pilot
+            <div>
+              <div className="font-extrabold text-base tracking-tight leading-none text-white">TradePanda AI</div>
+              <div className="flex items-center gap-1.5 mt-1 text-xs text-blue-200 font-medium">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#34d399]" />
+                Live · Market-aware AI co-pilot
+              </div>
             </div>
           </div>
 
-          {/* Message count badge */}
-          {messages.length > 1 && (
-            <div style={{
-              fontSize: 11,
-              fontFamily: 'monospace',
-              color: 'rgba(255,255,255,0.6)',
-              background: 'rgba(255,255,255,0.12)',
-              padding: '3px 10px',
-              borderRadius: 99,
-              marginRight: 8,
-            }}>
-              {messages.length - 1} message{messages.length > 2 ? 's' : ''}
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={onClose}
-            title="Close (Esc)"
-            style={{
-              background: 'rgba(255,255,255,0.15)',
-              border: '1px solid rgba(255,255,255,0.25)',
-              borderRadius: 10,
-              color: 'white',
-              cursor: 'pointer',
-              padding: '6px 12px',
-              fontSize: 13,
-              fontWeight: 700,
-              transition: 'background 0.15s ease',
-              flexShrink: 0,
-            }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.28)'; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.15)'; }}
-          >
-            ✕ Close
-          </button>
+          <div className="flex items-center gap-3">
+            {messages.length > 1 && (
+              <span className="hidden sm:inline-block px-3 py-1 rounded-full bg-white/10 text-[11px] font-mono text-blue-100">
+                {messages.length - 1} message{messages.length > 2 ? 's' : ''}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              title="Close (Esc)"
+              className="px-3.5 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 border border-white/20 text-white font-bold text-xs transition-colors cursor-pointer"
+            >
+              ✕ Close
+            </button>
+          </div>
         </div>
 
         {/* ── Messages area ── */}
-        <div style={{
-          flex: 1,
-          overflowY: 'auto',
-          padding: '20px 24px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 16,
-        }}>
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {messages.map((msg) => (
             <div
               key={msg.id}
-              style={{
-                display: 'flex',
-                flexDirection: msg.role === 'user' ? 'row-reverse' : 'row',
-                alignItems: 'flex-start',
-                gap: 12,
-              }}
+              className={`flex items-start gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
             >
               {/* Avatar */}
-              <div style={{
-                width: 36,
-                height: 36,
-                borderRadius: '50%',
-                background: msg.role === 'panda'
-                  ? 'linear-gradient(135deg,#1d4ed8,#0ea5e9)'
-                  : 'linear-gradient(135deg,#7c3aed,#a78bfa)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: msg.role === 'panda' ? 18 : 13,
-                color: 'white',
-                fontWeight: 800,
-                flexShrink: 0,
-                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-              }}>
+              <div
+                className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-black shrink-0 shadow-md ${
+                  msg.role === 'panda'
+                    ? 'bg-gradient-to-br from-blue-600 to-blue-400 text-white'
+                    : 'bg-gradient-to-br from-indigo-600 to-purple-500 text-white text-xs'
+                }`}
+              >
                 {msg.role === 'panda' ? '🐼' : 'You'}
               </div>
 
               {/* Bubble */}
-              <div style={{ maxWidth: '72%' }}>
-                <div style={{
-                  padding: '13px 18px',
-                  borderRadius: msg.role === 'user'
-                    ? '18px 18px 4px 18px'
-                    : '18px 18px 18px 4px',
-                  background: msg.role === 'user'
-                    ? 'linear-gradient(135deg,#1d4ed8,#0ea5e9)'
-                    : 'var(--bg-elev-2)',
-                  color: msg.role === 'user' ? 'white' : 'var(--text)',
-                  fontSize: 14,
-                  lineHeight: 1.6,
-                  whiteSpace: 'pre-wrap',
-                  border: msg.role === 'panda' ? '1px solid var(--border)' : 'none',
-                  boxShadow: '0 2px 12px rgba(0,0,0,0.07)',
-                }}>
+              <div className="max-w-[78%]">
+                <div
+                  className={`p-4 text-xs sm:text-sm leading-relaxed whitespace-pre-wrap shadow-md ${
+                    msg.role === 'user'
+                      ? 'rounded-3xl rounded-tr-sm bg-gradient-to-r from-blue-600 to-blue-500 text-white font-medium'
+                      : 'rounded-3xl rounded-tl-sm bg-slate-100 dark:bg-[#111d4a] border border-slate-200 dark:border-[#1c2541] text-slate-800 dark:text-slate-200 font-light'
+                  }`}
+                >
                   {msg.text}
                 </div>
-                <div style={{
-                  fontSize: 10,
-                  color: 'var(--text-muted)',
-                  marginTop: 4,
-                  fontFamily: 'monospace',
-                  textAlign: msg.role === 'user' ? 'right' : 'left',
-                }}>
+                <div
+                  className={`text-[9.5px] text-slate-400 mt-1 font-mono ${
+                    msg.role === 'user' ? 'text-right' : 'text-left'
+                  }`}
+                >
                   {fmtTime(msg.ts)}
                 </div>
               </div>
@@ -290,27 +179,17 @@ export function TradePandaChat({ open, onClose }: Props) {
 
           {/* Typing dots */}
           {assistantLoading && pendingQ !== null && (
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-              <div style={{
-                width: 36, height: 36, borderRadius: '50%',
-                background: 'linear-gradient(135deg,#1d4ed8,#0ea5e9)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 18, flexShrink: 0,
-              }}>🐼</div>
-              <div style={{
-                padding: '14px 20px',
-                borderRadius: '18px 18px 18px 4px',
-                background: 'var(--bg-elev-2)',
-                border: '1px solid var(--border)',
-                display: 'flex', gap: 5, alignItems: 'center',
-              }}>
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-600 to-blue-400 flex items-center justify-center text-sm shrink-0 text-white">
+                🐼
+              </div>
+              <div className="p-3.5 rounded-3xl rounded-tl-sm bg-slate-100 dark:bg-[#111d4a] border border-slate-200 dark:border-[#1c2541] flex items-center gap-2">
                 {[0, 1, 2].map((i) => (
-                  <span key={i} style={{
-                    width: 8, height: 8, borderRadius: '50%',
-                    background: 'var(--primary)',
-                    display: 'inline-block',
-                    animation: `pandaDot 1.2s ease-in-out ${i * 0.2}s infinite`,
-                  }} />
+                  <span
+                    key={i}
+                    className="w-2 h-2 rounded-full bg-blue-500 animate-bounce"
+                    style={{ animationDelay: `${i * 0.15}s` }}
+                  />
                 ))}
               </div>
             </div>
@@ -318,26 +197,10 @@ export function TradePandaChat({ open, onClose }: Props) {
           <div ref={bottomRef} />
         </div>
 
-        {/* ── Quick prompts (first message only) ── */}
+        {/* ── Quick prompts ── */}
         {messages.length === 1 && !assistantLoading && (
-          <div style={{
-            padding: '0 24px 12px',
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 8,
-            flexShrink: 0,
-            borderTop: '1px solid var(--border)',
-            paddingTop: 12,
-          }}>
-            <div style={{
-              width: '100%',
-              fontSize: 11,
-              color: 'var(--text-muted)',
-              fontFamily: 'monospace',
-              fontWeight: 700,
-              marginBottom: 4,
-              letterSpacing: '0.05em',
-            }}>
+          <div className="p-4 border-t border-slate-200/80 dark:border-[#1c2541] bg-slate-50 dark:bg-[#070d1e]/80 flex flex-wrap gap-2 shrink-0">
+            <div className="w-full text-[10.5px] text-slate-500 dark:text-slate-400 font-mono font-bold uppercase tracking-wider mb-1">
               QUICK QUESTIONS
             </div>
             {QUICK_PROMPTS.map((p) => (
@@ -345,30 +208,7 @@ export function TradePandaChat({ open, onClose }: Props) {
                 key={p}
                 type="button"
                 onClick={() => sendMessage(p)}
-                style={{
-                  fontSize: 12,
-                  padding: '7px 14px',
-                  borderRadius: 10,
-                  border: '1px solid var(--border)',
-                  background: 'var(--bg-elev-2)',
-                  color: 'var(--text)',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                  transition: 'all 0.15s ease',
-                  fontWeight: 500,
-                }}
-                onMouseEnter={(e) => {
-                  const b = e.currentTarget as HTMLButtonElement;
-                  b.style.borderColor = '#2563eb';
-                  b.style.color = '#2563eb';
-                  b.style.background = 'rgba(37,99,235,0.06)';
-                }}
-                onMouseLeave={(e) => {
-                  const b = e.currentTarget as HTMLButtonElement;
-                  b.style.borderColor = 'var(--border)';
-                  b.style.color = 'var(--text)';
-                  b.style.background = 'var(--bg-elev-2)';
-                }}
+                className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-[#1c2541] bg-white dark:bg-white/[0.03] hover:bg-blue-50 dark:hover:bg-blue-600/20 hover:border-blue-500/50 hover:text-blue-600 dark:hover:text-blue-300 text-xs font-medium text-slate-700 dark:text-slate-300 transition-all cursor-pointer"
               >
                 {p}
               </button>
@@ -379,17 +219,9 @@ export function TradePandaChat({ open, onClose }: Props) {
         {/* ── Input bar ── */}
         <form
           onSubmit={handleSubmit}
-          style={{
-            padding: '14px 20px',
-            borderTop: '1px solid var(--border)',
-            display: 'flex',
-            gap: 10,
-            background: 'var(--bg-elev)',
-            flexShrink: 0,
-            alignItems: 'center',
-          }}
+          className="p-4 border-t border-slate-200/80 dark:border-[#1c2541] bg-white dark:bg-[#070d1e] flex gap-3 items-center shrink-0"
         >
-          <div style={{ fontSize: 20, flexShrink: 0 }}>🐼</div>
+          <div className="text-xl shrink-0 select-none">🐼</div>
           <input
             ref={inputRef}
             type="text"
@@ -400,60 +232,17 @@ export function TradePandaChat({ open, onClose }: Props) {
             }}
             placeholder="Ask me about markets, stocks, options, or your portfolio…"
             disabled={assistantLoading}
-            style={{
-              flex: 1,
-              padding: '12px 18px',
-              borderRadius: 14,
-              border: '1.5px solid var(--border)',
-              background: 'var(--bg-elev-2)',
-              color: 'var(--text)',
-              fontSize: 14,
-              outline: 'none',
-              fontFamily: 'inherit',
-              transition: 'border-color 0.15s ease',
-            }}
-            onFocus={(e) => { e.currentTarget.style.borderColor = '#2563eb'; }}
-            onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; }}
+            className="flex-1 px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-[#1c2541] bg-slate-50 dark:bg-black/40 text-xs sm:text-sm text-slate-900 dark:text-white placeholder-slate-400 outline-none focus:border-blue-500 transition-colors"
           />
           <button
             type="submit"
             disabled={assistantLoading || !input.trim()}
-            style={{
-              padding: '12px 22px',
-              borderRadius: 14,
-              background: input.trim() && !assistantLoading
-                ? 'linear-gradient(135deg,#1d4ed8,#0ea5e9)'
-                : 'var(--bg-elev-2)',
-              color: input.trim() && !assistantLoading ? 'white' : 'var(--text-muted)',
-              border: '1.5px solid var(--border)',
-              cursor: input.trim() && !assistantLoading ? 'pointer' : 'not-allowed',
-              fontSize: 14,
-              fontWeight: 700,
-              transition: 'all 0.15s ease',
-              flexShrink: 0,
-              fontFamily: 'inherit',
-            }}
+            className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs sm:text-sm shadow-md shadow-blue-600/30 transition-all shrink-0 cursor-pointer"
           >
             {assistantLoading ? 'Thinking…' : 'Send ↑'}
           </button>
         </form>
       </div>
-
-      {/* Animations */}
-      <style>{`
-        @keyframes pandaFadeIn {
-          from { opacity: 0; }
-          to   { opacity: 1; }
-        }
-        @keyframes pandaSlideUp {
-          from { opacity: 0; transform: translateY(24px) scale(0.97); }
-          to   { opacity: 1; transform: translateY(0)    scale(1);    }
-        }
-        @keyframes pandaDot {
-          0%, 80%, 100% { transform: scale(0.6); opacity: 0.3; }
-          40%            { transform: scale(1.1); opacity: 1;   }
-        }
-      `}</style>
     </div>
   );
 }

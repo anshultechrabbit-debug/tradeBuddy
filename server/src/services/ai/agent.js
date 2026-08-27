@@ -32,98 +32,125 @@ function generateHoldingsHash(holdings) {
     .join('|');
 }
 
-// Words never treated as stock symbols. Cheap first pass before the real
-// check below — the blocklist can never cover every plain-English word
-// ("SHOULD", "WOULD", "COULD", ...) that happens to be 2-6 uppercase
-// letters, so it only exists to cut the candidate list before the DB call.
 const STOP_WORDS = new Set([
-  'BUY', 'SELL', 'BEST', 'TODAY', 'NSE', 'STOCK', 'STOCKS', 'PRICE', 'RS',
-  'WHAT', 'WHY', 'HOW', 'THE', 'AND', 'FOR', 'WITH', 'TRADE', 'TRADING',
+  'BUY', 'SELL', 'BEST', 'TODAY', 'NSE', 'BSE', 'STOCK', 'STOCKS', 'PRICE', 'RS', 'RATE',
+  'WHAT', 'WHY', 'HOW', 'THE', 'AND', 'FOR', 'WITH', 'TRADE', 'TRADING', 'CURRENT',
+  'LEVEL', 'DOING', 'ABOUT', 'TELL', 'VIEW', 'GOOD', 'SHOULD', 'WOULD', 'COULD', 'WHICH',
 ]);
 
-// A plain word-shape heuristic misfires on ordinary questions ("Should I buy
-// TCS?" → "SHOULD" also looks like a symbol) and each false positive costs a
-// full quote/candle/analysis round-trip through the Python bridge — a real
-// chunk of /ai/ask's latency on natural-language questions. Validate
-// candidates against the actual instrument list instead of guessing.
+const INDEX_ALIASES = {
+  'NIFTY': 'NIFTY 50',
+  'NIFTY50': 'NIFTY 50',
+  'NIFTY 50': 'NIFTY 50',
+  'BANKNIFTY': 'BANK NIFTY',
+  'BANK NIFTY': 'BANK NIFTY',
+  'NIFTYIT': 'NIFTY IT',
+  'NIFTY IT': 'NIFTY IT',
+  'FINNIFTY': 'NIFTY FINANCIAL SERVICES',
+  'VIX': 'INDIA VIX',
+  'INDIA VIX': 'INDIA VIX',
+  'SENSEX': 'SENSEX',
+};
+
+// Recognizes symbols, company names, and indices across the entire market universe
 async function findSymbols(question) {
-  const words = question.toUpperCase().match(/\b[A-Z]{2,6}\b/g) ?? [];
+  const uq = question.toUpperCase();
+  const words = uq.match(/\b[A-Z0-9&.-]{2,12}\b/g) ?? [];
   const candidates = [...new Set(words)].filter((w) => !STOP_WORDS.has(w));
-  if (!candidates.length) return [];
-  const known = await prisma.instrument.findMany({
-    where: { symbol: { in: candidates }, instrumentType: 'EQUITY' },
-    select: { symbol: true },
-  }).catch(() => []);
-  const knownSet = new Set(known.map((i) => i.symbol));
-  return candidates.filter((w) => knownSet.has(w)).slice(0, 3);
+
+  const foundSymbols = new Set();
+
+  if (candidates.length) {
+    // 1. Direct symbol match across all instruments in DB
+    const known = await prisma.instrument.findMany({
+      where: { symbol: { in: candidates } },
+      select: { symbol: true },
+    }).catch(() => []);
+    for (const k of known) foundSymbols.add(k.symbol);
+  }
+
+  // 2. Search by company name keyword (e.g. "Reliance", "Tata Motors", "Zomato", "HDFC")
+  for (const c of candidates) {
+    if (foundSymbols.size >= 4) break;
+    if (c.length >= 4 && !foundSymbols.has(c)) {
+      const match = await prisma.instrument.findFirst({
+        where: { name: { contains: c, mode: 'insensitive' } },
+        select: { symbol: true },
+      }).catch(() => null);
+      if (match) foundSymbols.add(match.symbol);
+    }
+  }
+
+  return [...foundSymbols].slice(0, 4);
 }
 
-// TOOLS: fetch live data about the question and return text lines. Doesn't
-// touch ctx — callers run this concurrently with buildContext() instead of
-// waiting on it, which used to be most of /ai/ask's latency for no reason
-// (this function never actually read ctx).
+// TOOLS: Fetch authoritative live data across whole market: indices, breadth, quotes, analysis
 async function callTools(question) {
   const extra = [];
   const uq = question.toUpperCase();
-  const wantsTop = /\b(BEST|WHICH|RECOMMEND|BUY|TOP)\b/.test(uq);
+  const provider = getMarketDataProvider();
 
-  // findSymbols() first: "buy" alone doesn't tell us whether this is an
-  // open-ended "what should I buy" question or "should I buy TCS" about one
-  // specific stock, and that distinction decides whether the generic top-5
-  // list belongs in context at all (see below).
+  const wantsTop = /\b(BEST|WHICH|RECOMMEND|BUY|TOP|HOT|OPPORTUNITIES)\b/.test(uq);
+  const wantsIndex = /\b(NIFTY|BANKNIFTY|BANK NIFTY|VIX|SENSEX|INDEX|INDICES|MARKET RATE|TODAY RATE|LEVEL)\b/.test(uq);
+  const wantsBreadth = /\b(MOOD|BREADTH|SENTIMENT|ADVANCE|DECLINE|OVERVIEW|SECTOR|SECTORS|TREND)\b/.test(uq);
+
+  // ── 1. Live Indices if asked about NIFTY, BankNifty, or general rates ──
+  if (wantsIndex || wantsBreadth) {
+    try {
+      const indices = await provider.getIndexQuotes();
+      if (indices?.length) {
+        extra.push('LIVE MARKET INDICES (real-time):');
+        for (const idx of indices) {
+          const sign = idx.changePct >= 0 ? '+' : '';
+          extra.push(`- ${idx.symbol}: Level ${idx.level.toLocaleString('en-IN')}, Change ${sign}${idx.changePct.toFixed(2)}% (${idx.change ? `${sign}${idx.change.toFixed(2)}` : 'live'})`);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // ── 2. Live Market Breadth & Sentiment ──
+  if (wantsBreadth || wantsTop) {
+    try {
+      const breadth = await provider.getMarketBreadth();
+      if (breadth) {
+        extra.push(
+          `MARKET BREADTH: Advancing ${breadth.advancing}, Declining ${breadth.declining}, Unchanged ${breadth.unchanged} (Total ${breadth.total})`,
+          `BREADTH RATIO: Above SMA50: ${breadth.breadthPctAboveSma50}%, Above SMA20: ${breadth.breadthPctAboveSma20}%`,
+        );
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // ── 3. Find specific stocks or indices mentioned ──
   const symbols = await findSymbols(question);
 
-  // Only pull the generic "top picks" list for genuinely open-ended
-  // questions. When a specific stock is named, that list is noise the model
-  // was observed misreading as evidence against the named stock (e.g.
-  // "TCS is not in the top radar list" used as a bearish signal) — absence
-  // from an arbitrary top-5 says nothing about that stock on its own; its
-  // own live quote/structured analysis below is the real signal to use.
-  //
-  // "Best stock" needs to mean the whole market, not a narrow shortlist —
-  // radar's scan already ranks the ENTIRE universe (~2500+ symbols) by
-  // technical conviction, so pulling a wider slice of that ranking (20, not
-  // 5) is what makes this a genuine market-wide answer rather than a
-  // coin-flip between five names.
-  const topOpps = wantsTop && !symbols.length ? await topOpportunities(20).catch(() => []) : [];
+  // ── 4. Open-ended "what should I buy / top opportunities" ──
+  const topOpps = wantsTop && !symbols.length ? await topOpportunities(15).catch(() => []) : [];
   if (topOpps.length) {
-    // Radar's convictionScore/signal is a cheap, technical-only pre-screen
-    // used to shortlist candidates out of the full universe — it is NOT
-    // this app's authoritative verdict on a stock (predictionEngine.js's
-    // buildEngineResult is; see outputValidator.js). Handing the LLM
-    // radar's raw score/signal here used to let it state a firm "X is the
-    // best buy" opinion that could straight-up contradict the AI
-    // Suggestions/AI Strategy pages' verdict for that same stock — two
-    // different scores, two different signals, same symbol, shown on the
-    // same dashboard. Re-run every shortlisted candidate through the SAME
-    // authoritative pipeline those pages use, then rank by ITS score (not
-    // radar's), so Buddy's "best stock in the market" pick is both broad
-    // and never disagrees with what the rest of the app already says.
-    // Concurrency-bounded like every other external-data fan-out in this
-    // codebase — 20 at once would contend for the same limited NSE-facing
-    // resources that the rest of the app is careful to throttle.
     const analyses = await mapLimit(topOpps, 4, (o) => analyzeStock(o.symbol).catch(() => null));
     const ranked = topOpps
       .map((o, i) => ({ symbol: o.symbol, analysis: analyses[i] }))
       .sort((a, b) => (b.analysis?.overallScore ?? -1) - (a.analysis?.overallScore ?? -1));
+
     extra.push(
-      'AUTHORITATIVE ANALYSIS across a broad scan of the market (this is the single source of truth for signal/score across the whole app — always use these numbers, never invent or infer a different score; listed strongest-first by overallScore):',
+      'AUTHORITATIVE MULTI-FACTOR ANALYSIS across broad market scan (ranked strongest-first by overallScore):',
     );
     for (const { symbol, analysis: a } of ranked) {
       if (a?.ok && a.finalValidation?.passed) {
         extra.push(`- ${symbol}:`, formatAnalysis(a));
       } else {
-        extra.push(`- ${symbol}: radar flagged this for a closer look, but full analysis is unavailable right now — do not state a firm buy/avoid verdict for it.`);
+        extra.push(`- ${symbol}: radar flagged for review (score pending).`);
       }
     }
   }
 
-  // symbol(s) mentioned → live quote + recent daily candles (or full
-  // structured analysis for an analysis-intent question). Independent per
-  // symbol, so fetch all of them concurrently instead of one at a time.
+  // ── 5. Specific Stock Live Data & Deep Dive ──
   if (symbols.length) {
-    const provider = getMarketDataProvider();
-    const analysisIntent = /\b(ANALYZE|ANALYSIS|RECOMMEND|SHOULD I (BUY|SELL|HOLD|INVEST)|FUNDAMENTAL|VALUATION|TARGET|STOP.?LOSS|ENTRY)\b/.test(uq);
+    const analysisIntent = /\b(ANALYZE|ANALYSIS|RECOMMEND|SHOULD I|FUNDAMENTAL|VALUATION|TARGET|STOP.?LOSS|ENTRY|VIEW|OUTLOOK|TREND)\b/.test(uq);
 
     const perSymbolLines = await Promise.all(
       symbols.map(async (sym) => {
@@ -131,15 +158,12 @@ async function callTools(question) {
         if (analysisIntent) {
           try {
             const analysis = await analyzeStock(sym);
-            // Never surface an analysis that fails the mandatory final
-            // consistency gate (see outputValidator.js) — fall through to
-            // the plain live quote below instead.
             if (analysis.ok && analysis.finalValidation?.passed) {
               lines.push(`STRUCTURED ANALYSIS ${sym}:`, formatAnalysis(analysis));
               return lines;
             }
           } catch {
-            // fall through to quote/candles below
+            // fall through to quote
           }
         }
         const [quoteResult, candlesResult] = await Promise.allSettled([
@@ -148,13 +172,14 @@ async function callTools(question) {
         ]);
         if (quoteResult.status === 'fulfilled' && quoteResult.value) {
           const q = quoteResult.value;
-          lines.push(`LIVE QUOTE ${sym}: last Rs ${q.lastPrice}, change ${q.changePct}%`);
+          const sign = q.changePct >= 0 ? '+' : '';
+          lines.push(`LIVE QUOTE ${sym}: last Rs ${q.lastPrice.toLocaleString('en-IN')}, change ${sign}${q.changePct}%`);
         }
         if (candlesResult.status === 'fulfilled' && candlesResult.value?.length) {
           const candles = candlesResult.value;
           const last = candles[candles.length - 1];
           const prev = candles[candles.length - 2]?.close ?? 'n/a';
-          lines.push(`${sym} 1D: last close Rs ${last.close}, prev close Rs ${prev}`);
+          lines.push(`${sym} Daily: last close Rs ${last.close}, prev close Rs ${prev}`);
         }
         return lines;
       }),

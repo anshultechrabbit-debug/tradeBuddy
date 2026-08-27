@@ -90,26 +90,28 @@ export function CandleChart({
     const container = containerRef.current;
     if (!container) return;
 
+    const isDark = document.documentElement.classList.contains('dark');
+
     const chart = createChart(container, {
       autoSize: true,
       layout: {
-        background: { type: ColorType.Solid, color: '#ffffff' },
-        textColor: '#6b7280',
-        fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: isDark ? '#94a3b8' : '#64748b',
+        fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
         fontSize: 11,
         attributionLogo: false,
       },
       grid: {
-        vertLines: { color: '#f1f3f2' },
-        horzLines: { color: '#f1f3f2' },
+        vertLines: { color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' },
+        horzLines: { color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: '#9ca3af', labelBackgroundColor: '#171c26' },
-        horzLine: { color: '#9ca3af', labelBackgroundColor: '#171c26' },
+        vertLine: { color: isDark ? '#3b82f6' : '#2563eb', labelBackgroundColor: isDark ? '#0b132b' : '#1e293b' },
+        horzLine: { color: isDark ? '#3b82f6' : '#2563eb', labelBackgroundColor: isDark ? '#0b132b' : '#1e293b' },
       },
-      rightPriceScale: { borderColor: '#e9ebee' },
-      timeScale: { borderColor: '#e9ebee', timeVisible: true, secondsVisible: false },
+      rightPriceScale: { borderColor: isDark ? '#1c2541' : '#e2e8f0' },
+      timeScale: { borderColor: isDark ? '#1c2541' : '#e2e8f0', timeVisible: true, secondsVisible: false },
       localization: { timeFormatter: istTimeFormatter },
     });
 
@@ -137,7 +139,22 @@ export function CandleChart({
     candleSeriesRef.current = candlesSeries;
     volumeSeriesRef.current = volumeSeries;
 
+    const observer = new MutationObserver(() => {
+      const dark = document.documentElement.classList.contains('dark');
+      chart.applyOptions({
+        layout: { textColor: dark ? '#94a3b8' : '#64748b' },
+        grid: {
+          vertLines: { color: dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' },
+          horzLines: { color: dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' },
+        },
+        rightPriceScale: { borderColor: dark ? '#1c2541' : '#e2e8f0' },
+        timeScale: { borderColor: dark ? '#1c2541' : '#e2e8f0' },
+      });
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+
     return () => {
+      observer.disconnect();
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
@@ -249,32 +266,40 @@ export function CandleChart({
     return shownLast;
   }, [shownLast, intraday, livePrice]);
 
+  const isPos = (dayChangePct ?? (effectiveLast ? intradayPct(effectiveLast) : 0)) >= 0;
+
   return (
-    <div className="chart-card">
-      <div className="chart-header">
-        <div className="chart-legend">
-          <div className="strong">
-            {effectiveLast ? formatCurrency(effectiveLast.close) : '—'}
+    <div className="w-full flex flex-col h-full space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-slate-200/80 dark:border-[#1c2541]">
+        <div>
+          <div className="flex items-baseline gap-2 font-mono">
+            <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
+              {effectiveLast ? formatCurrency(effectiveLast.close) : '—'}
+            </span>
             {effectiveLast ? (
-              <span className={(dayChangePct ?? intradayPct(effectiveLast)) >= 0 ? 'text-positive' : 'text-negative'}>
-                {' '}
+              <span className={`text-xs font-bold ${isPos ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
                 {formatPctShort(dayChangePct ?? intradayPct(effectiveLast))}
               </span>
             ) : null}
           </div>
-          <div className="muted small">
-            {lastUpdated ? <>Updated {formatTimeAgo(lastUpdated)}</> : '—'}
-            {effectiveLast ? <> · O {formatNumber(effectiveLast.open)} H {formatNumber(effectiveLast.high)} L {formatNumber(effectiveLast.low)}</> : null}
-            {effectiveLast && !intraday ? <> · Vol {formatCompact(effectiveLast.volume)}</> : null}
+          <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mt-0.5">
+            <span>{lastUpdated ? `Updated ${formatTimeAgo(lastUpdated)}` : '—'}</span>
+            {effectiveLast ? <span>· O {formatNumber(effectiveLast.open)} H {formatNumber(effectiveLast.high)} L {formatNumber(effectiveLast.low)}</span> : null}
+            {effectiveLast && !intraday ? <span>· Vol {formatCompact(effectiveLast.volume)}</span> : null}
           </div>
         </div>
-        <div className="chart-controls">
-          <div className="chart-ranges">
+
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-white/[0.04] border border-slate-200 dark:border-[#1c2541]">
             {TIMEFRAMES.map((tf) => (
               <button
                 key={tf.key}
                 type="button"
-                className={timeframe === tf.key ? 'chart-range chart-range-active' : 'chart-range'}
+                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
+                  timeframe === tf.key
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
                 onClick={() => setTimeframe(tf.key)}
               >
                 {tf.label}
@@ -282,12 +307,16 @@ export function CandleChart({
             ))}
           </div>
           {!intraday ? (
-            <div className="chart-ranges">
+            <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-white/[0.04] border border-slate-200 dark:border-[#1c2541]">
               {RANGES.map((r) => (
                 <button
                   key={r}
                   type="button"
-                  className={range === r ? 'chart-range chart-range-active' : 'chart-range'}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
+                    range === r
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
                   onClick={() => setRange(r)}
                 >
                   {r === 120 ? 'MAX' : `${r}D`}
@@ -297,14 +326,16 @@ export function CandleChart({
           ) : null}
         </div>
       </div>
-      <div className="chart-status">
-        {loading && !candles.length ? <span className="muted small">Loading…</span> : null}
-        {error ? <span className="text-negative small">{error}</span> : null}
+
+      <div className="text-xs text-slate-500">
+        {loading && !candles.length ? <span>Loading live candlestick feed…</span> : null}
+        {error ? <span className="text-rose-500">{error}</span> : null}
         {!loading && !error && !candles.length ? (
-          <span className="muted small">No candle data available right now — the live feed may be down, try again shortly.</span>
+          <span>No candle data available right now — the live feed may be down, try again shortly.</span>
         ) : null}
       </div>
-      <div ref={containerRef} className="chart-canvas" />
+
+      <div ref={containerRef} className="h-[280px] w-full" />
     </div>
   );
 }

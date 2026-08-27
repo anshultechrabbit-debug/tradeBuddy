@@ -1,9 +1,8 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { RadarPage } from './pages/RadarPage';
-import { DeepDivePage } from './pages/DeepDivePage';
 import { AiPicksPage } from './pages/AiPicksPage';
 import { PortfolioPage } from './pages/PortfolioPage';
 import { WatchlistPage } from './pages/WatchlistPage';
@@ -20,6 +19,11 @@ import { AdminScanUniversePage } from './pages/admin/AdminScanUniversePage';
 
 import { LandingPage } from './pages/LandingPage';
 
+function RadarSymbolRedirect() {
+  const { symbol } = useParams();
+  return <Navigate to={symbol ? `/ai-picks?symbol=${symbol}` : '/ai-picks'} replace />;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -29,7 +33,7 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/radar" element={<RadarPage />} />
-          <Route path="/radar/:symbol" element={<DeepDivePage />} />
+          <Route path="/radar/:symbol" element={<RadarSymbolRedirect />} />
           <Route path="/ai-picks" element={<AiPicksPage />} />
           <Route path="/portfolio" element={<PortfolioPage />} />
           <Route path="/watchlist" element={<WatchlistPage />} />

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import type { DeepDive, MarketQuote } from '../lib/types';
-import { Card, Badge, Spinner, EmptyState, ProgressBar, ErrorBox } from '../components/ui';
+import { Card, StatCard, Badge, Spinner, EmptyState, ProgressBar, ErrorBox } from '../components/ui';
 import { formatCurrency, formatNumber, formatPct, formatTimeAgo, signalBadgeClass, regimeBadgeClass } from '../lib/format';
 import { useFetch } from '../hooks/useFetch';
 import { CandleChart } from '../components/CandleChart';
@@ -27,7 +27,7 @@ export function DeepDivePage() {
         const q = await apiClient.get<MarketQuote>(`/market/quote/${symbol}`);
         if (!cancelled) setQuote(q.data);
       } catch {
-        // quote polling is best-effort; the header falls back to detail data
+        // quote polling is best-effort
       }
     }
     fetchQuote();
@@ -43,136 +43,163 @@ export function DeepDivePage() {
   const livePrice = quote?.lastPrice ?? data?.lastPrice;
   const changePct = quote?.changePct;
   const up = changePct != null && changePct >= 0;
-  const liveTone = changePct == null ? '' : up ? 'text-positive' : 'text-negative';
+  const liveTone = changePct == null ? '' : up ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400';
   const updatedAt = quote?.sourceTimestamp ?? quote?.receivedAt ?? null;
 
   return (
-    <div className="page">
-      <header className="page-header">
-        <div>
-          <div className="symbol-header">
-            <h1 className="symbol-name">{symbol}</h1>
-            {data ? <Badge className={signalBadgeClass(data.signal)}>{data.signal}</Badge> : null}
+    <div className="space-y-6">
+      {/* ── HEADER BANNER ── */}
+      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950 p-6 sm:p-8 text-white border border-slate-200/20 dark:border-[#1c2541] shadow-xl">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-electric-600/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="relative z-10 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-3">
+              <Link to="/radar" className="text-xs text-blue-400 hover:text-blue-300 font-bold">
+                ← Back to Radar
+              </Link>
+            </div>
+            <div className="flex items-center gap-3 mt-2">
+              <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-white">{symbol}</h1>
+              {data ? <Badge className={signalBadgeClass(data.signal)}>{data.signal}</Badge> : null}
+            </div>
+            {livePrice != null ? (
+              <div className="mt-1 flex items-baseline gap-2 font-mono">
+                <span className="text-2xl font-black text-white">{formatCurrency(livePrice)}</span>
+                {changePct != null ? <span className={`text-sm font-bold ${liveTone}`}>({formatPct(changePct)})</span> : null}
+              </div>
+            ) : null}
           </div>
-          {livePrice != null ? (
-            <p className="symbol-price">
-              <span className={liveTone}>{formatCurrency(livePrice)}</span>
-              {changePct != null ? <span className={liveTone}> · {formatPct(changePct)}</span> : null}
-            </p>
+          {updatedAt ? (
+            <span className="px-3.5 py-1.5 rounded-full bg-white/10 text-xs font-mono font-semibold text-slate-300">
+              Updated {formatTimeAgo(updatedAt)}
+            </span>
           ) : null}
         </div>
-        {updatedAt ? (
-          <span className="live-badge">
-            <span className="live-dot" /> Updated {formatTimeAgo(updatedAt)}
-          </span>
-        ) : null}
-      </header>
+      </section>
 
       {error ? <ErrorBox message={error} onRetry={load} /> : null}
+
       {loading ? (
-        <Spinner label="Analyzing…" />
+        <Spinner label="Analyzing multi-factor technicals…" />
       ) : data ? (
         <>
-          {symbol ? <CandleChart symbol={symbol} livePrice={livePrice} lastUpdated={updatedAt} /> : null}
-
-          <div className="stat-grid">
-            <Stat label="Last Price" value={formatCurrency(livePrice)} />
-            <Stat label="Conviction" value={<span>{data.convictionScore}/100</span>} sub={<ProgressBar value={data.convictionScore} />} />
-            <Stat label="Regime" value={<Badge className={regimeBadgeClass(data.regime)}>{data.regime}</Badge>} />
-            <Stat label="RSI(14)" value={formatNumber(data.features.rsi14)} />
-          </div>
-
-          <div className="grid-2">
-            <Card title="Features">
-              <div className="feature-grid">
-                <Feature label="SMA 20" value={formatCurrency(data.features.sma20)} />
-                <Feature label="SMA 50" value={formatCurrency(data.features.sma50)} />
-                <Feature label="SMA 200" value={formatCurrency(data.features.sma200)} />
-                <Feature label="EMA 20" value={formatCurrency(data.features.ema20)} />
-                <Feature label="ATR(14)" value={formatCurrency(data.features.atr14)} />
-                <Feature label="ROC(10)" value={formatPct(data.features.roc10)} />
-                <Feature label="ROC(20)" value={formatPct(data.features.roc20)} />
-                <Feature label="Z-Score" value={formatNumber(data.features.zscore)} />
-                <Feature label="Daily Vol" value={formatPct(data.features.dailyVolatilityPct)} />
-                <Feature label="An. Vol" value={formatPct(data.features.annualizedVolatilityPct)} />
-                <Feature label="Vol Ratio" value={formatNumber(data.features.volumeRatio)} />
-                <Feature label="20D Return" value={formatPct(data.features.ret20)} />
-                <Feature label="Rel. Strength" value={formatNumber(data.features.relativeStrength)} />
-                <Feature label="Breakout" value={data.features.breakout ? `${formatPct(data.features.breakoutPct)} above` : 'No'} />
-              </div>
-            </Card>
-
-            <Card title="Sub-scores">
-              <SubScore label="Trend" value={data.features.subscores.trend} />
-              <SubScore label="Momentum" value={data.features.subscores.momentum} />
-              <SubScore label="Volume" value={data.features.subscores.volume} />
-              <SubScore label="Relative Strength" value={data.features.subscores.relativeStrength} />
-              <SubScore label="Volatility" value={data.features.subscores.volatility} />
-              <SubScore label="Breadth" value={data.features.subscores.breadth} />
-            </Card>
-          </div>
-
-          <Card title="Analysis">
-            <div className="analysis-list">
-              <div><span className="muted">Trend:</span> <strong>{data.deepDive.trendStrength}</strong></div>
-              <div><span className="muted">Momentum:</span> <strong>{data.deepDive.momentum}</strong></div>
-              <div><span className="muted">Volume:</span> <strong>{data.deepDive.volumeConfirmation}</strong></div>
-              <div><span className="muted">Volatility:</span> <strong>{data.deepDive.volatilityScore}</strong></div>
-              <div><span className="muted">Breakout:</span> <strong>{data.deepDive.breakoutScore}</strong></div>
-              <div><span className="muted">Relative strength:</span> <strong>{data.deepDive.relativeStrength}</strong></div>
-            </div>
-            <div className="reason-box">
-              <div className="muted small">Reason</div>
-              <p>{data.reason}</p>
-            </div>
-          </Card>
-
-          {data.deepDive.technicalSignals.length > 0 ? (
-            <Card title="Technical Signals">
-              <div className="chip-row">
-                {data.deepDive.technicalSignals.map((t) => (
-                  <span key={t} className="chip">
-                    {t}
-                  </span>
-                ))}
+          {/* ── CANDLE CHART ── */}
+          {symbol ? (
+            <Card title={`${symbol} — Candlestick Technical Analysis`}>
+              <div className="h-[360px] w-full">
+                <CandleChart symbol={symbol} livePrice={livePrice} lastUpdated={updatedAt} />
               </div>
             </Card>
           ) : null}
+
+          {/* ── STATS GRID ── */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard label="Realtime LTP" value={formatCurrency(livePrice)} />
+            <StatCard
+              label="Conviction Score"
+              value={`${data.convictionScore}/100`}
+              sub={<ProgressBar value={data.convictionScore} />}
+            />
+            <StatCard
+              label="Market Regime"
+              value={<Badge className={regimeBadgeClass(data.regime)}>{data.regime}</Badge>}
+            />
+            <StatCard label="RSI (14-period)" value={formatNumber(data.features.rsi14)} />
+          </div>
+
+          {/* ── FEATURES & SUB-SCORES BENTO ── */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card title="Key Technical Features">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <FeatureBox label="SMA 20" value={formatCurrency(data.features.sma20)} />
+                <FeatureBox label="SMA 50" value={formatCurrency(data.features.sma50)} />
+                <FeatureBox label="SMA 200" value={formatCurrency(data.features.sma200)} />
+                <FeatureBox label="EMA 20" value={formatCurrency(data.features.ema20)} />
+                <FeatureBox label="ATR (14)" value={formatCurrency(data.features.atr14)} />
+                <FeatureBox label="ROC (10D)" value={formatPct(data.features.roc10)} />
+                <FeatureBox label="ROC (20D)" value={formatPct(data.features.roc20)} />
+                <FeatureBox label="Z-Score" value={formatNumber(data.features.zscore)} />
+                <FeatureBox label="Daily Volatility" value={formatPct(data.features.dailyVolatilityPct)} />
+                <FeatureBox label="Annual Volatility" value={formatPct(data.features.annualizedVolatilityPct)} />
+                <FeatureBox label="Volume Ratio" value={formatNumber(data.features.volumeRatio)} />
+                <FeatureBox label="Breakout Target" value={data.features.breakout ? `${formatPct(data.features.breakoutPct)} above` : 'None'} />
+              </div>
+            </Card>
+
+            <Card title="Factor Sub-Scores">
+              <div className="space-y-3.5">
+                <SubScoreRow label="Trend Direction" value={data.features.subscores.trend} />
+                <SubScoreRow label="Price Momentum" value={data.features.subscores.momentum} />
+                <SubScoreRow label="Volume Confirmation" value={data.features.subscores.volume} />
+                <SubScoreRow label="Relative Strength (vs Nifty)" value={data.features.subscores.relativeStrength} />
+                <SubScoreRow label="Volatility Index" value={data.features.subscores.volatility} />
+                <SubScoreRow label="Market Breadth" value={data.features.subscores.breadth} />
+              </div>
+            </Card>
+          </div>
+
+          {/* ── NARRATIVE ANALYSIS & SIGNALS ── */}
+          <Card title="TradePanda Quantitative Thesis">
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541]">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Trend Strength</span>
+                  <div className="font-bold text-slate-900 dark:text-white mt-0.5">{data.deepDive.trendStrength}</div>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541]">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Momentum Status</span>
+                  <div className="font-bold text-slate-900 dark:text-white mt-0.5">{data.deepDive.momentum}</div>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541]">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Volume Flow</span>
+                  <div className="font-bold text-slate-900 dark:text-white mt-0.5">{data.deepDive.volumeConfirmation}</div>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-blue-50/50 dark:bg-white/[0.03] border border-blue-100 dark:border-[#1c2541] space-y-1">
+                <div className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">Strategy Note</div>
+                <p className="text-xs sm:text-sm text-slate-800 dark:text-slate-200 leading-relaxed font-light">{data.reason}</p>
+              </div>
+
+              {data.deepDive.technicalSignals.length > 0 && (
+                <div className="pt-2">
+                  <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Fired Signal Indicators</div>
+                  <div className="flex flex-wrap gap-2">
+                    {data.deepDive.technicalSignals.map((t) => (
+                      <span key={t} className="px-3 py-1 rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-xs font-mono font-semibold text-slate-700 dark:text-slate-300">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </Card>
         </>
       ) : (
-        <EmptyState title="No data for this symbol" />
+        <EmptyState title="No deep-dive data available for this symbol" />
       )}
     </div>
   );
 }
 
-function Stat({ label, value, sub }: { label: string; value: React.ReactNode; sub?: React.ReactNode }) {
+function FeatureBox({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="card stat-card">
-      <div className="stat-label">{label}</div>
-      <div className="stat-value">{value}</div>
-      {sub ? <div className="stat-sub">{sub}</div> : null}
+    <div className="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541] space-y-0.5">
+      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</div>
+      <div className="font-mono text-xs font-bold text-slate-900 dark:text-white">{value}</div>
     </div>
   );
 }
 
-function Feature({ label, value }: { label: string; value: React.ReactNode }) {
+function SubScoreRow({ label, value }: { label: string; value: number }) {
   return (
-    <div className="feature">
-      <span className="muted small">{label}</span>
-      <span className="strong">{value}</span>
-    </div>
-  );
-}
-
-function SubScore({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="subscore">
-      <div className="flex-1">
-        <span className="small">{label}</span>
-        <ProgressBar value={value} />
+    <div className="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541] space-y-1.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-bold text-slate-800 dark:text-slate-200">{label}</span>
+        <span className="font-mono font-black text-slate-900 dark:text-white">{value}/100</span>
       </div>
-      <span className="strong small">{value}</span>
+      <ProgressBar value={value} />
     </div>
   );
 }

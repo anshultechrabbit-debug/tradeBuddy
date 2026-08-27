@@ -585,9 +585,10 @@ export function startRadarScheduler(intervalMs = 60000) {
   return schedulerTimer;
 }
 
-export async function listSignals({ userId, page = 1, limit = 20, signal, outlook, symbol }) {
+export async function listSignals({ userId, page = 1, limit = 20, signal, outlook, minConviction, symbol }) {
   const where = userId != null ? { userId } : {};
   if (signal) where.signal = signal;
+  if (minConviction != null) where.convictionScore = { gte: minConviction };
   if (symbol) where.symbol = { contains: symbol.toUpperCase() };
   const allRows = await prisma.scanSignal.findMany({
     where,
@@ -620,7 +621,7 @@ export async function listSignals({ userId, page = 1, limit = 20, signal, outloo
   };
 }
 
-export async function listOpportunities({ userId, page = 1, limit = 20, signal, outlook, symbol }) {
+export async function listOpportunities({ userId, page = 1, limit = 20, signal, outlook, minConviction, symbol }) {
   const latest = await prisma.radarOpportunity.findFirst({
     where: userId != null ? { userId } : {},
     orderBy: { createdAt: 'desc' },
@@ -631,6 +632,7 @@ export async function listOpportunities({ userId, page = 1, limit = 20, signal, 
   const where = { scanId: latest.scanId };
   if (userId != null) where.userId = userId;
   if (signal) where.signal = signal;
+  if (minConviction != null) where.convictionScore = { gte: minConviction };
   if (symbol) where.symbol = { contains: symbol.toUpperCase() };
   const allRows = await prisma.radarOpportunity.findMany({
     where,
