@@ -54,9 +54,9 @@ export function WorkflowTabs() {
   return (
     <section id="solutions" className="py-20 sm:py-28 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
       <div className="text-left mb-12">
-        <h2 className="text-3xl sm:text-5xl font-normal tracking-tight text-slate-900 max-w-3xl leading-[1.12]">
+        <h2 className="text-3xl sm:text-5xl font-bold tracking-tight text-slate-900 max-w-3xl leading-[1.12] font-display">
           Catch every move, execute every trade, and protect accounts{' '}
-          <span className="font-serif italic font-normal text-electric-600">3x faster.</span>
+          <span className="text-electric-600 font-bold">3x faster.</span>
         </h2>
         <p className="mt-4 text-[#78716c] text-sm sm:text-base max-w-xl">
           A battle-tested workflow engineered for zero hesitation and surgical execution precision.

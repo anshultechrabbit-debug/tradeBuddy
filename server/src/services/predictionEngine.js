@@ -562,27 +562,31 @@ export function buildEngineResult(a) {
 
   // Asymmetric predicted close ranges:
   // - If BULLISH: Expected range spans from current price up to price + ATR (no loss)
-  // - If BEARISH: Expected range spans from price - ATR up to current price (no gain)
-  // - If NEUTRAL: Symmetric range (±0.5 ATR) around projected base
+  // Statistically sound predicted close ranges based on volatility & directional skew:
+  // - BULLISH: Upward skewed range with realistic intraday dip allowance (bear < base < bull)
+  // - BEARISH: Downward skewed range with upper pullback allowance
+  // - NEUTRAL: Symmetric range around projected base
   let bear = null;
   let bull = null;
   if (base != null && price != null) {
-    const rangeHalfWidth = Math.max(atr ?? price * 0.01, price * 0.005) * 0.7; // tighter: 70% of ATR
+    const effectiveAtr = Math.max(atr ?? (price * 0.015), price * 0.005);
+    const rangeHalfWidth = effectiveAtr * 0.8;
+
     if (directionalOutlook === 'BULLISH') {
-      bear = round2(price);                    // floor: won't close below current
-      bull = round2(price + rangeHalfWidth * 2); // ceiling: up to ~1 ATR above
-      if (base <= bear) base = round2(bear + (price * 0.001));
-      if (bull <= base) bull = round2(base + (price * 0.001));
+      bear = round2(Math.min(price * 0.995, base - rangeHalfWidth * 0.5));
+      bull = round2(Math.max(price * 1.015, base + rangeHalfWidth * 1.2));
+      if (base <= bear) base = round2(bear + (price * 0.002));
+      if (bull <= base) bull = round2(base + (price * 0.002));
     } else if (directionalOutlook === 'BEARISH') {
-      bear = round2(price - rangeHalfWidth * 2); // floor: down ~1 ATR
-      bull = round2(price);                      // ceiling: won't close above current
-      if (base >= bull) base = round2(bull - (price * 0.001));
-      if (bear >= base) bear = round2(base - (price * 0.001));
+      bear = round2(Math.min(price * 0.985, base - rangeHalfWidth * 1.2));
+      bull = round2(Math.max(price * 1.005, base + rangeHalfWidth * 0.5));
+      if (base >= bull) base = round2(bull - (price * 0.002));
+      if (bear >= base) bear = round2(base - (price * 0.002));
     } else {
       bear = round2(base - rangeHalfWidth);
       bull = round2(base + rangeHalfWidth);
-      if (bear >= base) bear = round2(base - (price * 0.001));
-      if (bull <= base) bull = round2(base + (price * 0.001));
+      if (bear >= base) bear = round2(base - (price * 0.002));
+      if (bull <= base) bull = round2(base + (price * 0.002));
     }
   }
   const rangeOrdered = bear != null && base != null && bull != null && bear < base && base < bull;
@@ -778,3 +782,26 @@ export function buildWhySection(a) {
 
   return { factorBreakdown, investReasons, lossReasons, summary };
 }
+
+// Re-export Prediction Engine v2 & v3 API
+export {
+  generateEnginePredictionV2,
+  detectRegime,
+  predictBaseTarget,
+  calculateDirectionalProbability,
+  calculateAdaptiveRange,
+  evaluateSignalGating,
+  V2_CONFIG,
+} from './predictionEngineV2.js';
+
+export {
+  generateEnginePredictionV3,
+  detectRegimeV3,
+  predictBaseTargetV3,
+  calculateDirectionalProbabilityV3,
+  calculateAdaptiveRangeV3,
+  evaluateSignalQualityV3,
+  V3_CONFIG,
+} from './predictionEngineV3.js';
+
+

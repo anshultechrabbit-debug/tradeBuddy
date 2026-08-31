@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { TradePandaChat } from '../components/TradePandaChat';
-import { Badge, Card, EmptyState, ErrorBox, PaginationBar, Spinner, Table } from '../components/ui';
-import { formatCompact, formatCurrency, formatDateTime, formatPct, formatTimeAgo, regimeBadgeClass, signalBadgeClass } from '../lib/format';
+import { Badge, Card, EmptyState, ErrorBox, PaginationBar, Spinner } from '../components/ui';
+import { formatCurrency, formatDateTime, formatPct, formatTimeAgo, regimeBadgeClass, signalBadgeClass } from '../lib/format';
+import { isMarketOpen } from '../lib/marketHours';
 import { fetchAllQuotes } from '../store/marketSlice';
 import { fetchLatestScan, fetchOpportunities, fetchSignals, runScan } from '../store/radarSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
@@ -11,26 +12,6 @@ type SignalFilter = '' | 'BUY' | 'WATCH' | 'AVOID';
 type OutlookFilter = '' | 'BULLISH' | 'NEUTRAL' | 'BEARISH';
 type ExplorerView = 'opportunities' | 'signals';
 
-const HELP = {
-  breadth: 'The share of covered stocks trading above their previous close. Higher breadth means more stocks support the market move.',
-  regime: 'The broad market environment derived from trend and breadth. It provides context and is not a trade recommendation.',
-  coverage: 'The number of stocks in the configured Nifty 100 universe with a usable market quote.',
-  conviction: 'A 0-100 strength score built from trend, momentum, relative strength and price action.',
-  action: 'Buy means review as a candidate, Watch means wait for confirmation, and Avoid means weak technical posture.',
-  outlook: 'Expected price direction separate from action.',
-  sma20: 'The percentage of stocks above their 20-day simple moving average.',
-  sma50: 'The percentage of stocks above their 50-day simple moving average.',
-  averageMove: 'The average percentage price change across covered stocks.',
-  volume: 'Stocks ranked by traded volume in the live feed.',
-};
-
-function InfoTip({ term, text }: { term: string; text: string }) {
-  return (
-    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-slate-200 dark:bg-white/10 text-[10px] font-bold text-slate-600 dark:text-slate-300 ml-1 cursor-help" title={`${term}: ${text}`}>
-      i
-    </span>
-  );
-}
 
 const SIGNAL_OPTIONS: Array<{ value: SignalFilter; label: string }> = [
   { value: '', label: 'All Actions' },
@@ -193,7 +174,8 @@ function RadarFilterBar({
 export function RadarPage() {
   const dispatch = useAppDispatch();
   const { scanResult, scanning, lastScannedAt, opportunities, signals, loading, signalsLoading, error } = useAppSelector((state) => state.radar);
-  const { indices, allQuotes, breadth: liveBreadth, lastUpdated } = useAppSelector((state) => state.market);
+  const { indices, allQuotes, breadth: liveBreadth } = useAppSelector((state) => state.market);
+
   const sliderRef = useRef<HTMLDivElement>(null);
 
   const [chatOpen, setChatOpen] = useState(false);
@@ -243,23 +225,26 @@ export function RadarPage() {
   useEffect(() => {
     dispatch(fetchLatestScan());
     dispatch(fetchAllQuotes());
-    const quotesTimer = setInterval(() => dispatch(fetchAllQuotes()), 60000);
-    return () => clearInterval(quotesTimer);
+    if (isMarketOpen()) {
+      const quotesTimer = setInterval(() => dispatch(fetchAllQuotes()), 60000);
+      return () => clearInterval(quotesTimer);
+    }
   }, [dispatch]);
+
 
   const scanRows = scanResult?.opportunities ?? [];
   const breadth = liveBreadth ?? scanResult?.breadth ?? null;
 
   const actionCounts = useMemo(() => ({
-    BUY: scanRows.filter((row) => row.signal === 'BUY').length,
-    WATCH: scanRows.filter((row) => row.signal === 'WATCH').length,
-    AVOID: scanRows.filter((row) => row.signal === 'AVOID').length,
+    BUY: scanRows.filter((row) => String(row.signal || '').toUpperCase().includes('BUY')).length,
+    WATCH: scanRows.filter((row) => String(row.signal || '').toUpperCase().includes('WATCH') || String(row.signal || '').toUpperCase().includes('HOLD')).length,
+    AVOID: scanRows.filter((row) => String(row.signal || '').toUpperCase().includes('AVOID') || String(row.signal || '').toUpperCase().includes('SELL')).length,
   }), [scanRows]);
 
   const outlookCounts = useMemo(() => ({
-    BULLISH: scanRows.filter((row) => row.directionalOutlook === 'BULLISH').length,
-    NEUTRAL: scanRows.filter((row) => row.directionalOutlook === 'NEUTRAL').length,
-    BEARISH: scanRows.filter((row) => row.directionalOutlook === 'BEARISH').length,
+    BULLISH: scanRows.filter((row) => (row.directionalOutlook || '').toUpperCase() === 'BULLISH').length,
+    NEUTRAL: scanRows.filter((row) => (row.directionalOutlook || '').toUpperCase() === 'NEUTRAL').length,
+    BEARISH: scanRows.filter((row) => (row.directionalOutlook || '').toUpperCase() === 'BEARISH').length,
   }), [scanRows]);
 
   const averageConviction = scanRows.length
@@ -272,13 +257,23 @@ export function RadarPage() {
 
   const streamRows = useMemo(() => {
     let rows = [...scanRows];
-    if (streamSignal) rows = rows.filter((r) => r.signal === streamSignal);
-    if (streamOutlook) rows = rows.filter((r) => r.directionalOutlook === streamOutlook);
+    if (streamSignal) {
+      const sigUpper = streamSignal.toUpperCase();
+      rows = rows.filter((r) => {
+        const s = String(r.signal || '').toUpperCase();
+        if (sigUpper === 'BUY') return s.includes('BUY');
+        if (sigUpper === 'AVOID') return s.includes('AVOID') || s.includes('SELL');
+        if (sigUpper === 'WATCH') return s.includes('WATCH') || s.includes('HOLD') || s.includes('NEUTRAL');
+        return s === sigUpper;
+      });
+    }
+    if (streamOutlook) rows = rows.filter((r) => (r.directionalOutlook || '').toUpperCase() === streamOutlook.toUpperCase());
     if (streamMinScore > 0) rows = rows.filter((r) => r.convictionScore >= streamMinScore);
     const q = streamSearch.trim().toUpperCase();
     if (q) rows = rows.filter((r) => r.symbol.toUpperCase().includes(q));
     return rows;
   }, [scanRows, streamSignal, streamOutlook, streamMinScore, streamSearch]);
+
 
   const STREAM_PAGE_SIZE = 8;
   const streamPages = Math.max(1, Math.ceil(streamRows.length / STREAM_PAGE_SIZE));
@@ -287,6 +282,46 @@ export function RadarPage() {
     const start = (safeStreamPage - 1) * STREAM_PAGE_SIZE;
     return streamRows.slice(start, start + STREAM_PAGE_SIZE);
   }, [streamRows, safeStreamPage]);
+
+  const explorerFallbackRows = useMemo(() => {
+    let rows = [...scanRows];
+    if (explorerSignal) {
+      const sigUpper = explorerSignal.toUpperCase();
+      rows = rows.filter((r) => {
+        const s = String(r.signal || '').toUpperCase();
+        if (sigUpper === 'BUY') return s.includes('BUY');
+        if (sigUpper === 'AVOID') return s.includes('AVOID') || s.includes('SELL');
+        if (sigUpper === 'WATCH') return s.includes('WATCH') || s.includes('HOLD') || s.includes('NEUTRAL');
+        return s === sigUpper;
+      });
+    }
+    if (explorerOutlook) rows = rows.filter((r) => (r.directionalOutlook || '').toUpperCase() === explorerOutlook.toUpperCase());
+    if (explorerMinScore > 0) rows = rows.filter((r) => r.convictionScore >= explorerMinScore);
+    const q = explorerSearch.trim().toUpperCase();
+    if (q) rows = rows.filter((r) => r.symbol.toUpperCase().includes(q));
+    return rows;
+  }, [scanRows, explorerSignal, explorerOutlook, explorerMinScore, explorerSearch]);
+
+  const effectiveOpportunities = useMemo(() => {
+    if (opportunities?.data && opportunities.data.length > 0) {
+      return { data: opportunities.data, totalPages: opportunities.meta.totalPages };
+    }
+    const total = explorerFallbackRows.length;
+    const totalPages = Math.max(1, Math.ceil(total / 10));
+    const start = (oppPage - 1) * 10;
+    const data = explorerFallbackRows.slice(start, start + 10).map((r, idx) => ({
+      id: idx + 1,
+      symbol: r.symbol,
+      exchange: r.exchange || 'NSE',
+      signal: r.signal,
+      directionalOutlook: r.directionalOutlook || 'BULLISH',
+      convictionScore: r.convictionScore,
+      createdAt: new Date().toISOString(),
+    }));
+    return { data, totalPages };
+  }, [opportunities, explorerFallbackRows, oppPage]);
+
+
 
   const gainers = useMemo(() => {
     return [...allQuotes].filter((q) => q.changePct != null).sort((a, b) => (b.changePct ?? 0) - (a.changePct ?? 0)).slice(0, 5);
@@ -309,19 +344,37 @@ export function RadarPage() {
         <div className="relative z-10 flex flex-wrap items-start justify-between gap-4 pb-4 border-b border-white/10">
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-blue-950/80 border border-blue-400/30 text-blue-300 text-[10.5px] font-mono font-bold tracking-wider mb-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              NIFTY 100 MARKET INTELLIGENCE
+              {isMarketOpen() ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>NIFTY 100 MARKET INTELLIGENCE · LIVE</span>
+                </>
+              ) : (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-amber-400" />
+                  <span>NIFTY 100 MARKET INTELLIGENCE · MARKET CLOSED (EOD)</span>
+                </>
+              )}
             </div>
-            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black tracking-tight text-white">
+            <h1 className="text-2xl sm:text-3xl lg:text-[32px] font-bold tracking-tight text-white leading-snug">
               Opportunity Radar
             </h1>
             <p className="mt-0.5 max-w-xl text-xs text-slate-300 leading-relaxed font-light">
-              Systematic screening of available Nifty 100 data, with clear trend context, risk filters and AI-validated actions.
+              {isMarketOpen()
+                ? 'Systematic screening of available Nifty 100 data, with clear trend context, risk filters and AI-validated actions.'
+                : 'Showing latest verified EOD session data & multi-factor opportunity scans (NSE/BSE Closed).'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
+            <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-mono font-bold ${
+              isMarketOpen()
+                ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                : 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+            }`}>
+              <span className={`w-2 h-2 rounded-full ${isMarketOpen() ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+              {isMarketOpen() ? 'MARKET OPEN' : 'MARKET CLOSED'}
+            </span>
             <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/40 border border-white/10 text-xs font-mono font-semibold text-slate-300">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               {lastScannedAt ? `UPDATED ${formatTimeAgo(lastScannedAt).toUpperCase()}` : 'AWAITING SCAN'}
             </span>
             <button
@@ -341,6 +394,7 @@ export function RadarPage() {
             </button>
           </div>
         </div>
+
 
         <div className="relative z-10 pt-4 flex flex-wrap items-center gap-5 sm:gap-7">
           <BreadthDonut advancing={breadth?.advancing ?? 0} total={breadth?.total ?? 0} />
@@ -585,7 +639,7 @@ export function RadarPage() {
 
         {loading || signalsLoading ? (
           <Spinner label="Loading signal explorer..." />
-        ) : explorerView === 'opportunities' && opportunities?.data.length ? (
+        ) : explorerView === 'opportunities' && effectiveOpportunities.data.length ? (
           <>
             <div className="w-full rounded-xl border border-slate-200 dark:border-[#1c2541] overflow-hidden">
               <table className="w-full text-left text-xs">
@@ -600,7 +654,7 @@ export function RadarPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-[#1c2541]/60 text-slate-800 dark:text-slate-200">
-                  {opportunities.data.map((row, index) => (
+                  {effectiveOpportunities.data.map((row, index) => (
                     <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors">
                       <td className="hidden sm:table-cell px-3 py-2.5 font-mono text-slate-500">#{(oppPage - 1) * 10 + index + 1}</td>
                       <td className="px-3 py-2.5">
@@ -623,9 +677,10 @@ export function RadarPage() {
                 </tbody>
               </table>
             </div>
-            <PaginationBar page={oppPage} totalPages={opportunities.meta.totalPages} onPage={setOppPage} />
+            <PaginationBar page={oppPage} totalPages={effectiveOpportunities.totalPages} onPage={setOppPage} />
           </>
         ) : explorerView === 'signals' && signals?.data.length ? (
+
           <>
             <div className="w-full rounded-xl border border-slate-200 dark:border-[#1c2541] overflow-hidden">
               <table className="w-full text-left text-xs">

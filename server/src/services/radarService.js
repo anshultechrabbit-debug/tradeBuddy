@@ -587,18 +587,48 @@ export function startRadarScheduler(intervalMs = 60000) {
 
 export async function listSignals({ userId, page = 1, limit = 20, signal, outlook, minConviction, symbol }) {
   const where = userId != null ? { userId } : {};
-  if (signal) where.signal = signal;
-  if (minConviction != null) where.convictionScore = { gte: minConviction };
+  if (minConviction != null && minConviction > 0) where.convictionScore = { gte: minConviction };
   if (symbol) where.symbol = { contains: symbol.toUpperCase() };
-  const allRows = await prisma.scanSignal.findMany({
+
+  let allRows = await prisma.scanSignal.findMany({
     where,
     orderBy: [{ timestamp: 'desc' }, { convictionScore: 'desc' }],
   });
-  const filteredRows = outlook
-    ? allRows.filter((row) => (
-        row.features?.aiStrategy?.directionalOutlook ?? row.features?.directionalOutlook
-      ) === outlook)
-    : allRows;
+
+  // Fallback to in-memory scan signals if DB rows are empty
+  if (!allRows.length && lastScanResult?.opportunities?.length) {
+    allRows = lastScanResult.opportunities.map((o, idx) => ({
+      id: idx + 1,
+      symbol: o.symbol,
+      exchange: o.exchange || 'NSE',
+      timestamp: new Date(),
+      signal: o.signal,
+      regime: o.regime || lastScanResult.regime,
+      convictionScore: o.convictionScore,
+      features: { directionalOutlook: o.directionalOutlook || 'BULLISH' },
+      reason: o.explanation || `${o.symbol} flagged with ${o.convictionScore}% conviction.`,
+      dataSource: o.dataSource || 'LIVE',
+    }));
+  }
+
+  let filteredRows = allRows;
+  if (signal) {
+    const sigUpper = signal.toUpperCase();
+    filteredRows = filteredRows.filter((r) => {
+      const s = String(r.signal || '').toUpperCase();
+      if (sigUpper === 'BUY') return s.includes('BUY');
+      if (sigUpper === 'AVOID') return s.includes('AVOID') || s.includes('SELL');
+      if (sigUpper === 'WATCH') return s.includes('WATCH') || s.includes('HOLD') || s.includes('NEUTRAL');
+      return s === sigUpper;
+    });
+  }
+
+  if (outlook) {
+    filteredRows = filteredRows.filter((row) => (
+      row.features?.aiStrategy?.directionalOutlook ?? row.features?.directionalOutlook
+    ) === outlook);
+  }
+
   const total = filteredRows.length;
   const rows = filteredRows.slice((page - 1) * limit, page * limit);
   return {
@@ -622,44 +652,65 @@ export async function listSignals({ userId, page = 1, limit = 20, signal, outloo
 }
 
 export async function listOpportunities({ userId, page = 1, limit = 20, signal, outlook, minConviction, symbol }) {
-  const latest = await prisma.radarOpportunity.findFirst({
-    where: userId != null ? { userId } : {},
-    orderBy: { createdAt: 'desc' },
-    select: { scanId: true },
-  });
-  if (!latest) return { rows: [], total: 0 };
-
-  const where = { scanId: latest.scanId };
-  if (userId != null) where.userId = userId;
-  if (signal) where.signal = signal;
-  if (minConviction != null) where.convictionScore = { gte: minConviction };
-  if (symbol) where.symbol = { contains: symbol.toUpperCase() };
-  const allRows = await prisma.radarOpportunity.findMany({
-    where,
-    orderBy: { convictionScore: 'desc' },
-  });
-  const signalRows = allRows.length
-    ? await prisma.scanSignal.findMany({
-        where: {
-          ...(userId != null ? { userId } : {}),
-          symbol: { in: allRows.map((row) => row.symbol) },
-        },
-        orderBy: { timestamp: 'desc' },
-        select: { symbol: true, features: true },
-      })
-    : [];
-  const outlookBySymbol = new Map();
-  for (const row of signalRows) {
-    if (!outlookBySymbol.has(row.symbol)) {
-      outlookBySymbol.set(
-        row.symbol,
-        row.features?.aiStrategy?.directionalOutlook ?? row.features?.directionalOutlook ?? null,
-      );
+  let allRows = [];
+  
+  // 1. Prefer live in-memory scan result to maintain 100% UI consistency with top cards
+  if (lastScanResult && lastScanResult.opportunities && lastScanResult.opportunities.length > 0) {
+    allRows = lastScanResult.opportunities.map((o, i) => ({
+      id: i + 1,
+      scanId: lastScanResult.scanId || 'live-scan',
+      symbol: o.symbol,
+      exchange: o.exchange || 'NSE',
+      price: o.price,
+      signal: o.signal,
+      regime: o.regime || lastScanResult.regime,
+      convictionScore: o.convictionScore,
+      explanation: o.explanation,
+      directionalOutlook: o.directionalOutlook || 'BULLISH',
+      dataSource: o.dataSource || 'LIVE',
+      createdAt: new Date(),
+    }));
+  } else {
+    const latest = await prisma.radarOpportunity.findFirst({
+      where: userId != null ? { userId } : {},
+      orderBy: { createdAt: 'desc' },
+      select: { scanId: true },
+    });
+    if (latest) {
+      allRows = await prisma.radarOpportunity.findMany({
+        where: { scanId: latest.scanId, ...(userId != null ? { userId } : {}) },
+        orderBy: { convictionScore: 'desc' },
+      });
     }
   }
-  const filteredRows = outlook
-    ? allRows.filter((row) => outlookBySymbol.get(row.symbol) === outlook)
-    : allRows;
+
+  let filteredRows = allRows;
+
+  // Signal filter: 'BUY' matches 'BUY', 'STRONG BUY', 'BUY CANDIDATE', etc.
+  if (signal) {
+    const sigUpper = signal.toUpperCase();
+    filteredRows = filteredRows.filter((r) => {
+      const s = String(r.signal || '').toUpperCase();
+      if (sigUpper === 'BUY') return s.includes('BUY');
+      if (sigUpper === 'AVOID') return s.includes('AVOID') || s.includes('SELL');
+      if (sigUpper === 'WATCH') return s.includes('WATCH') || s.includes('HOLD') || s.includes('NEUTRAL');
+      return s === sigUpper;
+    });
+  }
+
+  if (minConviction != null && minConviction > 0) {
+    filteredRows = filteredRows.filter((r) => Number(r.convictionScore) >= minConviction);
+  }
+
+  if (symbol) {
+    const symUpper = symbol.toUpperCase();
+    filteredRows = filteredRows.filter((r) => String(r.symbol || '').toUpperCase().includes(symUpper));
+  }
+
+  if (outlook) {
+    filteredRows = filteredRows.filter((r) => String(r.directionalOutlook || '').toUpperCase() === outlook.toUpperCase());
+  }
+
   const total = filteredRows.length;
   const rows = filteredRows.slice((page - 1) * limit, page * limit);
   return {
@@ -668,12 +719,12 @@ export async function listOpportunities({ userId, page = 1, limit = 20, signal, 
       scanId: o.scanId,
       symbol: o.symbol,
       exchange: o.exchange,
-      price: Number(o.price),
+      price: o.price == null ? null : round2(Number(o.price)),
       signal: o.signal,
       regime: o.regime,
       convictionScore: o.convictionScore,
       explanation: o.explanation,
-      directionalOutlook: outlookBySymbol.get(o.symbol) ?? null,
+      directionalOutlook: o.directionalOutlook ?? 'BULLISH',
       dataSource: o.dataSource,
       createdAt: o.createdAt,
     })),

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { analyzeMany, analyzeSymbol, searchSymbols, suggestMarket } from '../store/aiSlice';
@@ -8,7 +8,7 @@ import { fetchAllQuotes } from '../store/marketSlice';
 import { Card, Spinner, EmptyState, ErrorBox, Badge } from '../components/ui';
 import { formatCurrency, formatPct, formatTimeAgo } from '../lib/format';
 import { CandleChart } from '../components/CandleChart';
-import { PredictionTrackerPanel } from '../components/PredictionTrackerPanel';
+import { isMarketOpen, getMarketStatus } from '../lib/marketHours';
 import type { AiAnalysis } from '../lib/types';
 
 function signalTone(signal: string): 'buy' | 'watch' | 'avoid' {
@@ -109,17 +109,19 @@ export function AiPicksPage() {
     dispatch(fetchWatchlist());
     dispatch(fetchLatestScan());
     dispatch(fetchAllQuotes());
-    const timer = setInterval(() => dispatch(fetchAllQuotes()), 60000);
-    return () => {
-      clearInterval(timer);
-    };
+    const timer = setInterval(() => dispatch(fetchAllQuotes()), 30000);
+    return () => clearInterval(timer);
   }, [dispatch]);
+
+
 
   const [searchParams] = useSearchParams();
   const urlSymbol = searchParams.get('symbol')?.trim().toUpperCase();
 
+  const urlSymbolApplied = useRef<string | null>(null);
   useEffect(() => {
-    if (!urlSymbol) return;
+    if (!urlSymbol || urlSymbolApplied.current === urlSymbol) return;
+    urlSymbolApplied.current = urlSymbol;
     if (bySymbol[urlSymbol]) {
       setSelected(urlSymbol);
       setSearched(urlSymbol);
@@ -189,18 +191,19 @@ export function AiPicksPage() {
     return () => clearTimeout(timer);
   }, [symbolInput, dispatch]);
 
-  const searchedPick = searched ? picks.find((p) => p.symbol === searched) ?? null : null;
-  const active = searched ? searchedPick : picks.find((p) => p.symbol === selected) ?? picks[0] ?? null;
+  const searchedPick = searched ? (bySymbol[searched] ?? picks.find((p) => p.symbol === searched) ?? null) : null;
+  const active = searched ? searchedPick : (bySymbol[selected ?? ''] ?? picks.find((p) => p.symbol === selected) ?? picks[0] ?? null);
 
   const onAnalyze = (symbol?: string) => {
     const target = (symbol ?? symbolInput).trim().toUpperCase();
     if (!target) return;
     setSearched(target);
-    dispatch(analyzeSymbol(target));
     setSelected(target);
+    dispatch(analyzeSymbol(target));
     setSymbolInput('');
     setShowSuggestions(false);
   };
+
 
   const clearSearch = () => {
     setSearched(null);
@@ -235,19 +238,37 @@ export function AiPicksPage() {
         <div className="relative z-10 flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-white/10">
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-electric-950/80 border border-electric-500/30 text-electric-300 text-[10.5px] font-mono font-bold tracking-wider mb-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              QUANTILOT 7-FACTOR ENGINE
+              {isMarketOpen() ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>QUANTILOT 7-FACTOR ENGINE · LIVE</span>
+                </>
+              ) : (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-amber-400" />
+                  <span>QUANTILOT 7-FACTOR ENGINE · MARKET CLOSED (EOD)</span>
+                </>
+              )}
             </div>
-            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold tracking-tight text-white">
+            <h1 className="text-2xl sm:text-3xl lg:text-[32px] font-bold tracking-tight text-white leading-snug">
               AI Strategy Picks
             </h1>
             <p className="mt-0.5 text-xs text-slate-300">
-              Algorithmic research on live Nifty data + news catalyst scoring — every factor explained.
+              {isMarketOpen()
+                ? 'Algorithmic research on live Nifty data + news catalyst scoring — every factor explained.'
+                : 'Showing latest verified EOD session data & quantitative factor analysis (NSE/BSE Closed).'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <span className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold flex items-center gap-1.5 ${isMarketOpen()
+              ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300'
+              : 'bg-amber-500/20 border border-amber-500/40 text-amber-300'
+              }`}>
+              <span className={`w-2 h-2 rounded-full ${isMarketOpen() ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+              {isMarketOpen() ? 'MARKET OPEN' : 'MARKET CLOSED'}
+            </span>
             <span className="px-3 py-1.5 rounded-xl bg-white/10 text-xs font-mono font-semibold text-slate-300">
-              Updated {lastUpdated ? formatTimeAgo(lastUpdated) : 'Live'}
+              Updated {lastUpdated ? formatTimeAgo(lastUpdated) : 'EOD'}
             </span>
             <button
               onClick={onRefresh}
@@ -258,6 +279,7 @@ export function AiPicksPage() {
             </button>
           </div>
         </div>
+
 
         {/* Search & Suggest Controls */}
         <div className="relative z-20 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -344,11 +366,10 @@ export function AiPicksPage() {
                   setSearched(null);
                   setSelected(p.symbol);
                 }}
-                className={`flex items-center gap-2.5 px-4 py-2.5 rounded-2xl border transition-all shrink-0 cursor-pointer ${
-                  isSel
-                    ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-500 shadow-md ring-2 ring-blue-500/20'
-                    : 'bg-white dark:bg-[#0b132b]/80 border-slate-200 dark:border-[#1c2541] hover:bg-slate-50 dark:hover:bg-white/[0.04]'
-                }`}
+                className={`flex items-center gap-2.5 px-4 py-2.5 rounded-2xl border transition-all shrink-0 cursor-pointer ${isSel
+                  ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-500 shadow-md ring-2 ring-blue-500/20'
+                  : 'bg-white dark:bg-[#0b132b]/80 border-slate-200 dark:border-[#1c2541] hover:bg-slate-50 dark:hover:bg-white/[0.04]'
+                  }`}
               >
                 <span className="text-[10px] font-mono font-bold text-slate-400">#{i + 1}</span>
                 <span className="font-black text-xs text-slate-900 dark:text-white">{p.symbol}</span>
@@ -453,39 +474,147 @@ export function AiPicksPage() {
                   </div>
                 )}
 
-                {/* Predicted Closing Range line */}
-                <div className="mt-3 p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/25 border border-emerald-200 dark:border-emerald-800/40 text-xs text-slate-800 dark:text-slate-200">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-emerald-700 dark:text-emerald-400 uppercase text-[10px] tracking-wider flex items-center gap-1.5">
-                      <span>🎯</span> Predicted Closing Range
-                    </span>
-                    {(active.expectedPct != null || active.engine?.closingRange?.expectedMovePct != null || active.morningBaseline?.expectedMovePct != null) && (
-                      <span className="font-mono text-xs font-black text-emerald-600 dark:text-emerald-400">
-                        {active.expectedPct != null
-                          ? (active.expectedPct >= 0 ? `+${active.expectedPct.toFixed(2)}%` : `${active.expectedPct.toFixed(2)}%`)
-                          : active.engine?.closingRange?.expectedMovePct != null
-                          ? `${active.engine.closingRange.expectedMovePct >= 0 ? '+' : ''}${active.engine.closingRange.expectedMovePct.toFixed(2)}%`
-                          : `${(active.morningBaseline?.expectedMovePct ?? 0) >= 0 ? '+' : ''}${(active.morningBaseline?.expectedMovePct ?? 0).toFixed(2)}%`}
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-1 flex items-baseline justify-between">
-                    <span className="font-mono text-sm font-black text-slate-900 dark:text-white">
-                      {active.engine?.closingRange?.bear != null && active.engine?.closingRange?.bull != null
-                        ? `${formatCurrency(active.engine.closingRange.bear)} – ${formatCurrency(active.engine.closingRange.bull)}`
-                        : active.morningBaseline?.bearCase != null && active.morningBaseline?.bullCase != null
-                        ? `${formatCurrency(active.morningBaseline.bearCase)} – ${formatCurrency(active.morningBaseline.bullCase)}`
-                        : active.expectedClose != null
-                        ? formatCurrency(active.expectedClose)
-                        : active.quote?.lastPrice != null
-                        ? `${formatCurrency(active.quote.lastPrice * 0.985)} – ${formatCurrency(active.quote.lastPrice * 1.025)}`
-                        : '—'}
-                    </span>
-                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
-                      Target: {formatCurrency(active.engine?.closingRange?.base ?? active.morningBaseline?.baseCase ?? active.expectedClose ?? active.quote?.lastPrice)}
-                    </span>
-                  </div>
-                </div>
+                {/* Expected Trading Range & Target */}
+                {(() => {
+                  const isBuy = tone === 'buy' || active.finalSignal === 'BUY' || active.finalSignal === 'STRONG BUY';
+                  const isAvoid = tone === 'avoid' || active.finalSignal === 'AVOID';
+                  const curPrice = active.quote?.lastPrice ?? active.price ?? 0;
+                  const bearVal = active.engine?.closingRange?.bear ?? active.morningBaseline?.bearCase;
+                  const bullVal = active.engine?.closingRange?.bull ?? active.morningBaseline?.bullCase;
+                  const baseVal = active.engine?.closingRange?.base ?? active.morningBaseline?.baseCase ?? active.expectedClose;
+
+                  let displayTarget = baseVal;
+                  let displayTargetPct = 0;
+                  let targetLabel = 'Target';
+                  let badgeBg = 'bg-emerald-50/70 dark:bg-emerald-950/25 border-emerald-200 dark:border-emerald-800/40';
+                  let badgeText = 'text-emerald-700 dark:text-emerald-400';
+                  let valueColor = 'text-emerald-600 dark:text-emerald-400';
+
+                  if (isBuy) {
+                    displayTarget = bullVal ?? (curPrice > 0 ? curPrice * 1.025 : baseVal);
+                    displayTargetPct = curPrice > 0 && displayTarget ? ((displayTarget - curPrice) / curPrice) * 100 : 2.5;
+                    targetLabel = 'Upside Target';
+                  } else if (isAvoid) {
+                    displayTarget = bearVal ?? (curPrice > 0 ? curPrice * 0.975 : baseVal);
+                    displayTargetPct = curPrice > 0 && displayTarget ? ((displayTarget - curPrice) / curPrice) * 100 : -2.5;
+                    targetLabel = 'Risk Floor';
+                    badgeBg = 'bg-rose-50/70 dark:bg-rose-950/25 border-rose-200 dark:border-rose-800/40';
+                    badgeText = 'text-rose-700 dark:text-rose-400';
+                    valueColor = 'text-rose-600 dark:text-rose-400';
+                  } else {
+                    displayTarget = baseVal ?? curPrice;
+                    displayTargetPct = curPrice > 0 && displayTarget ? ((displayTarget - curPrice) / curPrice) * 100 : 0;
+                    targetLabel = 'Base Target';
+                    badgeBg = 'bg-blue-50/70 dark:bg-blue-950/25 border-blue-200 dark:border-blue-800/40';
+                    badgeText = 'text-blue-700 dark:text-blue-400';
+                    valueColor = 'text-blue-600 dark:text-blue-400';
+                  }
+
+                  if (isBuy) {
+                    const targetHigh = bullVal ?? (curPrice > 0 ? curPrice * 1.025 : baseVal);
+                    const targetLow = baseVal ?? (curPrice > 0 ? curPrice * 1.008 : targetHigh);
+                    const gainPct = curPrice > 0 && targetHigh ? ((targetHigh - curPrice) / curPrice) * 100 : 1.5;
+
+                    return (
+                      <div className="mt-3 p-3.5 rounded-2xl border border-emerald-500/30 bg-emerald-50/70 dark:bg-emerald-950/25 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-black uppercase text-[10px] tracking-wider text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                            <span>▲</span> Predicted Move: Going Higher
+                          </span>
+                          <span className="font-mono text-[11px] font-black text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-md bg-white dark:bg-black/40 border border-emerald-500/30">
+                            +{gainPct.toFixed(2)}% Upside
+                          </span>
+                        </div>
+
+                        <div className="pt-0.5">
+                          <div className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Projected High Target</div>
+                          <div className="font-mono text-xl font-black text-emerald-600 dark:text-emerald-400">
+                            {formatCurrency(targetHigh)}
+                          </div>
+                        </div>
+
+                        <div className="pt-2 border-t border-emerald-200/60 dark:border-white/10 flex items-center justify-between text-[11px] font-mono">
+                          <span className="text-slate-500 dark:text-slate-400">Expected High Range:</span>
+                          <span className="font-bold text-slate-900 dark:text-white">
+                            {formatCurrency(targetLow)} — {formatCurrency(targetHigh)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (isAvoid) {
+                    const targetLow = bearVal ?? (curPrice > 0 ? curPrice * 0.975 : baseVal);
+                    const targetHigh = baseVal ?? (curPrice > 0 ? curPrice * 0.992 : targetLow);
+                    const lossPct = curPrice > 0 && targetLow ? ((targetLow - curPrice) / curPrice) * 100 : -2.5;
+
+                    return (
+                      <div className="mt-3 p-3.5 rounded-2xl border border-rose-500/30 bg-rose-50/70 dark:bg-rose-950/25 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-black uppercase text-[10px] tracking-wider text-rose-700 dark:text-rose-400 flex items-center gap-1.5">
+                            <span>▼</span> Predicted Move: Going Lower
+                          </span>
+                          <span className="font-mono text-[11px] font-black text-rose-600 dark:text-rose-400 px-2 py-0.5 rounded-md bg-white dark:bg-black/40 border border-rose-500/30">
+                            {lossPct.toFixed(2)}% Downside
+                          </span>
+                        </div>
+
+                        <div className="pt-0.5">
+                          <div className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Projected Low Target</div>
+                          <div className="font-mono text-xl font-black text-rose-600 dark:text-rose-400">
+                            {formatCurrency(targetLow)}
+                          </div>
+                        </div>
+
+                        <div className="pt-2 border-t border-rose-200/60 dark:border-white/10 flex items-center justify-between text-[11px] font-mono">
+                          <span className="text-slate-500 dark:text-slate-400">Expected Drop Range:</span>
+                          <span className="font-bold text-slate-900 dark:text-white">
+                            {formatCurrency(targetLow)} — {formatCurrency(targetHigh)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // Neutral / Sideways
+                  return (
+                    <div className="mt-3 p-3.5 rounded-2xl border border-amber-500/30 bg-amber-50/70 dark:bg-amber-950/25 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-black uppercase text-[10px] tracking-wider text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                          <span>↔</span> Predicted Move: Sideways (No Breakout)
+                        </span>
+                        <span className="font-mono text-[11px] font-black text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-md bg-white dark:bg-black/40 border border-amber-500/30">
+                          Wait & Watch
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <div className="p-2.5 rounded-xl bg-white/70 dark:bg-black/30 border border-amber-200/60 dark:border-white/10">
+                          <div className="text-[10px] uppercase font-bold text-slate-400">Resistance Ceiling</div>
+                          <div className="font-mono text-sm font-black text-slate-900 dark:text-white">
+                            {bullVal != null ? formatCurrency(bullVal) : '—'}
+                          </div>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-white/70 dark:bg-black/30 border border-amber-200/60 dark:border-white/10">
+                          <div className="text-[10px] uppercase font-bold text-slate-400">Support Floor</div>
+                          <div className="font-mono text-sm font-black text-slate-900 dark:text-white">
+                            {bearVal != null ? formatCurrency(bearVal) : '—'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="pt-1.5 text-[11px] text-slate-600 dark:text-slate-400 font-medium">
+                        Price is consolidating inside this channel. Wait for a breakout before taking action.
+                      </div>
+                    </div>
+                  );
+                })()}
+
+
+
+
+
+
 
                 {/* Engine prediction */}
                 {active.prediction && (
@@ -532,22 +661,21 @@ export function AiPicksPage() {
                   <span className="text-base">📌</span>
                   <h3 className="font-black text-sm text-slate-900 dark:text-white">Morning Baseline Forecast (Locked Target)</h3>
                 </div>
-                <span className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono ${
-                  active.morningBaseline.trajectoryStatus === 'ON_TRACK'
-                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/50'
-                    : active.morningBaseline.trajectoryStatus === 'INVALIDATED'
+                <span className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono ${active.morningBaseline.trajectoryStatus === 'ON_TRACK'
+                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/50'
+                  : active.morningBaseline.trajectoryStatus === 'INVALIDATED'
                     ? 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300 border border-rose-300 dark:border-rose-800/50'
                     : active.morningBaseline.trajectoryStatus === 'PULLBACK'
-                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-300 dark:border-amber-800/50'
-                    : 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border border-blue-300 dark:border-blue-800/50'
-                }`}>
+                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-300 dark:border-amber-800/50'
+                      : 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border border-blue-300 dark:border-blue-800/50'
+                  }`}>
                   {active.morningBaseline.trajectoryStatus === 'ON_TRACK'
                     ? '🟢 ON TRACK'
                     : active.morningBaseline.trajectoryStatus === 'INVALIDATED'
-                    ? '🔴 THESIS INVALIDATED'
-                    : active.morningBaseline.trajectoryStatus === 'PULLBACK'
-                    ? '🟡 PULLBACK'
-                    : '🔵 NEUTRAL RANGE'}
+                      ? '🔴 THESIS INVALIDATED'
+                      : active.morningBaseline.trajectoryStatus === 'PULLBACK'
+                        ? '🟡 PULLBACK'
+                        : '🔵 NEUTRAL RANGE'}
                 </span>
               </div>
 
@@ -707,8 +835,6 @@ export function AiPicksPage() {
               </div>
             </Card>
           </div>
-
-          <PredictionTrackerPanel />
         </div>
       ) : null}
 

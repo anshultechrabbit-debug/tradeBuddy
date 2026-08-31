@@ -7,9 +7,9 @@ export function MetricsSection() {
         
         {/* Top Sapphire Header */}
         <div className="max-w-3xl space-y-4">
-          <h2 className="text-3xl sm:text-5xl font-normal tracking-tight text-white leading-tight">
+          <h2 className="text-3xl sm:text-5xl font-bold tracking-tight text-white leading-tight font-display">
             Coordinate every trade with{' '}
-            <span className="font-serif italic text-transparent bg-clip-text bg-gradient-to-r from-electric-200 via-electric-400 to-blue-300">
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-electric-200 via-electric-400 to-blue-300">
               surgical AI precision.
             </span>
           </h2>
@@ -55,7 +55,7 @@ export function MetricsSection() {
 
         {/* Massive Editorial Statement in Dark Sapphire */}
         <div className="max-w-4xl mx-auto text-center pt-12 border-t border-[#1c2541] space-y-6">
-          <h3 className="text-3xl sm:text-5xl lg:text-[52px] font-serif font-normal text-white leading-[1.25]">
+          <h3 className="text-3xl sm:text-5xl lg:text-[52px] font-bold text-white leading-[1.25] font-display">
             Today, traders see only a fraction of their setups. Orders fill late. Slippage eats edge. And unmanaged risk costs accounts.
           </h3>
           <p className="text-sm text-slate-400 max-w-lg mx-auto">

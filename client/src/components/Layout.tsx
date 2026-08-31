@@ -1,41 +1,154 @@
-import { useState, type ReactNode } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAppSelector } from '../store/hooks';
 import { useTheme } from '../hooks/useTheme';
 import { useLiveMarketSync } from '../hooks/useLiveMarketSync';
 import { formatNumber, formatPct } from '../lib/format';
+import { getMarketStatus } from '../lib/marketHours';
 import { TradePandaChat } from './TradePandaChat';
 
+// Modern Outline SVG Icons
+const Icons = {
+  dashboard: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+    </svg>
+  ),
+  markets: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+      <polyline points="16 7 22 7 22 13" />
+    </svg>
+  ),
+  radar: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="5" />
+      <circle cx="12" cy="12" r="1.5" />
+      <path d="M12 3a9 9 0 0 1 9 9" />
+    </svg>
+  ),
+  options: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3Z" />
+    </svg>
+  ),
+  portfolio: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <rect width="20" height="14" x="2" y="7" rx="3" />
+      <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+    </svg>
+  ),
+  coach: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9 10h.01" />
+      <path d="M15 10h.01" />
+      <path d="M9.5 15a3.5 3.5 0 0 0 5 0" />
+    </svg>
+  ),
+  connections: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <path d="M9 17H7A5 5 0 0 1 7 7h2" />
+      <path d="M15 7h2a5 5 0 1 1 0 10h-2" />
+      <line x1="8" x2="16" y1="12" y2="12" />
+    </svg>
+  ),
+  strategies: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="6" />
+      <circle cx="12" cy="12" r="2" />
+    </svg>
+  ),
+  journal: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+    </svg>
+  ),
+  news: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2" />
+      <path d="M18 14h-8" />
+      <path d="M15 18h-5" />
+      <path d="M10 6h8v4h-8V6Z" />
+    </svg>
+  ),
+  commodities: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <circle cx="8" cy="8" r="6" />
+      <path d="M18.09 10.37A6 6 0 1 1 10.34 18" />
+      <path d="M7 6h1v4" />
+      <path d="m16.7 13.3.6.7" />
+    </svg>
+  ),
+  watchlist: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+    </svg>
+  ),
+  alerts: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+    </svg>
+  ),
+  reports: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="16" x2="8" y1="13" y2="13" />
+      <line x1="16" x2="8" y1="17" y2="17" />
+    </svg>
+  ),
+  settings: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
+  admin: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  ),
+};
+
 const NAV_LINKS = [
-  { to: '/dashboard',  label: 'Dashboard',        icon: '⊞' },
-  { to: '/radar',      label: 'Opportunity Radar', icon: '📡', badge: '12' },
-  { to: '/market',     label: 'Markets',           icon: '📈' },
-  { to: '/ai-picks',   label: 'AI Strategy',       icon: '🤖' },
-  { to: '/portfolio',  label: 'Portfolio',         icon: '💼' },
-  { to: '/watchlist',  label: 'Watchlist',         icon: '👀' },
-  { to: '/alerts',     label: 'Alerts',            icon: '🔔', badge: '4' },
-  { to: '/journal',    label: 'Trade Journal',     icon: '📖' },
+  { to: '/dashboard', label: 'Dashboard', icon: Icons.dashboard },
+  { to: '/radar', label: 'Opportunity Radar', icon: Icons.radar, badge: '12' },
+  { to: '/market', label: 'Markets', icon: Icons.markets },
+  { to: '/ai-picks', label: 'AI Strategy', icon: Icons.options },
+  { to: '/portfolio', label: 'Portfolio', icon: Icons.portfolio },
+  { to: '/watchlist', label: 'Watchlist', icon: Icons.watchlist },
+  { to: '/alerts', label: 'Alerts', icon: Icons.alerts, badge: '4' },
+  { to: '/journal', label: 'Trade Journal', icon: Icons.journal },
 ];
 
 const SYSTEM_LINKS = [
-  { to: '/settings', label: 'Settings', icon: '⚙️' },
+  { to: '/settings', label: 'Settings', icon: Icons.settings },
 ];
 
 const ADMIN_LINKS = [
-  { to: '/admin/users',         label: 'Users',              icon: '👥' },
-  { to: '/admin/system-health', label: 'System Health',      icon: '💊' },
-  { to: '/admin/brokers',       label: 'Broker Connections', icon: '🔌' },
-  { to: '/admin/compliance',    label: 'Compliance',         icon: '🛡️' },
-  { to: '/admin/scan-universe', label: 'Scan Universe',      icon: '🌐' },
+  { to: '/admin/users', label: 'Users', icon: Icons.coach },
+  { to: '/admin/system-health', label: 'System Health', icon: Icons.reports },
+  { to: '/admin/brokers', label: 'Broker Connections', icon: Icons.connections },
+  { to: '/admin/compliance', label: 'Compliance', icon: Icons.admin },
+  { to: '/admin/scan-universe', label: 'Scan Universe', icon: Icons.radar },
 ];
 
+
 const DEFAULT_TICKERS = [
-  { symbol: 'NIFTY 50',   level: 24780.40, change: 618.55, changePct: 0.82 },
+  { symbol: 'NIFTY 50', level: 24780.40, change: 618.55, changePct: 0.82 },
   { symbol: 'BANK NIFTY', level: 53410.65, change: -88.48, changePct: -0.17 },
-  { symbol: 'NIFTY IT',   level: 42918.20, change: 618.55, changePct: 1.44 },
-  { symbol: 'INDIA VIX',  level: 12.84,    change: -0.42,  changePct: -3.17 },
-  { symbol: 'USD/INR',    level: 83.42,    change: 0.05,   changePct: 0.06 },
-  { symbol: 'GOLD (MCX)', level: 72148,    change: 312,    changePct: 0.43 },
+  { symbol: 'NIFTY IT', level: 42918.20, change: 618.55, changePct: 1.44 },
+  { symbol: 'INDIA VIX', level: 12.84, change: -0.42, changePct: -3.17 },
+  { symbol: 'USD/INR', level: 83.42, change: 0.05, changePct: 0.06 },
+  { symbol: 'GOLD (MCX)', level: 72148, change: 312, changePct: 0.43 },
 ];
 
 function initials(name?: string | null, email?: string) {
@@ -47,12 +160,12 @@ function initials(name?: string | null, email?: string) {
 export function Layout({ children }: { children: ReactNode }) {
   useLiveMarketSync();
 
-  const location  = useLocation();
-  const navigate  = useNavigate();
-  const user      = useAppSelector((s) => s.auth.user);
-  const indices   = useAppSelector((s) => s.market.indices);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const user = useAppSelector((s) => s.auth.user);
+  const indices = useAppSelector((s) => s.market.indices);
   const topMovers = useAppSelector((s) => s.market.top);
-  const isAdmin   = user?.role === 'ADMIN';
+  const isAdmin = user?.role === 'ADMIN';
   const { theme, toggleTheme } = useTheme();
 
   const [chatOpen, setChatOpen] = useState(false);
@@ -61,7 +174,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
   // Combine live indices + top active market movers
   const liveItems: Array<{ symbol: string; level: number; change?: number | null; changePct: number; tag?: string }> = [];
-  
+
   if (indices && indices.length > 0) {
     indices.forEach((idx) => liveItems.push({ symbol: idx.symbol, level: idx.level, change: idx.change, changePct: idx.changePct, tag: 'INDEX' }));
   } else {
@@ -96,7 +209,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
       {/* ── 1. PREMIUM TOP NAVBAR (VERY TOP) ── */}
       <header className="sticky top-0 z-40 bg-white/95 dark:bg-[#070e24]/95 backdrop-blur-xl border-b border-slate-200/80 dark:border-[#192447] px-3.5 sm:px-6 py-2.5 flex items-center justify-between shadow-sm transition-colors shrink-0">
-        
+
         {/* Left: Brand Logo & Mobile Toggle */}
         <div className="flex items-center gap-2 sm:gap-3">
           <button
@@ -108,16 +221,16 @@ export function Layout({ children }: { children: ReactNode }) {
             <span className="text-sm">☰</span>
           </button>
 
-          <Link to="/dashboard" className="flex items-center gap-2 sm:gap-2.5 group">
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-base sm:text-lg shadow-md shadow-blue-600/30 group-hover:scale-105 transition-transform shrink-0">
-              🐼
+          <Link to="/dashboard" className="flex items-center gap-2.5 group">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-teal-400 via-cyan-500 to-blue-600 flex items-center justify-center text-white font-bold text-base shadow-xs group-hover:scale-105 transition-transform shrink-0">
+              T
             </div>
             <div>
-              <div className="text-sm sm:text-base font-extrabold tracking-tight text-slate-900 dark:text-white flex items-center gap-1.5 leading-none">
+              <div className="text-[15px] font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-1 leading-none">
                 TradeBuddy
               </div>
-              <div className="text-[8px] sm:text-[8.5px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-400 font-mono mt-0.5">
-                QUANTILOT AI
+              <div className="text-[8px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-400 font-mono mt-0.5">
+                POWERED BY QUANTILOT.AI
               </div>
             </div>
           </Link>
@@ -139,11 +252,22 @@ export function Layout({ children }: { children: ReactNode }) {
 
         {/* Right: Market Status + Quick Actions + Profile */}
         <div className="flex items-center gap-1.5 sm:gap-2.5">
-          {/* Live Market Badge */}
-          <div className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-[10.5px] font-mono font-bold">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>NSE CASH · OPEN</span>
-          </div>
+          {/* Live / Closed Market Badge */}
+          {(() => {
+            const mStatus = getMarketStatus();
+            return mStatus.isOpen ? (
+              <div className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-[10.5px] font-mono font-bold" title={mStatus.detail}>
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>NSE CASH · OPEN</span>
+              </div>
+            ) : (
+              <div className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-[10.5px] font-mono font-bold" title={mStatus.detail}>
+                <span className="w-2 h-2 rounded-full bg-amber-400" />
+                <span>NSE CASH · CLOSED</span>
+              </div>
+            );
+          })()}
+
 
           {/* Quick AI Trigger */}
           <button
@@ -230,75 +354,84 @@ export function Layout({ children }: { children: ReactNode }) {
               </form>
 
               {/* Navigation Links */}
-              <nav className="space-y-1">
-                <div className="px-3 pt-1 text-[9px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 font-mono">
-                  CORE TERMINAL
-                </div>
+              <nav className="space-y-0.5 sidebar-custom">
                 {NAV_LINKS.map((l) => (
                   <NavLink
-                    key={l.to}
+                    key={l.to + l.label}
                     to={l.to}
                     end={l.to === '/dashboard'}
                     onClick={() => setMobileMenuOpen(false)}
                     className={({ isActive }) =>
-                      `flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                      `group flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-all ${
                         isActive
-                          ? 'bg-blue-50 text-blue-600 font-bold dark:bg-blue-600/20 dark:text-blue-300 dark:border dark:border-blue-500/40'
-                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/[0.06]'
+                          ? 'sidebar-link-active shadow-xs'
+                          : 'sidebar-link hover:bg-[var(--sidebar-accent)] text-[var(--sidebar-foreground)]'
                       }`
                     }
                   >
-                    <span className="text-base">{l.icon}</span>
-                    <span className="flex-1">{l.label}</span>
-                    {l.badge && (
-                      <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300 text-[10px] font-mono font-bold">
-                        {l.badge}
-                      </span>
+                    {({ isActive }) => (
+                      <>
+                        <span className={`shrink-0 transition-colors ${isActive ? 'text-[var(--sidebar-primary)]' : 'text-slate-400 group-hover:text-slate-700'}`}>{l.icon}</span>
+                        <span className="flex-1">{l.label}</span>
+                        {l.badge && (
+                          <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-600 dark:bg-blue-500/20 dark:text-blue-300 text-[10.5px] font-semibold font-mono">
+                            {l.badge}
+                          </span>
+                        )}
+                      </>
                     )}
                   </NavLink>
                 ))}
 
-                <div className="pt-3 pb-1 px-3 text-[9px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 font-mono">
+                <div className="pt-3.5 pb-1 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono">
                   SYSTEM
                 </div>
                 {SYSTEM_LINKS.map((l) => (
                   <NavLink
-                    key={l.to}
+                    key={l.to + l.label}
                     to={l.to}
                     onClick={() => setMobileMenuOpen(false)}
                     className={({ isActive }) =>
-                      `flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                      `group flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-all ${
                         isActive
-                          ? 'bg-blue-50 text-blue-600 font-bold dark:bg-blue-600/20 dark:text-blue-300'
-                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.06]'
+                          ? 'sidebar-link-active shadow-xs'
+                          : 'sidebar-link hover:bg-[var(--sidebar-accent)] text-[var(--sidebar-foreground)]'
                       }`
                     }
                   >
-                    <span className="text-base">{l.icon}</span>
-                    <span>{l.label}</span>
+                    {({ isActive }) => (
+                      <>
+                        <span className={`shrink-0 transition-colors ${isActive ? 'text-[var(--sidebar-primary)]' : 'text-slate-400 group-hover:text-slate-700'}`}>{l.icon}</span>
+                        <span>{l.label}</span>
+                      </>
+                    )}
                   </NavLink>
                 ))}
 
                 {isAdmin && (
                   <>
-                    <div className="pt-3 pb-1 px-3 text-[9px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 font-mono">
+                    <div className="pt-3.5 pb-1 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono">
                       ADMIN
                     </div>
                     {ADMIN_LINKS.map((l) => (
                       <NavLink
-                        key={l.to}
+                        key={l.to + l.label}
                         to={l.to}
                         onClick={() => setMobileMenuOpen(false)}
                         className={({ isActive }) =>
-                          `flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                          `group flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-all ${
                             isActive
-                              ? 'bg-blue-50 text-blue-600 font-bold dark:bg-blue-600/20 dark:text-blue-300'
-                              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.06]'
+                              ? 'sidebar-link-active shadow-xs'
+                              : 'sidebar-link hover:bg-[var(--sidebar-accent)] text-[var(--sidebar-foreground)]'
                           }`
                         }
                       >
-                        <span className="text-base">{l.icon}</span>
-                        <span>{l.label}</span>
+                        {({ isActive }) => (
+                          <>
+                            <span className={`shrink-0 transition-colors ${isActive ? 'text-[var(--sidebar-primary)]' : 'text-slate-400 group-hover:text-slate-700'}`}>{l.icon}</span>
+                            <span>{l.label}</span>
+                          </>
+                        )}
                       </NavLink>
                     ))}
                   </>
@@ -309,14 +442,14 @@ export function Layout({ children }: { children: ReactNode }) {
             {/* Mobile Footer */}
             <div className="pt-3 border-t border-slate-200 dark:border-[#192447]">
               <div className="flex items-center gap-3 p-2 rounded-xl bg-slate-100 dark:bg-[#0c1636] border border-slate-200 dark:border-[#1e2a52] text-xs">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center font-bold text-white text-xs">
+                <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center font-bold text-white text-xs">
                   {initials(user?.fullName, user?.email)}
                 </div>
                 <div className="overflow-hidden flex-1">
                   <div className="font-bold text-slate-900 dark:text-white truncate">
-                    {user?.fullName ?? user?.email?.split('@')[0] ?? 'Anshul'}
+                    {user?.fullName ?? 'Arjun R.'}
                   </div>
-                  <div className="text-[10px] text-blue-500 font-semibold">⚡ Pro Trader</div>
+                  <div className="text-[10px] text-slate-400 font-semibold">Pro Trader</div>
                 </div>
               </div>
             </div>
@@ -328,83 +461,93 @@ export function Layout({ children }: { children: ReactNode }) {
       <div className="flex flex-1 min-h-0">
 
         {/* ── STICKY LEFT SIDEBAR (STARTS DIRECTLY UNDER TOP NAVBAR) ── */}
-        <aside className="w-64 shrink-0 bg-white dark:bg-[#070e24] border-r border-slate-200 dark:border-[#192447] flex flex-col justify-between p-3.5 hidden md:flex sticky top-[57px] h-[calc(100vh-57px)] overflow-y-auto z-20 shadow-sm transition-colors" style={{ scrollbarWidth: 'thin' }}>
+        <aside className="w-60 shrink-0 sidebar-custom border-r border-slate-200/90 dark:border-[#192447] flex flex-col justify-between p-3 hidden md:flex sticky top-[53px] h-[calc(100vh-53px)] overflow-y-auto z-20 shadow-xs transition-colors" style={{ scrollbarWidth: 'thin' }}>
 
-          <div className="space-y-4">
-            <div className="px-3 pt-1 text-[9.5px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 font-mono">
-              CORE TERMINAL
-            </div>
-
-            {/* Navigation Links */}
-            <nav className="space-y-1">
+          <div className="space-y-3">
+            {/* Core Navigation Links */}
+            <nav className="space-y-0.5">
               {NAV_LINKS.map((l) => (
                 <NavLink
-                  key={l.to}
+                  key={l.to + l.label}
                   to={l.to}
                   end={l.to === '/dashboard'}
                   className={({ isActive }) =>
-                    `group flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 ${
+                    `group flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-all duration-150 ${
                       isActive
-                        ? 'bg-blue-50 text-blue-600 font-bold dark:bg-blue-600/20 dark:text-blue-300 dark:border dark:border-blue-500/40 shadow-sm shadow-blue-500/10'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/[0.06]'
+                        ? 'sidebar-link-active shadow-xs'
+                        : 'sidebar-link hover:bg-[var(--sidebar-accent)] text-[var(--sidebar-foreground)]'
                     }`
                   }
                 >
-                  <span className="text-base group-hover:scale-110 transition-transform">{l.icon}</span>
-                  <span className="flex-1 tracking-tight">{l.label}</span>
-                  {l.badge && (
-                    <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300 text-[10px] font-extrabold font-mono border border-blue-200 dark:border-blue-500/30">
-                      {l.badge}
-                    </span>
+                  {({ isActive }) => (
+                    <>
+                      <span className={`shrink-0 transition-colors ${isActive ? 'text-[var(--sidebar-primary)]' : 'text-slate-400 dark:text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-300'}`}>{l.icon}</span>
+                      <span className="flex-1 tracking-normal">{l.label}</span>
+                      {l.badge && (
+                        <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-600 dark:bg-blue-500/20 dark:text-blue-300 text-[10.5px] font-semibold font-mono">
+                          {l.badge}
+                        </span>
+                      )}
+                    </>
                   )}
                 </NavLink>
               ))}
 
-              <div className="pt-4 pb-1 px-3 text-[9.5px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 font-mono">
-                SYSTEM &amp; CONTROLS
+              <div className="pt-3 pb-1 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 font-mono">
+                SYSTEM
               </div>
               {SYSTEM_LINKS.map((l) => (
                 <NavLink
-                  key={l.to}
+                  key={l.to + l.label}
                   to={l.to}
                   className={({ isActive }) =>
-                    `group flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 ${
+                    `group flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-all duration-150 ${
                       isActive
-                        ? 'bg-blue-50 text-blue-600 font-bold dark:bg-blue-600/20 dark:text-blue-300 dark:border dark:border-blue-500/40 shadow-sm'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/[0.06]'
+                        ? 'sidebar-link-active shadow-xs'
+                        : 'sidebar-link hover:bg-[var(--sidebar-accent)] text-[var(--sidebar-foreground)]'
                     }`
                   }
                 >
-                  <span className="text-base group-hover:scale-110 transition-transform">{l.icon}</span>
-                  <span className="tracking-tight">{l.label}</span>
+                  {({ isActive }) => (
+                    <>
+                      <span className={`shrink-0 transition-colors ${isActive ? 'text-[var(--sidebar-primary)]' : 'text-slate-400 dark:text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-300'}`}>{l.icon}</span>
+                      <span className="tracking-normal">{l.label}</span>
+                    </>
+                  )}
                 </NavLink>
               ))}
 
               {isAdmin && (
                 <>
-                  <div className="pt-4 pb-1 px-3 text-[9.5px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 font-mono">
-                    ADMIN SUITE
+                  <div className="pt-3 pb-1 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 font-mono">
+                    ADMIN
                   </div>
                   {ADMIN_LINKS.map((l) => (
                     <NavLink
-                      key={l.to}
+                      key={l.to + l.label}
                       to={l.to}
                       className={({ isActive }) =>
-                        `group flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 ${
+                        `group flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-all duration-150 ${
                           isActive
-                            ? 'bg-blue-50 text-blue-600 font-bold dark:bg-blue-600/20 dark:text-blue-300 dark:border dark:border-blue-500/40 shadow-sm'
-                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/[0.06]'
+                            ? 'sidebar-link-active shadow-xs'
+                            : 'sidebar-link hover:bg-[var(--sidebar-accent)] text-[var(--sidebar-foreground)]'
                         }`
                       }
                     >
-                      <span className="text-base group-hover:scale-110 transition-transform">{l.icon}</span>
-                      <span className="tracking-tight">{l.label}</span>
+                      {({ isActive }) => (
+                        <>
+                          <span className={`shrink-0 transition-colors ${isActive ? 'text-[var(--sidebar-primary)]' : 'text-slate-400 dark:text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-300'}`}>{l.icon}</span>
+                          <span className="tracking-normal">{l.label}</span>
+                        </>
+                      )}
                     </NavLink>
                   ))}
                 </>
               )}
             </nav>
           </div>
+
+
 
           {/* Sidebar Footer: User Card */}
           <div className="pt-3 border-t border-slate-200 dark:border-[#192447]">
@@ -429,7 +572,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
         {/* ── 3. RIGHT CONTENT PANE (BOARD SIDE) ── */}
         <div className="flex-1 flex flex-col min-w-0 bg-slate-50 dark:bg-[#070d1e] overflow-y-auto transition-colors">
-          
+
           {/* ── INDICES SLIDING TICKER BAR (ONLY ON BOARD SIDE) ── */}
           <div className="bg-slate-900 dark:bg-[#030712] border-b border-slate-800 dark:border-[#192447] overflow-hidden py-1.5 px-3 sm:px-4 text-xs font-mono select-none flex items-center shadow-inner shrink-0 z-10">
             <div className="flex-1 overflow-hidden">
@@ -439,21 +582,19 @@ export function Layout({ children }: { children: ReactNode }) {
                   return (
                     <span key={i} className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-lg hover:bg-white/[0.06] transition-colors cursor-default">
                       {t.tag && (
-                        <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider ${
-                          t.tag === 'INDEX'
+                        <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider ${t.tag === 'INDEX'
                             ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
                             : isNeg
-                            ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                            : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                        }`}>
+                              ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                              : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                          }`}>
                           {t.tag}
                         </span>
                       )}
                       <span className="text-slate-300 font-semibold">{t.symbol}</span>
                       <span className="text-white font-bold">{formatNumber(t.level)}</span>
-                      <span className={`text-[11px] font-extrabold px-1.5 py-0.5 rounded ${
-                        isNeg ? 'bg-rose-500/20 text-rose-400' : 'bg-emerald-500/20 text-emerald-400'
-                      }`}>
+                      <span className={`text-[11px] font-extrabold px-1.5 py-0.5 rounded ${isNeg ? 'bg-rose-500/20 text-rose-400' : 'bg-emerald-500/20 text-emerald-400'
+                        }`}>
                         {formatPct(t.changePct)}
                       </span>
                     </span>

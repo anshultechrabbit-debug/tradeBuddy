@@ -60,10 +60,10 @@ function StatBox({
   };
   return (
     <div className="flex flex-col gap-1 rounded-2xl border border-slate-200/80 dark:border-[#1c2541] bg-white dark:bg-[#0b132b]/80 p-3 sm:p-5 shadow-sm dark:shadow-xl backdrop-blur-xl transition-all hover:border-blue-500/40">
-      <div className="text-[9.5px] sm:text-[10.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 truncate">{label}</div>
-      <div className="font-mono text-lg sm:text-2xl font-black text-slate-900 dark:text-white truncate">{value}</div>
+      <div className="text-[9.5px] sm:text-[10.5px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 truncate">{label}</div>
+      <div className="font-mono text-lg sm:text-2xl font-bold text-slate-900 dark:text-white truncate">{value}</div>
       {sub && (
-        <div className={`font-mono text-[10px] sm:text-xs font-bold truncate ${subColors[subVariant]}`}>{sub}</div>
+        <div className={`font-mono text-[10px] sm:text-xs font-semibold truncate ${subColors[subVariant]}`}>{sub}</div>
       )}
     </div>
   );
@@ -236,17 +236,18 @@ export function DashboardPage() {
         
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="space-y-1.5 max-w-xl">
-            <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-blue-950/80 border border-blue-400/30 text-blue-300 text-[10.5px] font-mono font-bold tracking-wider">
+            <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-blue-950/80 border border-blue-400/30 text-blue-300 text-[10.5px] font-mono font-medium tracking-wider">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               {getGreeting().toUpperCase()}, {user?.fullName?.split(' ')[0] ?? 'TRADER'}
             </div>
-            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black tracking-tight text-white leading-tight">
+            <h1 className="text-2xl sm:text-3xl lg:text-[34px] font-bold tracking-tight text-white leading-snug">
               What should you trade today?
             </h1>
-            <p className="text-xs text-slate-300 font-light leading-relaxed">
-              Your AI copilot has scanned <strong className="text-white font-bold">312 stocks</strong>,{' '}
-              <strong className="text-white font-bold">18 sectors</strong>, and market breadth across Nifty.
+            <p className="text-xs text-slate-300 font-normal leading-relaxed">
+              Your AI copilot has scanned <strong className="text-white font-semibold">312 stocks</strong>,{' '}
+              <strong className="text-white font-semibold">18 sectors</strong>, and market breadth across Nifty.
             </p>
+
           </div>
 
           {/* Cute Animated TradePanda Mascot on Dashboard */}
@@ -342,7 +343,7 @@ export function DashboardPage() {
             <div className="text-[10.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Market Mood &amp; Breadth</div>
             <div className="flex items-center justify-between">
               <div>
-                <div className={`text-2xl sm:text-3xl font-black italic tracking-tight ${isBullish === true ? 'text-emerald-600 dark:text-emerald-400' : isBullish === false ? 'text-rose-600 dark:text-rose-400' : 'text-slate-600 dark:text-slate-400'}`}>
+                <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isBullish === true ? 'text-emerald-600 dark:text-emerald-400' : isBullish === false ? 'text-rose-600 dark:text-rose-400' : 'text-slate-600 dark:text-slate-400'}`}>
                   {isBullish === true ? 'Bullish' : isBullish === false ? 'Bearish' : 'Sideways'}
                 </div>
                 <div className="text-xs text-slate-500 dark:text-slate-400">Participating in trends</div>

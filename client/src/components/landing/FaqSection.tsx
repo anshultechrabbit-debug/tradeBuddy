@@ -28,9 +28,9 @@ export function FaqSection() {
 
   return (
     <section className="py-20 px-4 sm:px-6 lg:px-8 max-w-3xl mx-auto border-t border-[#e5e5e0]">
-      <h2 className="text-2xl sm:text-3xl font-normal tracking-tight text-slate-900 text-center mb-12">
+      <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 text-center mb-12 font-display">
         Frequently asked{' '}
-        <span className="font-serif italic text-electric-600">questions.</span>
+        <span className="text-electric-600 font-bold">questions.</span>
       </h2>
 
       <div className="space-y-3">

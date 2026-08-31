@@ -234,135 +234,135 @@ function scoreTechnical(t) {
 }
 
 function scoreFundamentals(f) {
-    // Rich fundamentals now available from yfinance:
-    // ROE, ROA, ROIC, profit/operating/gross margins, revenue/earnings growth,
-    // debt/equity, current/quick ratios, cash flow, per-share metrics
-    if (!f) return { score: null, available: false };
+  // Rich fundamentals now available from yfinance:
+  // ROE, ROA, ROIC, profit/operating/gross margins, revenue/earnings growth,
+  // debt/equity, current/quick ratios, cash flow, per-share metrics
+  if (!f) return { score: null, available: false };
 
-    // Extract key metrics (yfinance returns decimals like 0.15 for 15%)
-    const roe = f.roe;           // Return on Equity
-    const roa = f.roa;           // Return on Assets
-    const roic = f.roic;         // Return on Invested Capital
-    const profitMargin = f.profit_margin;
-    const operatingMargin = f.operating_margin;
-    const grossMargin = f.gross_margin;
-    const revenueGrowth = f.revenue_growth;
-    const earningsGrowth = f.earnings_growth;
-    const debtToEquity = f.debt_to_equity;
-    const currentRatio = f.current_ratio;
-    const quickRatio = f.quick_ratio;
-    const freeCashflow = f.free_cashflow;
-    const operatingCashflow = f.operating_cashflow;
+  // Extract key metrics (yfinance returns decimals like 0.15 for 15%)
+  const roe = f.roe;           // Return on Equity
+  const roa = f.roa;           // Return on Assets
+  const roic = f.roic;         // Return on Invested Capital
+  const profitMargin = f.profit_margin;
+  const operatingMargin = f.operating_margin;
+  const grossMargin = f.gross_margin;
+  const revenueGrowth = f.revenue_growth;
+  const earningsGrowth = f.earnings_growth;
+  const debtToEquity = f.debt_to_equity;
+  const currentRatio = f.current_ratio;
+  const quickRatio = f.quick_ratio;
+  const freeCashflow = f.free_cashflow;
+  const operatingCashflow = f.operating_cashflow;
 
-    // Check if we have enough data to score
-    const hasProfitability = roe != null || roa != null || profitMargin != null || operatingMargin != null;
-    const hasGrowth = revenueGrowth != null || earningsGrowth != null;
-    const hasHealth = debtToEquity != null || currentRatio != null || freeCashflow != null;
+  // Check if we have enough data to score
+  const hasProfitability = roe != null || roa != null || profitMargin != null || operatingMargin != null;
+  const hasGrowth = revenueGrowth != null || earningsGrowth != null;
+  const hasHealth = debtToEquity != null || currentRatio != null || freeCashflow != null;
 
-    if (!hasProfitability && !hasGrowth && !hasHealth) {
-      return { score: null, available: false };
-    }
-
-    let score = 50; // Base score
-    const factors = [];
-
-    // --- Profitability (max ±25) ---
-    if (roe != null) {
-      const roePct = roe * 100; // Convert to percentage
-      if (roePct >= 20) { score += 10; factors.push('ROE ≥ 20%'); }
-      else if (roePct >= 15) { score += 7; factors.push('ROE ≥ 15%'); }
-      else if (roePct >= 10) { score += 4; factors.push('ROE ≥ 10%'); }
-      else if (roePct >= 5) { score += 1; }
-      else if (roePct < 0) { score -= 10; factors.push('Negative ROE'); }
-      else { score -= 5; factors.push('Low ROE'); }
-    }
-
-    if (roic != null) {
-      const roicPct = roic * 100;
-      if (roicPct >= 15) { score += 8; factors.push('ROIC ≥ 15%'); }
-      else if (roicPct >= 10) { score += 5; factors.push('ROIC ≥ 10%'); }
-      else if (roicPct < 0) { score -= 5; factors.push('Negative ROIC'); }
-    } else if (roa != null) {
-      const roaPct = roa * 100;
-      if (roaPct >= 10) { score += 5; factors.push('ROA ≥ 10%'); }
-      else if (roaPct >= 5) { score += 2; }
-      else if (roaPct < 0) { score -= 5; factors.push('Negative ROA'); }
-    }
-
-    if (profitMargin != null) {
-      const pmPct = profitMargin * 100;
-      if (pmPct >= 20) { score += 7; factors.push('Profit margin ≥ 20%'); }
-      else if (pmPct >= 10) { score += 4; factors.push('Profit margin ≥ 10%'); }
-      else if (pmPct >= 5) { score += 1; }
-      else if (pmPct < 0) { score -= 8; factors.push('Negative profit margin'); }
-    } else if (operatingMargin != null) {
-      const omPct = operatingMargin * 100;
-      if (omPct >= 20) { score += 5; factors.push('Op margin ≥ 20%'); }
-      else if (omPct >= 10) { score += 2; }
-      else if (omPct < 0) { score -= 5; factors.push('Negative operating margin'); }
-    }
-
-    // --- Growth (max ±15) ---
-    if (revenueGrowth != null) {
-      const rgPct = revenueGrowth * 100;
-      if (rgPct >= 20) { score += 8; factors.push('Revenue growth ≥ 20%'); }
-      else if (rgPct >= 10) { score += 5; factors.push('Revenue growth ≥ 10%'); }
-      else if (rgPct >= 5) { score += 2; }
-      else if (rgPct < 0) { score -= 5; factors.push('Revenue declining'); }
-    }
-
-    if (earningsGrowth != null) {
-      const egPct = earningsGrowth * 100;
-      if (egPct >= 20) { score += 7; factors.push('Earnings growth ≥ 20%'); }
-      else if (egPct >= 10) { score += 4; factors.push('Earnings growth ≥ 10%'); }
-      else if (egPct < 0) { score -= 4; factors.push('Earnings declining'); }
-    }
-
-    // --- Financial Health (max ±20) ---
-    if (debtToEquity != null) {
-      if (debtToEquity <= 0.3) { score += 8; factors.push('Low debt (D/E ≤ 0.3)'); }
-      else if (debtToEquity <= 0.5) { score += 4; factors.push('Moderate debt (D/E ≤ 0.5)'); }
-      else if (debtToEquity <= 1) { score += 1; }
-      else if (debtToEquity <= 2) { score -= 4; factors.push('High debt (D/E > 1)'); }
-      else { score -= 10; factors.push('Very high debt (D/E > 2)'); }
-    }
-
-    if (currentRatio != null) {
-      if (currentRatio >= 2) { score += 5; factors.push('Current ratio ≥ 2'); }
-      else if (currentRatio >= 1.5) { score += 3; factors.push('Current ratio ≥ 1.5'); }
-      else if (currentRatio >= 1) { score += 1; }
-      else { score -= 5; factors.push('Current ratio < 1 (liquidity risk)'); }
-    }
-
-    if (freeCashflow != null && freeCashflow > 0) {
-      score += 5; factors.push('Positive free cash flow');
-    } else if (freeCashflow != null && freeCashflow < 0) {
-      score -= 5; factors.push('Negative free cash flow');
-    }
-
-    if (operatingCashflow != null && operatingCashflow > 0) {
-      score += 2; factors.push('Positive operating cash flow');
-    }
-
-    // Clamp to 0-100
-    score = Math.max(0, Math.min(100, score));
-
-    return {
-      score,
-      available: true,
-      factors: factors.slice(0, 5), // Top 5 contributing factors
-      metrics: {
-        roe: roe != null ? round2(roe * 100) : null,
-        roic: roic != null ? round2(roic * 100) : null,
-        profitMargin: profitMargin != null ? round2(profitMargin * 100) : null,
-        revenueGrowth: revenueGrowth != null ? round2(revenueGrowth * 100) : null,
-        earningsGrowth: earningsGrowth != null ? round2(earningsGrowth * 100) : null,
-        debtToEquity: debtToEquity != null ? round2(debtToEquity) : null,
-        currentRatio: currentRatio != null ? round2(currentRatio) : null,
-        freeCashflow: freeCashflow != null ? round2(freeCashflow / 1e7) : null, // in crores
-      },
-    };
+  if (!hasProfitability && !hasGrowth && !hasHealth) {
+    return { score: null, available: false };
   }
+
+  let score = 50; // Base score
+  const factors = [];
+
+  // --- Profitability (max ±25) ---
+  if (roe != null) {
+    const roePct = roe * 100; // Convert to percentage
+    if (roePct >= 20) { score += 10; factors.push('ROE ≥ 20%'); }
+    else if (roePct >= 15) { score += 7; factors.push('ROE ≥ 15%'); }
+    else if (roePct >= 10) { score += 4; factors.push('ROE ≥ 10%'); }
+    else if (roePct >= 5) { score += 1; }
+    else if (roePct < 0) { score -= 10; factors.push('Negative ROE'); }
+    else { score -= 5; factors.push('Low ROE'); }
+  }
+
+  if (roic != null) {
+    const roicPct = roic * 100;
+    if (roicPct >= 15) { score += 8; factors.push('ROIC ≥ 15%'); }
+    else if (roicPct >= 10) { score += 5; factors.push('ROIC ≥ 10%'); }
+    else if (roicPct < 0) { score -= 5; factors.push('Negative ROIC'); }
+  } else if (roa != null) {
+    const roaPct = roa * 100;
+    if (roaPct >= 10) { score += 5; factors.push('ROA ≥ 10%'); }
+    else if (roaPct >= 5) { score += 2; }
+    else if (roaPct < 0) { score -= 5; factors.push('Negative ROA'); }
+  }
+
+  if (profitMargin != null) {
+    const pmPct = profitMargin * 100;
+    if (pmPct >= 20) { score += 7; factors.push('Profit margin ≥ 20%'); }
+    else if (pmPct >= 10) { score += 4; factors.push('Profit margin ≥ 10%'); }
+    else if (pmPct >= 5) { score += 1; }
+    else if (pmPct < 0) { score -= 8; factors.push('Negative profit margin'); }
+  } else if (operatingMargin != null) {
+    const omPct = operatingMargin * 100;
+    if (omPct >= 20) { score += 5; factors.push('Op margin ≥ 20%'); }
+    else if (omPct >= 10) { score += 2; }
+    else if (omPct < 0) { score -= 5; factors.push('Negative operating margin'); }
+  }
+
+  // --- Growth (max ±15) ---
+  if (revenueGrowth != null) {
+    const rgPct = revenueGrowth * 100;
+    if (rgPct >= 20) { score += 8; factors.push('Revenue growth ≥ 20%'); }
+    else if (rgPct >= 10) { score += 5; factors.push('Revenue growth ≥ 10%'); }
+    else if (rgPct >= 5) { score += 2; }
+    else if (rgPct < 0) { score -= 5; factors.push('Revenue declining'); }
+  }
+
+  if (earningsGrowth != null) {
+    const egPct = earningsGrowth * 100;
+    if (egPct >= 20) { score += 7; factors.push('Earnings growth ≥ 20%'); }
+    else if (egPct >= 10) { score += 4; factors.push('Earnings growth ≥ 10%'); }
+    else if (egPct < 0) { score -= 4; factors.push('Earnings declining'); }
+  }
+
+  // --- Financial Health (max ±20) ---
+  if (debtToEquity != null) {
+    if (debtToEquity <= 0.3) { score += 8; factors.push('Low debt (D/E ≤ 0.3)'); }
+    else if (debtToEquity <= 0.5) { score += 4; factors.push('Moderate debt (D/E ≤ 0.5)'); }
+    else if (debtToEquity <= 1) { score += 1; }
+    else if (debtToEquity <= 2) { score -= 4; factors.push('High debt (D/E > 1)'); }
+    else { score -= 10; factors.push('Very high debt (D/E > 2)'); }
+  }
+
+  if (currentRatio != null) {
+    if (currentRatio >= 2) { score += 5; factors.push('Current ratio ≥ 2'); }
+    else if (currentRatio >= 1.5) { score += 3; factors.push('Current ratio ≥ 1.5'); }
+    else if (currentRatio >= 1) { score += 1; }
+    else { score -= 5; factors.push('Current ratio < 1 (liquidity risk)'); }
+  }
+
+  if (freeCashflow != null && freeCashflow > 0) {
+    score += 5; factors.push('Positive free cash flow');
+  } else if (freeCashflow != null && freeCashflow < 0) {
+    score -= 5; factors.push('Negative free cash flow');
+  }
+
+  if (operatingCashflow != null && operatingCashflow > 0) {
+    score += 2; factors.push('Positive operating cash flow');
+  }
+
+  // Clamp to 0-100
+  score = Math.max(0, Math.min(100, score));
+
+  return {
+    score,
+    available: true,
+    factors: factors.slice(0, 5), // Top 5 contributing factors
+    metrics: {
+      roe: roe != null ? round2(roe * 100) : null,
+      roic: roic != null ? round2(roic * 100) : null,
+      profitMargin: profitMargin != null ? round2(profitMargin * 100) : null,
+      revenueGrowth: revenueGrowth != null ? round2(revenueGrowth * 100) : null,
+      earningsGrowth: earningsGrowth != null ? round2(earningsGrowth * 100) : null,
+      debtToEquity: debtToEquity != null ? round2(debtToEquity) : null,
+      currentRatio: currentRatio != null ? round2(currentRatio) : null,
+      freeCashflow: freeCashflow != null ? round2(freeCashflow / 1e7) : null, // in crores
+    },
+  };
+}
 
 // NSE's daily P/E snapshot can be up to 12 days old before the fetch gives
 // up (see server/python/market_data.py nselib_fundamentals). Past ~5
@@ -1129,36 +1129,39 @@ export function simpleLanguageNote(result) {
   const nifty = result.market?.niftyLevel;
   const marketWord = marketRegime === 'BULLISH' ? 'market looks like it will rise'
     : marketRegime === 'BEARISH' ? 'market looks weak'
-    : 'market looks flat';
+      : 'market looks flat';
   const marketPrice = nifty != null ? ` (Nifty ${inrShort(nifty)})` : '';
   const priceLead = sessionOver ? "Today's close for" : 'Right now';
   const realizedText = sessionOver && realizedPct != null ? ` (${realizedPct >= 0 ? '+' : ''}${realizedPct}% for the day)` : '';
   const livePrice = price != null ? ` ${priceLead} ${name} is ${inrShort(price)}${realizedText},` : '';
 
-  // Range text with explicit UNVALIDATED disclaimer.
+  // Range text: clearly framed with Support and Target boundaries
   let expText = '';
   if (bear == null || bull == null) {
     expText = ' direction unclear from available data';
+  } else if (buyish || dip) {
+    const upsidePct = price > 0 && bull > price ? ((bull - price) / price) * 100 : Math.abs(expPct || 2.0);
+    expText = ` the model projects an expected trading range of ${inrShort(bear)} (support floor) to ${inrShort(bull)} (upside target, ~+${upsidePct.toFixed(1)}%).`;
+  } else if (avoid) {
+    const downsidePct = price > 0 && bear < price ? ((price - bear) / price) * 100 : Math.abs(expPct || 2.0);
+    expText = ` the model projects an expected range of ${inrShort(bear)} (downside risk, ~-${downsidePct.toFixed(1)}%) to ${inrShort(bull)}.`;
   } else {
-    const rangeText = `${inrShort(bear)}–${inrShort(bull)}`;
-    const signText = expPct != null ? ` (${expPct >= 0 ? '+' : ''}${expPct.toFixed(2)}% model estimate — UNVALIDATED)` : '';
-    expText = sessionOver
-      ? ` for the next session, the model projects a volatility range of ${rangeText}${signText}. This is not a guaranteed forecast.`
-      : ` the model projects a volatility range of ${rangeText}${signText}. This is not a proven forecast — treat as a rough guide only.`;
+    expText = ` the model projects an expected range between ${inrShort(bear)} and ${inrShort(bull)}.`;
   }
 
   if (buyish || dip) {
     if (resistance != null && entryMid > 0) {
       const upside = ((Number(resistance) - entryMid) / entryMid) * 100;
-      prediction = ` Model estimate (UNVALIDATED):${livePrice} ${marketWord}${marketPrice}, and ${name} is in an uptrend, so${expText} If you buy near ${inrShort(entryMid)} the resistance level is ${inrShort(resistance)} (~${upside >= 0 ? '+' : ''}${upside.toFixed(0)}% away). Sell if it falls below ${inrShort(stop)}.`;
+      prediction = ` Model estimate:${livePrice} ${marketWord}${marketPrice}, and ${name} is in an uptrend, so${expText} If you buy near ${inrShort(entryMid)}, the resistance level is ${inrShort(resistance)} (~${upside >= 0 ? '+' : ''}${upside.toFixed(0)}% away). Sell if it falls below ${inrShort(stop)}.`;
     } else {
-      prediction = ` Model estimate (UNVALIDATED):${livePrice} ${marketWord}${marketPrice}, and ${name} is in an uptrend, so${expText} Plan: buy near ${inrShort(entry.zoneLow)}–${inrShort(entry.zoneHigh)}, sell if below ${inrShort(stop)}.`;
+      prediction = ` Model estimate:${livePrice} ${marketWord}${marketPrice}, and ${name} is in an uptrend, so${expText} Plan: buy near ${inrShort(entry.zoneLow)}–${inrShort(entry.zoneHigh)}, sell if below ${inrShort(stop)}.`;
     }
   } else if (avoid) {
-    prediction = ` Model estimate (UNVALIDATED):${livePrice} ${marketWord}${marketPrice}, and the trend is down, so${expText} Better not to buy — if you already hold, exit if it falls below ${inrShort(stop)}.`;
+    prediction = ` Model estimate:${livePrice} ${marketWord}${marketPrice}, and the trend is down, so${expText} Better not to buy — if you already hold, exit if it falls below ${inrShort(stop)}.`;
   } else {
-    prediction = ` Model estimate (UNVALIDATED):${livePrice} ${marketWord}${marketPrice}, no clear move expected so${expText} Just watch for now.`;
+    prediction = ` Model estimate:${livePrice} ${marketWord}${marketPrice}, no clear move expected so${expText} Just watch for now.`;
   }
 
   return `Plain talk — ${name}: ${verdict} ${reason} ${action}${priceNote}${prediction}`;
 }
+

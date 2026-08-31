@@ -219,7 +219,7 @@ export function PortfolioPage() {
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               LIVE BROKER SYNC · ACTIVE
             </div>
-            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black tracking-tight text-white flex items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight text-white flex items-center gap-3">
               Portfolio Intelligence
             </h1>
             <p className="mt-0.5 text-xs text-slate-300 font-light">
@@ -250,7 +250,7 @@ export function PortfolioPage() {
         <div className="relative z-10 pt-4 grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
           <div className="rounded-2xl border border-white/10 bg-white/5 p-3 sm:p-4 backdrop-blur-md">
             <div className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-slate-400 truncate">INVESTED CAPITAL</div>
-            <div className="mt-0.5 font-mono text-lg sm:text-2xl font-black text-white truncate">
+            <div className="mt-0.5 font-mono text-lg sm:text-2xl font-bold text-white truncate">
               {formatCurrency(investedVal)}
             </div>
             <div className="mt-0.5 text-[9.5px] sm:text-[10.5px] text-slate-400 font-mono truncate">Principal deployed</div>
@@ -258,7 +258,7 @@ export function PortfolioPage() {
 
           <div className="rounded-2xl border border-white/10 bg-white/5 p-3 sm:p-4 backdrop-blur-md">
             <div className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-slate-400 truncate">CURRENT VALUE</div>
-            <div className="mt-0.5 font-mono text-lg sm:text-2xl font-black text-white truncate">
+            <div className="mt-0.5 font-mono text-lg sm:text-2xl font-bold text-white truncate">
               {formatCurrency(totalValue)}
             </div>
             <div className="mt-0.5 text-[9.5px] sm:text-[10.5px] text-slate-400 font-mono truncate">Live mark-to-market</div>
@@ -266,7 +266,7 @@ export function PortfolioPage() {
 
           <div className="rounded-2xl border border-white/10 bg-white/5 p-3 sm:p-4 backdrop-blur-md">
             <div className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-slate-400 truncate">TOTAL P&amp;L</div>
-            <div className={`mt-0.5 font-mono text-lg sm:text-2xl font-black truncate ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
+            <div className={`mt-0.5 font-mono text-lg sm:text-2xl font-bold truncate ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
               {isProfit ? '+' : ''}{formatCurrency(totalPnl)}
             </div>
             <div className={`text-[10.5px] sm:text-xs font-mono font-bold truncate ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -279,7 +279,7 @@ export function PortfolioPage() {
               <div className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-slate-400 truncate">HEALTH</div>
               <span className="font-mono text-[10.5px] sm:text-xs font-bold text-amber-400">{baseHealthScore}/100</span>
             </div>
-            <div className="mt-0.5 font-mono text-lg sm:text-2xl font-black text-white truncate">
+            <div className="mt-0.5 font-mono text-lg sm:text-2xl font-bold text-white truncate">
               {baseHealthScore} <span className="text-[10px] sm:text-xs font-normal text-slate-400">/ 100</span>
             </div>
             <div className="mt-1.5 h-1.5 w-full bg-white/10 rounded-full overflow-hidden">

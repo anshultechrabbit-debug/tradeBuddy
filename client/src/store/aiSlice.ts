@@ -40,8 +40,7 @@ export function normalizeAnalysis(raw: RawAnalysis): AiAnalysis {
 
   const oneLiner =
     raw.oneLiner ??
-    `${raw.finalSignal ?? 'N/A'} (score ${raw.overallScore ?? 0}) — strongest factor is ${
-      Object.keys(scores).sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0))[0] ?? 'n/a'
+    `${raw.finalSignal ?? 'N/A'} (score ${raw.overallScore ?? 0}) — strongest factor is ${Object.keys(scores).sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0))[0] ?? 'n/a'
     }. ${t.trend ?? 'Neutral'} trend, RSI ${t.rsi ?? 'n/a'}.`;
 
   return {

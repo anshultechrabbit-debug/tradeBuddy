@@ -4,8 +4,8 @@ export function PricingSection() {
   return (
     <section id="pricing" className="py-20 sm:py-28 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto border-t border-[#e5e5e0]">
       <div className="text-center max-w-2xl mx-auto mb-16 space-y-4">
-        <h2 className="text-3xl sm:text-5xl font-normal tracking-tight text-slate-900">
-          Transparent pricing for <span className="font-serif italic text-electric-600">every desk.</span>
+        <h2 className="text-3xl sm:text-5xl font-bold tracking-tight text-slate-900 font-display">
+          Transparent pricing for <span className="text-electric-600">every desk.</span>
         </h2>
         <p className="text-sm text-[#78716c]">
           Start free, scale seamlessly. Zero hidden broker markups or per-trade commission fees.
@@ -18,8 +18,8 @@ export function PricingSection() {
           <div className="space-y-4">
             <h3 className="text-lg font-bold text-slate-900">Starter Desk</h3>
             <p className="text-xs text-[#78716c]">Essential AI signal radar and automated trade journaling.</p>
-            <div className="text-4xl font-normal font-serif text-slate-900">
-              ₹0 <span className="text-xs font-sans text-[#78716c]">/ forever free</span>
+            <div className="text-4xl font-bold text-slate-900 font-display">
+              ₹0 <span className="text-xs font-sans text-[#78716c] font-normal">/ forever free</span>
             </div>
 
             <ul className="space-y-2.5 text-xs text-[#57534e] pt-4 border-t border-[#dfdbcf]">
@@ -47,8 +47,8 @@ export function PricingSection() {
           <div className="space-y-4">
             <h3 className="text-lg font-bold text-white">Pro Quant</h3>
             <p className="text-xs text-slate-300">For active day traders, options scalpers, and systematic momentum desks.</p>
-            <div className="text-4xl font-normal font-serif text-white">
-              ₹3,999 <span className="text-xs font-sans text-slate-400">/ month ($49)</span>
+            <div className="text-4xl font-bold text-white font-display">
+              ₹3,999 <span className="text-xs font-sans text-slate-400 font-normal">/ month ($49)</span>
             </div>
 
             <ul className="space-y-2.5 text-xs text-slate-300 pt-4 border-t border-slate-800">
@@ -73,8 +73,8 @@ export function PricingSection() {
           <div className="space-y-4">
             <h3 className="text-lg font-bold text-slate-900">Prop Desk / Fund</h3>
             <p className="text-xs text-[#78716c]">Custom infrastructure for trading desks, funds, and multi-user firms.</p>
-            <div className="text-4xl font-normal font-serif text-slate-900">
-              ₹14,999 <span className="text-xs font-sans text-[#78716c]">/ month ($199)</span>
+            <div className="text-4xl font-bold text-slate-900 font-display">
+              ₹14,999 <span className="text-xs font-sans text-[#78716c] font-normal">/ month ($199)</span>
             </div>
 
             <ul className="space-y-2.5 text-xs text-[#57534e] pt-4 border-t border-[#dfdbcf]">

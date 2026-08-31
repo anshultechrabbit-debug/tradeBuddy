@@ -10,9 +10,9 @@ export function PandaShowcase() {
             <span className="font-mono">Meet TradePanda AI Assistant</span>
           </div>
 
-          <h2 className="text-3xl sm:text-4xl lg:text-[44px] font-normal leading-[1.12] tracking-tight text-slate-900">
+          <h2 className="text-3xl sm:text-4xl lg:text-[44px] font-bold leading-[1.12] tracking-tight text-slate-900 font-display">
             The only AI trading companion that wakes up the second{' '}
-            <span className="font-serif italic font-normal text-electric-600">alpha strikes.</span>
+            <span className="text-electric-600 font-bold">alpha strikes.</span>
           </h2>
 
           <p className="text-[#78716c] text-sm sm:text-base leading-relaxed">

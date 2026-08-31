@@ -228,14 +228,14 @@ export function MarketPage() {
 
         <div className="relative z-10 flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-white/10">
           <div>
-            <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-[10.5px] font-mono font-bold tracking-wider mb-1.5">
+            <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-[10.5px] font-mono font-medium tracking-wider mb-1.5">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
               NSE LIVE CASH MARKET · REAL-TIME STREAMING
             </div>
-            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black tracking-tight text-white flex items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl lg:text-[32px] font-bold tracking-tight text-white flex items-center gap-3 leading-snug">
               Market Intelligence Terminal
             </h1>
-            <p className="mt-0.5 text-xs text-slate-300 font-light">
+            <p className="mt-0.5 text-xs text-slate-300 font-normal">
               Live quotes, benchmark indices, sector heat flow, and real-time advance-decline volume breadth.
             </p>
           </div>
@@ -270,11 +270,11 @@ export function MarketPage() {
                 key={idx.symbol}
                 className="p-3 sm:p-4 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md transition-all hover:border-blue-400/40"
               >
-                <div className="flex items-center justify-between text-[9px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
+                <div className="flex items-center justify-between text-[9px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
                   <span className="truncate">{INDEX_NAMES[idx.symbol] ?? idx.symbol}</span>
                   <span className="text-[8px] sm:text-[9px] font-mono px-1.5 py-0.5 rounded bg-white/10 text-slate-300 shrink-0">NSE</span>
                 </div>
-                <div className="font-mono text-lg sm:text-2xl font-black text-white truncate">
+                <div className="font-mono text-lg sm:text-2xl font-bold text-white truncate">
                   {idx.level != null ? formatNumber(idx.level) : '—'}
                 </div>
                 <div className="mt-1.5 flex items-center justify-between flex-wrap gap-1">

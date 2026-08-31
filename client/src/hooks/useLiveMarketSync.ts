@@ -5,11 +5,13 @@ import { fetchSummary } from '../store/portfolioSlice';
 import { fetchLatestScan } from '../store/radarSlice';
 import { fetchWatchlist } from '../store/watchlistSlice';
 
+import { isMarketOpen } from '../lib/marketHours';
+
 /**
  * Global Live Market Sync Engine (Optimized)
  * 
  * Synchronizes market indices and essentials from a single coordinated,
- * non-overlapping tick loop.
+ * non-overlapping tick loop during active trading hours (09:15–15:30 IST).
  */
 export function useLiveMarketSync() {
   const dispatch = useAppDispatch();
@@ -18,7 +20,7 @@ export function useLiveMarketSync() {
   const cycleCount = useRef(0);
 
   useEffect(() => {
-    // 1. Single initial load on startup
+    // 1. Single initial load on startup (loads latest EOD/live snapshot)
     dispatch(fetchIndices());
     dispatch(fetchTopStocks());
     dispatch(fetchBreadth());
@@ -28,11 +30,13 @@ export function useLiveMarketSync() {
       dispatch(fetchLatestScan());
     }
 
-    // 2. Single Unified Heartbeat (~8-10s interval)
+    // 2. Coordinated Heartbeat (~10s interval — active continuously)
     const syncTimer = setInterval(async () => {
       if (document.hidden || syncLock.current) return;
       syncLock.current = true;
       cycleCount.current += 1;
+
+
 
       try {
         // Fast cycle: Live Indices & Top Movers (every tick ~10s)

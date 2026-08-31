@@ -150,9 +150,8 @@ export function WatchlistPage() {
                         {formatCurrency(item.price)}
                       </td>
                       <td className="px-3 sm:px-4 py-3 text-right whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold font-mono ${
-                          isNeg ? 'bg-rose-500/10 text-rose-500 dark:text-rose-400' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                        }`}>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold font-mono ${isNeg ? 'bg-rose-500/10 text-rose-500 dark:text-rose-400' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                          }`}>
                           {formatPct(item.changePct)}
                         </span>
                       </td>

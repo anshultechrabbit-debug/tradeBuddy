@@ -17,9 +17,9 @@ export function HeroSection() {
             <span className="font-mono">Meet TradePanda — Your 24/7 AI Buddy that never sleeps!</span>
           </div>
 
-          <h1 className="text-4xl sm:text-5xl lg:text-[52px] font-normal leading-[1.1] tracking-tight text-white">
+          <h1 className="text-4xl sm:text-5xl lg:text-[52px] font-bold leading-[1.1] tracking-tight text-white font-display">
             AI for trading operations built for{' '}
-            <span className="font-serif italic font-normal text-transparent bg-clip-text bg-gradient-to-r from-electric-200 via-electric-400 to-blue-300">
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-electric-200 via-electric-400 to-blue-300">
               serious desks.
             </span>
           </h1>

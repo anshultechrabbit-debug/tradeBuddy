@@ -301,9 +301,9 @@ export function BentoMatrix() {
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-electric-50 border border-electric-200 text-electric-700 text-xs font-semibold mb-3">
           <span>🐼 TradeBuddy Features &amp; User Experience</span>
         </div>
-        <h2 className="text-3xl sm:text-5xl font-normal tracking-tight text-slate-900 max-w-3xl leading-[1.12]">
+        <h2 className="text-3xl sm:text-5xl font-bold tracking-tight text-slate-900 max-w-3xl leading-[1.12] font-display">
           Built for traders.{' '}
-          <span className="font-serif italic font-normal text-electric-600">Hover any card to flip 🔄 details!</span>
+          <span className="text-electric-600 font-bold">Hover any card to flip 🔄 details!</span>
         </h2>
         <p className="mt-4 text-[#78716c] text-sm sm:text-base max-w-2xl">
           Hover over (or tap) any feature card below to flip it over and discover key advantages, how it works, and TradePanda pro tips!

@@ -24,8 +24,8 @@ export function SignalSimulator() {
       <div className="bg-white rounded-3xl border border-[#e2decfa0] shadow-xl p-6 sm:p-10 space-y-8">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-[#f0ede6]">
           <div>
-            <h3 className="text-2xl sm:text-3xl font-normal tracking-tight text-slate-900">
-              Live AI Signal Simulator. <span className="font-serif italic text-electric-600">Test setups in real time.</span>
+            <h3 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 font-display">
+              Live AI Signal Simulator. <span className="text-electric-600 font-bold">Test setups in real time.</span>
             </h3>
             <p className="text-xs text-[#78716c] mt-1">
               Simulate TradePanda AI confidence, dynamic stops, RSI/VWAP signals, and target projections for NIFTY, BANKNIFTY &amp; F&amp;O stocks.
