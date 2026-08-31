@@ -3103,6 +3103,45 @@ input:disabled {
   line-height: 1.7;
 }
 
+[data-theme="dark"] .auth-page {
+  background:
+    radial-gradient(900px 400px at 15% -5%, rgba(59, 130, 246, 0.08), transparent 60%),
+    radial-gradient(700px 400px at 110% 100%, rgba(59, 130, 246, 0.06), transparent 60%),
+    #0b132b;
+}
+
+[data-theme="dark"] .auth-card {
+  background: #0f1a36;
+  border-color: #1c2541;
+  box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="dark"] .auth-brand,
+[data-theme="dark"] .auth-title {
+  color: #f8fafc;
+}
+
+[data-theme="dark"] .auth-page input {
+  background: #111d4a;
+  border-color: #2563eb;
+  color: #f8fafc;
+}
+
+[data-theme="dark"] .auth-page input::placeholder {
+  color: #64748b;
+}
+
+[data-theme="dark"] .auth-page .muted {
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .auth-page .field > span {
+  color: #e2e8f0;
+}
+
+[data-theme="dark"] .auth-page .link {
+  color: #60a5fa;
+}
 
 /* ============================================================================
    StockGro-style theme layer (whole app)

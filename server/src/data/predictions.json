@@ -6916,5 +6916,43 @@
     "isFinalForDay": false,
     "status": "OPEN",
     "createdAt": "2026-08-31T06:09:06.085Z"
+  },
+  {
+    "id": "BAJAJ-AUTO-2026-08-31-1788169482958",
+    "date": "2026-08-31",
+    "week": "2026-W36",
+    "predictionTimestamp": "2026-08-31T09:44:42.957Z",
+    "symbol": "BAJAJ-AUTO",
+    "sector": "N/A",
+    "predictionPrice": 11989,
+    "directionalOutlook": "BULLISH",
+    "directionalScore": 78,
+    "signal": "WATCH",
+    "tradeStatus": "WAIT",
+    "expectedMovePct": -0.13,
+    "expectedRange": [
+      11878.09,
+      12204.19
+    ],
+    "baseCase": 11974,
+    "bullCase": 12204.19,
+    "bearCase": 11878.09,
+    "entry": [
+      11588.09,
+      11677.66
+    ],
+    "confirmation": 11974,
+    "target1": 11974,
+    "target2": 12333.67,
+    "invalidationPrice": 11408.95,
+    "stopLoss": 11408.95,
+    "marketRegime": "BULLISH",
+    "score": 77,
+    "evidenceQualityScore": 66,
+    "dataStatus": "VERIFIED DELAYED",
+    "modelVersion": "tradebuddy-engine-1.1",
+    "isFinalForDay": false,
+    "status": "OPEN",
+    "createdAt": "2026-08-31T09:44:42.958Z"
   }
 ]
