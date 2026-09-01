@@ -17,6 +17,7 @@ import { getMarketDataProvider } from '../providers/marketData/index.js';
 import { sma, ema, rsi, atr, roc, clamp } from './radar/indicators.js';
 import { fetchStockNews } from './newsService.js';
 import { buildEngineResult, buildWhySection } from './predictionEngine.js';
+import { generateNextClosePrediction } from './nextClosePredictionModel.js';
 import { validateAnalysis } from './outputValidator.js';
 import { round2 } from '../utils/helpers.js';
 import { isPastClose, isMarketOpen, dayKey } from './officialClose.js';
@@ -26,7 +27,7 @@ import { recordFromAnalysis, getPredictions } from './predictionTracker.js';
 // Data gathering (each block degrades gracefully)
 // ---------------------------------------------------------------------------
 
-async function gatherTechnical(provider, symbol) {
+export async function gatherTechnical(provider, symbol) {
   // Independent fetches — used to run one after the other, doubling the
   // wait on every analyzeStock() call (which itself is the slowest step
   // in most /ai callers, e.g. AI Picks and /ai/ask's per-symbol lookups).
@@ -34,22 +35,90 @@ async function gatherTechnical(provider, symbol) {
     provider.getQuote(symbol, 'NSE').catch(() => null),
     provider.getCandles(symbol, '1d', 280, 'NSE').catch(() => []),
   ]);
-  const candles = candlesResult ?? [];
-  if (!candles.length && !q) return { ok: false };
+  const fetchedCandles = candlesResult ?? [];
+  if (!fetchedCandles.length && !q) return { ok: false };
 
+  const fetchedCloses = fetchedCandles.map((c) => Number(c.close)).filter(Number.isFinite);
+  if (!fetchedCloses.length) return { ok: false };
+
+  // The provider flags candles `stale: true` ONLY when the fetch itself
+  // failed and it fell back to old cached data (see
+  // RealDevelopmentMarketDataProvider.getCandles) — that flag stays false
+  // when the fetch "succeeds" but the underlying series simply hasn't been
+  // synced past a few days ago. In practice this is the free NSE archive
+  // source (jugaad/nselib) itself lagging its own live-quote feed by one or
+  // more real sessions — confirmed by calling the adapter directly and
+  // seeing the same cutoff — not a caching bug in this app.
+  //
+  // Directly catch that case: the live quote's own `prevClose` is what the
+  // market really closed at last session. If the last daily candle's close
+  // doesn't match it (beyond normal rounding), the candle series is missing
+  // at least one real session the quote already knows about.
+  const lastCandleClose = fetchedCloses[fetchedCloses.length - 1];
+  const quotePrevClose = q?.prevClose != null ? Number(q.prevClose) : null;
+  const candleSeriesLagsQuote =
+    quotePrevClose != null &&
+    Number.isFinite(quotePrevClose) &&
+    lastCandleClose > 0 &&
+    Math.abs(quotePrevClose - lastCandleClose) / lastCandleClose > 0.003;
+
+  // Bridge the gap with data we DO have, instead of leaving every indicator
+  // computed on a price level that's several sessions stale. We can't
+  // reconstruct the real day-by-day OHLCV for whatever sessions the archive
+  // is missing (that data simply isn't available from this source), but we
+  // do have two real anchors: the live quote's own `prevClose` (last
+  // session's real close, wherever it landed) and today's live OHLC
+  // (open/high/low/lastPrice — genuinely observed, not synthetic). One
+  // bridge candle spans the unknown gap at the correct price level; one
+  // real candle represents today. Volume for the bridge candle is
+  // unknowable, so it borrows the last archived day's volume as a neutral
+  // placeholder rather than a distorting zero. This still gets flagged
+  // stale below — it's the best available approximation, not verified data.
+  let candles = fetchedCandles;
+  let candlesBridged = false;
+  if (candleSeriesLagsQuote && quotePrevClose != null && q?.open != null && q?.lastPrice != null) {
+    const lastReal = fetchedCandles[fetchedCandles.length - 1];
+    const bridge = {
+      date: new Date((lastReal?.date ? new Date(lastReal.date).getTime() : Date.now() - 172800000) + 86400000),
+      open: lastCandleClose,
+      high: Math.max(lastCandleClose, quotePrevClose),
+      low: Math.min(lastCandleClose, quotePrevClose),
+      close: quotePrevClose,
+      volume: Number(lastReal?.volume) || 0,
+      bridged: true,
+    };
+    const today = {
+      date: new Date(),
+      open: Number(q.open),
+      high: Number(q.high ?? Math.max(q.open, q.lastPrice)),
+      low: Number(q.low ?? Math.min(q.open, q.lastPrice)),
+      close: Number(q.lastPrice),
+      volume: Number(q.volume) || 0,
+      bridged: true,
+    };
+    candles = [...fetchedCandles, bridge, today];
+    candlesBridged = true;
+  }
   const closes = candles.map((c) => Number(c.close)).filter(Number.isFinite);
-  if (!closes.length) return { ok: false };
 
-  // The provider flags candles `stale: true` when it had to fall back to an
-  // old cached series (see RealDevelopmentMarketDataProvider.getCandles).
-  // Every indicator below is computed from `candles`/`closes`, so if the
-  // most recent candle is stale, all of them are — surface that instead of
-  // silently scoring multi-day-old data as if it were current.
-  const candlesStale = candles.length > 0 && candles[candles.length - 1]?.stale === true;
+  // Every indicator below is computed from `candles`/`closes` above. A gap
+  // we could NOT bridge (no live quote OHLC to anchor it) is genuinely
+  // stale — every reading from it is unreliable, and downstream BUY gates
+  // must treat it that way. A gap we DID bridge is different: the close
+  // prices at both ends (last archived close → quote's real prevClose →
+  // today's real live close) are verified, real numbers — only the
+  // intraday shape and volume *within* the bridge candle are estimated.
+  // That's meaningfully better than stale, so it does NOT trip the same
+  // "block BUY" gate; it's surfaced instead via `bridged` (see
+  // predictionEngine.js's dataQualityReasons) as a lighter-weight caveat.
+  const candlesStale =
+    (fetchedCandles.length > 0 && fetchedCandles[fetchedCandles.length - 1]?.stale === true) ||
+    (candleSeriesLagsQuote && !candlesBridged);
 
   const price = q?.lastPrice ?? closes[closes.length - 1];
   const s20 = sma(closes, 20);
   const s50 = sma(closes, 50);
+  const s100 = sma(closes, 100);
   const s200 = sma(closes, 200);
   const rsi14 = rsi(closes, 14);
   const atr14 = atr(candles, 14);
@@ -77,8 +146,11 @@ async function gatherTechnical(provider, symbol) {
 
   const vol20 = candles.slice(-20).map((c) => Number(c.volume) || 0);
   const avgVol20 = vol20.length ? vol20.reduce((a, b) => a + b, 0) / vol20.length : 0;
+  const vol50 = candles.slice(-50).map((c) => Number(c.volume) || 0);
+  const avgVol50 = vol50.length >= 50 ? vol50.reduce((a, b) => a + b, 0) / vol50.length : null;
   const lastVol = Number(candles[candles.length - 1].volume) || 0;
   const volRatio = avgVol20 > 0 ? lastVol / avgVol20 : 1;
+  const volumeSpike = avgVol20 > 0 && lastVol >= avgVol20 * 2;
 
   // Support: nearest candidate below price (low20, SMA50, 52w low).
   const supportCandidates = [low20, s50, low52w].filter((v) => v != null && v < price);
@@ -110,8 +182,10 @@ async function gatherTechnical(provider, symbol) {
     candles,
     closes,
     candlesStale,
+    candlesBridged,
     s20: s20 == null ? null : round2(s20),
     s50: s50 == null ? null : round2(s50),
+    s100: s100 == null ? null : round2(s100),
     s200: s200 == null ? null : round2(s200),
     rsi: rsi14 == null ? null : round2(rsi14),
     macdValue,
@@ -123,6 +197,8 @@ async function gatherTechnical(provider, symbol) {
     roc5: roc(closes, 5),
     volRatio: round2(volRatio),
     avgVol20,
+    avgVol50,
+    volumeSpike,
     lastVol,
     high52w: round2(high52w),
     low52w: round2(low52w),
@@ -137,8 +213,8 @@ async function gatherTechnical(provider, symbol) {
   };
 }
 
-async function gatherMarket(provider, tech) {
-  const out = { ok: false, available: false, partial: false, regime: 'NEUTRAL', niftyRoc20: null, relativeStrength: null, note: '' };
+export async function gatherMarket(provider, tech) {
+  const out = { ok: false, available: false, partial: false, regime: 'NEUTRAL', niftyRoc20: null, relativeStrength: null, niftyCloses: [], note: '' };
   let niftyCloses = [];
   try {
     const candles = (await provider.getCandles('NIFTY', '1d', 60, 'NSE').catch(() => [])) ?? [];
@@ -199,6 +275,7 @@ async function gatherMarket(provider, tech) {
     niftyRoc20: round2(niftyRoc20),
     relativeStrength,
     niftyLevel: round2(niftyPrice),
+    niftyCloses,
     note: `Nifty ${round2(niftyPrice)} (${roc5Txt} 5d)`,
   };
 }
@@ -733,18 +810,23 @@ async function computeAnalysis(provider, sym, { includeNews }) {
     },
     technical: {
       stale: tech.candlesStale,
+      bridged: tech.candlesBridged,
       trend: tech.trend,
       rsi: tech.rsi,
       macd: { value: round2(tech.macdValue), signal: round2(tech.macdSignal) },
       sma20: tech.s20,
       sma50: tech.s50,
+      sma100: tech.s100,
       sma200: tech.s200,
       roc10: round2(tech.roc10),
       roc20: round2(tech.roc20),
       roc5: round2(tech.roc5),
       volume: tech.lastVol,
       avgVolume20: tech.avgVol20,
+      avgVolume50: tech.avgVol50,
       volumeRatio: tech.volRatio,
+      volumeSpike: tech.volumeSpike,
+      atr: tech.atr,
       atrPct: tech.atrPct == null ? null : round2(tech.atrPct),
       support: tech.primarySupport,
       supportSecondary: tech.secondarySupport,
@@ -822,10 +904,12 @@ async function computeAnalysis(provider, sym, { includeNews }) {
     negativeFactors: negativeFactors.slice(0, 6),
     reasons,
     dataTimestamp: new Date().toISOString(),
-    // Raw price / candle series for the engine's linReg & vwmaClose projection.
+    // Raw price / candle series for the engine's linReg & vwmaClose projection,
+    // plus the Nifty closes series for the beta/correlation diagnostic.
     // NOT published in the API response — engine-internal only.
     _closes: tech.closes,
     _candles: tech.candles,
+    _niftyCloses: market.niftyCloses ?? [],
     disclaimer:
       'This is an algorithmic research signal using live market data and news, not a guaranteed prediction of future price movement.',
   };
@@ -839,6 +923,28 @@ async function computeAnalysis(provider, sym, { includeNews }) {
   result.engineWhy = buildWhySection(result);
   result.overallScore = result.engine.totalScore;
   result.finalSignal = result.engine.signal;
+
+  // Feed news into the separate price predictor only when the news service
+  // found at least one verified, independent material event. Zero events,
+  // unavailable feeds, or a missing score remain UNKNOWN and carry no weight.
+  const materialNewsCount = Number(newsResult.materialEvents);
+  const predictionNewsAvailable = Boolean(newsResult.available ?? newsResult.articles?.length)
+    && Number.isFinite(materialNewsCount)
+    && materialNewsCount > 0
+    && Number.isFinite(Number(newsResult.score));
+  result.nextClosePrediction = generateNextClosePrediction({
+    currentPrice: tech.price,
+    candles: tech.candles,
+    benchmarkCandles: (market.niftyCloses ?? []).map((close) => ({ close })),
+    news: predictionNewsAvailable ? {
+      available: true,
+      materialEvents: materialNewsCount,
+      score: Number(newsResult.score),
+    } : null,
+    predictionTimestamp: result.dataTimestamp,
+    dataTimestamp: tech.quote?.timestamp ?? result.dataTimestamp,
+    dataQuality,
+  });
 
   // Auto-record morning baseline snapshot if during market hours and not yet recorded today
   const today = dayKey();

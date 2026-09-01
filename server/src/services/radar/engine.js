@@ -1,4 +1,4 @@
-import { sma, ema, rsi, atr, roc, stdDevOfReturns, zscoreOfLatest, clamp } from './indicators.js';
+import { sma, ema, rsi, atr, roc, stdDevOfReturns, zscoreOfLatest, historicalVolatilityPct, clamp } from './indicators.js';
 import { round2 } from '../../utils/helpers.js';
 
 /**
@@ -39,7 +39,7 @@ export function computeFeatures(candles, context = {}) {
   const roc20 = roc(closes, 20);
   const returnsStd = stdDevOfReturns(closes, 20);
   const dailyVolPct = returnsStd * 100;
-  const annualVolPct = returnsStd * Math.sqrt(252) * 100;
+  const annualVolPct = historicalVolatilityPct(closes, 20);
   const zscore = zscoreOfLatest(closes, 20);
 
   const volumes = candles.map((c) => Number(c.volume));

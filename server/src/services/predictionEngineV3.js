@@ -1,5 +1,6 @@
 import { round2 } from '../utils/helpers.js';
 import { clamp, linReg, vwmaClose, sma, ema, rsi, atr, roc } from './radar/indicators.js';
+import { generateNextClosePrediction } from './nextClosePredictionModel.js';
 
 /**
  * TradeBuddy Prediction Engine v3.0
@@ -17,6 +18,17 @@ import { clamp, linReg, vwmaClose, sma, ema, rsi, atr, roc } from './radar/indic
  */
 
 export const V3_CONFIG = {
+  // Closing-price forecast allocation. Context factors are deliberately
+  // smaller than market/price evidence, but they are no longer discarded.
+  // Missing context is excluded and the available weights are renormalised.
+  forecastWeights: {
+    technical: 65,
+    news: 10,
+    fundamentals: 8,
+    earnings: 7,
+    valuation: 5,
+    financialStatements: 5,
+  },
   weights: {
     linReg: 0.30,
     vwma: 0.25,
@@ -27,7 +39,8 @@ export const V3_CONFIG = {
   // Friction in basis points (15 bps = 0.15% roundtrip for Indian equities)
   roundTripFrictionPct: 0.15,
   minRiskReward: 2.0,
-  // Precisely calibrated empirical quantiles (tested across 1,666 sessions)
+  // Legacy ATR interval multipliers. The isolated next-close model uses
+  // separately persisted residual quantiles with explicit calibration dates.
   quantiles: {
     p50: 0.35, // ~50% empirical interval
     p70: 0.54, // ~70% empirical interval
@@ -35,6 +48,45 @@ export const V3_CONFIG = {
     p90: 1.05, // ~90% empirical interval
   },
 };
+
+const CONTEXT_KEYS = ['news', 'fundamentals', 'earnings', 'valuation', 'financialStatements'];
+
+/**
+ * Converts available 0-100 research scores into a bounded price-move tilt.
+ * A score of 50 is neutral. At the theoretical all-0/all-100 extreme, the
+ * complete context sleeve can move the raw forecast by at most 0.35 ATR.
+ * UNKNOWN values are excluded and never silently replaced with 50.
+ */
+export function calculateContextForecastTilt(contextScores, regime, config = V3_CONFIG) {
+  const configured = config.forecastWeights ?? V3_CONFIG.forecastWeights;
+  const available = CONTEXT_KEYS
+    .map((key) => ({ key, rawScore: contextScores?.[key], weight: Number(configured[key] ?? 0) }))
+    .filter((x) => x.rawScore != null && x.rawScore !== '')
+    .map((x) => ({ ...x, score: Number(x.rawScore) }))
+    .filter((x) => Number.isFinite(x.score) && x.score >= 0 && x.score <= 100 && x.weight > 0);
+
+  if (!available.length) {
+    return { movePct: 0, technicalShare: 1, contextShare: 0, availableFactors: [], missingFactors: [...CONTEXT_KEYS], weightedScore: null };
+  }
+
+  const availableWeight = available.reduce((sum, x) => sum + x.weight, 0);
+  const weightedScore = available.reduce((sum, x) => sum + x.score * x.weight, 0) / availableWeight;
+  const atrPct = Number(regime?.atrPct) || 0;
+  const contextShare = Number(configured.technical) > 0
+    ? availableWeight / (Number(configured.technical) + availableWeight)
+    : 1;
+  const centeredSignal = (weightedScore - 50) / 50;
+  const movePct = clamp(centeredSignal * atrPct * 0.35 * contextShare, -atrPct * 0.35, atrPct * 0.35);
+
+  return {
+    movePct,
+    technicalShare: 1 - contextShare,
+    contextShare,
+    weightedScore: round2(weightedScore),
+    availableFactors: available.map(({ key, score, weight }) => ({ key, score, weight })),
+    missingFactors: CONTEXT_KEYS.filter((key) => !available.some((x) => x.key === key)),
+  };
+}
 
 /**
  * 1. Regime Classifier (Point-in-Time, Zero Look-Ahead)
@@ -84,7 +136,7 @@ export function detectRegimeV3(closes, candles) {
  * 2. Adaptive Regularized Base Price Forecasting (Shrinkage Ensemble)
  * Minimizes point forecast MAE to beat naive spot baseline while retaining directional edge.
  */
-export function predictBaseTargetV3(currentPrice, closes, candles, regime, benchmarkCloses = null, config = V3_CONFIG) {
+export function predictBaseTargetV3(currentPrice, closes, candles, regime, benchmarkCloses = null, config = V3_CONFIG, contextScores = null) {
   if (!closes || closes.length < 10 || currentPrice <= 0) return currentPrice;
 
   const { atrVal, marketRegime, volatilityRegime } = regime;
@@ -120,13 +172,16 @@ export function predictBaseTargetV3(currentPrice, closes, candles, regime, bench
   }
 
   const w = config.weights;
-  let rawExpectedMovePct = (
+  const technicalExpectedMovePct = (
     (lrDeltaPct * w.linReg) +
     (vwDeltaPct * w.vwma) +
     (emaDeltaPct * w.emaTrend) +
     (rsiDeltaPct * w.momentumRsi) +
     (rsDeltaPct * w.relativeStrength)
   );
+
+  const context = calculateContextForecastTilt(contextScores, regime, config);
+  const rawExpectedMovePct = (technicalExpectedMovePct * context.technicalShare) + context.movePct;
 
   // ── STATISTICAL SHRINKAGE LAYER ──
   // In daily equities, true 1-day drift is small. Shrink raw displacement towards spot anchor
@@ -293,14 +348,21 @@ export function evaluateSignalQualityV3(currentPrice, baseTarget, bearCase, bull
 /**
  * 6. Master v3 Engine Prediction Generator
  */
-export function generateEnginePredictionV3(currentPrice, closes, candles, benchmarkCloses = null, config = V3_CONFIG) {
+export function generateEnginePredictionV3(currentPrice, closes, candles, benchmarkCloses = null, config = V3_CONFIG, contextScores = null) {
   const regime = detectRegimeV3(closes, candles);
-  const baseTarget = predictBaseTargetV3(currentPrice, closes, candles, regime, benchmarkCloses, config);
+  const contextForecast = calculateContextForecastTilt(contextScores, regime, config);
+  const baseTarget = predictBaseTargetV3(currentPrice, closes, candles, regime, benchmarkCloses, config, contextScores);
   const directional = calculateDirectionalProbabilityV3(currentPrice, baseTarget, closes, candles, regime);
   const range80 = calculateAdaptiveRangeV3(currentPrice, baseTarget, regime, directional, 'p80', config);
   const range70 = calculateAdaptiveRangeV3(currentPrice, baseTarget, regime, directional, 'p70', config);
   const range90 = calculateAdaptiveRangeV3(currentPrice, baseTarget, regime, directional, 'p90', config);
   const quality = evaluateSignalQualityV3(currentPrice, baseTarget, range80.bear, range80.bull, directional, regime, config);
+  const nextClosePrediction = generateNextClosePrediction({
+    currentPrice,
+    candles,
+    benchmarkCandles: (benchmarkCloses ?? []).map((close) => ({ close })),
+    dataQuality: candles?.length >= 50 ? 'AVAILABLE' : 'LIMITED',
+  });
 
   return {
     version: '3.0-quant-statistical',
@@ -316,6 +378,14 @@ export function generateEnginePredictionV3(currentPrice, closes, candles, benchm
     directional,
     regime,
     quality,
+    contextForecast,
+    forecastWeights: config.forecastWeights ?? V3_CONFIG.forecastWeights,
     expectedMovePct: round2(((baseTarget - currentPrice) / currentPrice) * 100),
+    pricePrediction: {
+      ...nextClosePrediction,
+      mode: 'SHADOW',
+      activeForDisplayedForecast: false,
+      activationReason: 'Untouched test MAE 0.9593% did not beat current-price baseline MAE 0.9532%.',
+    },
   };
 }

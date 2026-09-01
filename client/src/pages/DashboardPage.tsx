@@ -198,6 +198,11 @@ export function DashboardPage() {
     confidence: 'High',
     oneLiner: `${topOpp.symbol} — ${topOpp.signal} signal with conviction ${topOpp.convictionScore}% from Radar scan.`,
   } : null);
+  const horizonLabel = aiTop?.engine?.predictionHorizon === 'CURRENT_SESSION_CLOSE'
+    ? 'Today Close'
+    : aiTop?.engine?.predictionHorizon === 'NEXT_SESSION_CLOSE'
+      ? 'Next Close'
+      : 'Unavailable';
 
   const runAiPicks = useCallback(() => {
     if (refreshingRef.current || analyzing) return;
@@ -397,7 +402,7 @@ export function DashboardPage() {
               </div>
               <div>
                 <div className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">Horizon</div>
-                <div className="font-mono text-lg font-black text-slate-700 dark:text-slate-300 mt-0.5">Intraday</div>
+                <div className="font-mono text-lg font-black text-slate-700 dark:text-slate-300 mt-0.5">{horizonLabel}</div>
               </div>
             </div>
           </div>

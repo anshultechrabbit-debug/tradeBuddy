@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, beforeEach } from 'vitest';
+﻿import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
   evaluatePrediction,
   evaluatePredictions,
@@ -6,6 +6,7 @@ import {
   calculateDailyStats,
   recordPrediction,
   freezeDailyPredictions,
+  isMorningPredictionWindow,
   getPredictions,
 } from '../src/services/predictionTracker.js';
 import fs from 'node:fs';
@@ -13,9 +14,35 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// predictionTracker.js hardcodes its persistence path to this exact file —
+// there's no injectable path, so `recordPrediction()` below (test 11) always
+// writes to the REAL production predictions.json, the same file the app's
+// live accuracy stats (allStats()/weeklyStats()) read from. Snapshot it
+// before the suite runs and restore it after, so this test suite exercises
+// the real read/write path (verifying that persistence itself works)
+// without permanently seeding the live dataset with synthetic MULTIPRED
+// rows — which is exactly how 226+ junk entries had already accumulated in
+// this file from repeated past test runs before this fix.
 const TEST_FILE = path.resolve(__dirname, '..', 'src', 'data', 'predictions.json');
+let originalFileContent = null;
 
 describe('predictionTracker validation & evaluation system', () => {
+  beforeAll(() => {
+    originalFileContent = fs.existsSync(TEST_FILE) ? fs.readFileSync(TEST_FILE, 'utf8') : null;
+  });
+
+  afterAll(() => {
+    if (originalFileContent != null) fs.writeFileSync(TEST_FILE, originalFileContent);
+    else if (fs.existsSync(TEST_FILE)) fs.unlinkSync(TEST_FILE);
+  });
+
+  it('recognises the automatic NSE morning prediction window', () => {
+    expect(isMorningPredictionWindow('2026-09-01T09:20:00+05:30')).toBe(true);
+    expect(isMorningPredictionWindow('2026-09-01T09:35:00+05:30')).toBe(true);
+    expect(isMorningPredictionWindow('2026-09-01T09:36:00+05:30')).toBe(false);
+    expect(isMorningPredictionWindow('2026-09-05T09:25:00+05:30')).toBe(false);
+  });
+
 
   // Test 1: Bullish prediction and stock closes higher => CORRECT
   it('1. Bullish prediction and stock closes higher => CORRECT', () => {
@@ -168,6 +195,26 @@ describe('predictionTracker validation & evaluation system', () => {
 
     expect(res.predictionResult).toBe('DATA_INVALID');
     expect(res.validationStatus).toBe('DATA_INVALID');
+  });
+
+  it('10b. AVOID is an abstention, not a bearish action result', () => {
+    const res = evaluatePrediction({
+      symbol: 'AVOIDTEST', predictionPrice: 100, baseCase: 98,
+      directionalOutlook: 'BEARISH', signal: 'AVOID', tradeStatus: 'NO TRADE',
+    }, { close: 105, high: 106, low: 99 });
+    expect(res.directionCorrect).toBe(false);
+    expect(res.actionResult).toBe('NOT_SCORED_NO_TRADE');
+    expect(res.actionCorrect).toBeNull();
+  });
+
+  it('10c. executable BUY action is evaluated net of friction', () => {
+    const res = evaluatePrediction({
+      symbol: 'BUYTEST', predictionPrice: 100, baseCase: 101,
+      directionalOutlook: 'BULLISH', signal: 'BUY', tradeStatus: 'EXECUTABLE',
+    }, { close: 100.1, high: 101, low: 99 });
+    expect(res.directionCorrect).toBe(true);
+    expect(res.netTradeReturnPct).toBe(-0.05);
+    expect(res.actionResult).toBe('LOSS');
   });
 
   // Test 11: Multiple predictions for same stock => all snapshots preserved

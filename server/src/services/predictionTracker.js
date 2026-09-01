@@ -9,8 +9,10 @@ const DATA_DIR = path.resolve(__dirname, '..', 'data');
 const FILE = path.join(DATA_DIR, 'predictions.json');
 
 // ── Config ────────────────────────────────────────────────────────────────────
-export const DAILY_CUTOFF_MINUTES = 14 * 60 + 30; // 14:30 IST
-export const NEUTRAL_BAND_PCT = 0.25;
+export const MORNING_WINDOW_START_MINUTES = 9 * 60 + 20; // 09:20 IST
+export const MORNING_WINDOW_END_MINUTES = 9 * 60 + 35; // 09:35 IST
+export const DAILY_CUTOFF_MINUTES = MORNING_WINDOW_END_MINUTES; // backwards-compatible export
+export const NEUTRAL_BAND_PCT = 0.35;
 export const MIN_SAMPLE_FOR_ACCURACY = 30;
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -50,6 +52,15 @@ function istMinutesOfDay(ts) {
   const h = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
   const m = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
   return h * 60 + m;
+}
+
+export function isMorningPredictionWindow(ts = new Date()) {
+  const minutes = istMinutesOfDay(ts);
+  const date = ts instanceof Date ? ts : new Date(ts);
+  const weekday = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', weekday: 'short' }).format(date);
+  return !['Sat', 'Sun'].includes(weekday)
+    && minutes >= MORNING_WINDOW_START_MINUTES
+    && minutes <= MORNING_WINDOW_END_MINUTES;
 }
 
 function avg(xs) {
@@ -127,6 +138,15 @@ export function evaluatePrediction(prediction, session) {
   if (outlook === 'BULLISH' && invalidation != null && actualLow  != null) invalidationHit = actualLow  <= invalidation;
   if (outlook === 'BEARISH' && invalidation != null && actualHigh != null) invalidationHit = actualHigh >= invalidation;
 
+  // Action quality is separate from direction quality. AVOID/WATCH/NO TRADE
+  // are abstentions and are not scored as bearish calls. Only an executable
+  // long trade has a realised action result; 15 bps covers basic friction.
+  const executableLong = prediction.tradeStatus === 'EXECUTABLE'
+    && ['BUY', 'STRONG BUY'].includes(prediction.signal);
+  const netTradeReturnPct = executableLong ? round2(actualReturnPct - 0.15) : null;
+  const actionResult = executableLong ? (netTradeReturnPct > 0 ? 'PROFIT' : 'LOSS') : 'NOT_SCORED_NO_TRADE';
+  const actionCorrect = executableLong ? netTradeReturnPct > 0 : null;
+
   return {
     actualClose, actualHigh, actualLow, actualReturnPct,
     predictedDirection: outlook,
@@ -134,6 +154,7 @@ export function evaluatePrediction(prediction, session) {
     directionCorrect, predictionResult,
     predictedClose: baseCase, closeErrorPct, absoluteErrorPct, closeErrorRs,
     target1Hit, target2Hit, invalidationHit,
+    actionResult, actionCorrect, netTradeReturnPct,
     validationStatus: 'OK',
   };
 }
@@ -153,7 +174,7 @@ export function calculatePredictionStats(predictions, { minSample = MIN_SAMPLE_F
   const bCorrect  = bullish.filter((p) => p.predictionResult === 'CORRECT').length;
   const brCorrect = bearish.filter((p) => p.predictionResult === 'CORRECT').length;
   const nCorrect  = neutral.filter((p) => p.predictionResult === 'NEUTRAL_CORRECT').length;
-  const execCorrect = executable.filter((p) => ['CORRECT', 'NEUTRAL_CORRECT'].includes(p.predictionResult)).length;
+  const execCorrect = executable.filter((p) => p.actionCorrect === true).length;
   const absPcts   = evaluated.map((p) => p.absoluteErrorPct).filter((x) => x != null);
   const dirAccuracy = total >= minSample ? round2((correct / total) * 100) : null;
   const execAccuracy = executable.length >= minSample ? round2((execCorrect / executable.length) * 100) : null;
@@ -276,6 +297,11 @@ export function recordPrediction(rec) {
     evidenceQualityScore: rec.evidenceQualityScore ?? rec.confidenceScore ?? null,
     dataStatus:   rec.dataStatus   ?? null,
     modelVersion: rec.modelVersion ?? null,
+    snapshotType: rec.snapshotType ?? (() => {
+      const mins = istMinutesOfDay(rec.predictionTimestamp ?? now);
+      return mins >= MORNING_WINDOW_START_MINUTES && mins <= MORNING_WINDOW_END_MINUTES ? 'MORNING_OPEN' : 'INTRADAY';
+    })(),
+    snapshotBatchStartedAt: rec.snapshotBatchStartedAt ?? null,
     isFinalForDay: rec.isFinalForDay ?? false,
     status: 'OPEN',
     createdAt: now,
@@ -289,12 +315,18 @@ export function hasPredictionFor(symbol, date) {
   return load().some((p) => p.symbol === symbol && p.date === date);
 }
 
-export function recordFromAnalysis(result, date = dayKey()) {
+export function recordFromAnalysis(result, date = dayKey(), options = {}) {
   const e = result?.engine;
   if (!result?.symbol || !e) return null;
+  const now = new Date();
+  const batchStartedAt = options.batchStartedAt ? new Date(options.batchStartedAt) : null;
+  if (!isMorningPredictionWindow(now) && !isMorningPredictionWindow(batchStartedAt)) return null;
   if (hasPredictionFor(result.symbol, date)) return null;
   return recordPrediction({
-    date, predictionTimestamp: new Date().toISOString(),
+    date,
+    predictionTimestamp: result.dataTimestamp ?? now.toISOString(),
+    snapshotType: 'MORNING_OPEN',
+    snapshotBatchStartedAt: batchStartedAt?.toISOString() ?? now.toISOString(),
     symbol: result.symbol, sector: 'N/A',
     predictionPrice:    result.price,
     directionalOutlook: e.directionalOutlook ?? null,
@@ -326,7 +358,7 @@ export function freezeDailyPredictions(date = dayKey()) {
   const bySymbol = {};
   for (const p of forDate) {
     const mins = istMinutesOfDay(p.predictionTimestamp ?? p.createdAt);
-    if (mins <= DAILY_CUTOFF_MINUTES) {
+    if (p.snapshotType === 'MORNING_OPEN' || (p.snapshotType == null && mins >= MORNING_WINDOW_START_MINUTES && mins <= MORNING_WINDOW_END_MINUTES)) {
       const ts = new Date(p.predictionTimestamp || p.createdAt);
       if (!bySymbol[p.symbol] || ts > new Date(bySymbol[p.symbol].predictionTimestamp || bySymbol[p.symbol].createdAt))
         bySymbol[p.symbol] = p;
@@ -359,6 +391,9 @@ export function evaluatePredictions(closes) {
     p.target1Hit       = result.target1Hit       ?? null;
     p.target2Hit       = result.target2Hit       ?? null;
     p.invalidationHit  = result.invalidationHit  ?? null;
+    p.actionResult     = result.actionResult     ?? null;
+    p.actionCorrect    = result.actionCorrect    ?? null;
+    p.netTradeReturnPct = result.netTradeReturnPct ?? null;
     p.validationStatus    = result.validationStatus;
     p.actualCloseTimestamp = new Date().toISOString();
     p.actualDataSource    = session.source ?? 'unknown';

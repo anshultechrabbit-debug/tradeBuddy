@@ -97,7 +97,7 @@ async function callTools(question) {
   // ── 1. Live Indices if asked about NIFTY, BankNifty, or general rates ──
   if (wantsIndex || wantsBreadth) {
     try {
-      const indices = await provider.getIndexQuotes();
+      const indices = await provider.getIndexData();
       if (indices?.length) {
         extra.push('LIVE MARKET INDICES (real-time):');
         for (const idx of indices) {
@@ -144,6 +144,31 @@ async function callTools(question) {
         extra.push(`- ${symbol}:`, formatAnalysis(a));
       } else {
         extra.push(`- ${symbol}: radar flagged for review (score pending).`);
+      }
+    }
+  }
+
+  // ── 4b. When radar data is empty, fetch live quotes for popular Nifty stocks ──
+  if (wantsTop && !symbols.length && !topOpps.length) {
+    const popularNifty = [
+      'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK',
+      'HINDUNILVR', 'ITC', 'SBIN', 'BHARTIARTL', 'KOTAKBANK',
+      'LT', 'AXISBANK', 'BAJFINANCE', 'MARUTI', 'TITAN',
+      'SUNPHARMA', 'ASIANPAINT', 'HCLTECH', 'WIPRO', 'TATAMOTORS',
+    ];
+    const quotes = await Promise.allSettled(
+      popularNifty.slice(0, 12).map((sym) => provider.getQuote(sym, 'NSE')),
+    );
+    const liveQuotes = quotes
+      .filter((r) => r.status === 'fulfilled' && r.value)
+      .map((r) => r.value)
+      .filter((q) => q.lastPrice > 0);
+    if (liveQuotes.length) {
+      liveQuotes.sort((a, b) => b.changePct - a.changePct);
+      extra.push('LIVE QUOTES from major Nifty stocks (no radar scan available, using provider data):');
+      for (const q of liveQuotes) {
+        const sign = q.changePct >= 0 ? '+' : '';
+        extra.push(`- ${q.symbol}: Rs ${q.lastPrice.toLocaleString('en-IN')}, change ${sign}${q.changePct.toFixed(2)}%`);
       }
     }
   }

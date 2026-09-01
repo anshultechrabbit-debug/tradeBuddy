@@ -16,6 +16,7 @@ const POSITIVE_WORDS = [
   'boost', 'boosted', 'recovery', 'rebound', 'breakout', 'bullish', 'approval', 'approved',
   'guidance', 'raised', 'raise', 'dividend', 'bonus', 'buyback', 'deal', 'order', 'orders',
   'partnership', 'landmark', 'milestone', 'stellar', 'robust', 'momentum',
+  'regulatory nod', 'gets nod', 'cleared',
 ];
 
 const NEGATIVE_WORDS = [
@@ -50,6 +51,27 @@ function recencyWeight(publishedAt) {
   if (ageDays <= 7) return 0.75;
   if (ageDays <= 14) return 0.5;
   return 0.3;
+}
+
+// Ticker searches can mix similarly named listed companies. These exclusions
+// prevent the most damaging known collision while leaving the generic symbol
+// search usable for the rest of the universe.
+const ENTITY_EXCLUSIONS = {
+  RELIANCE: /reliance communications|\brcom\b|reliance power|reliance infrastructure|reliance capital|reliance home/i,
+};
+
+export function filterRelevantArticles(symbol, articles, now = new Date()) {
+  const exclusion = ENTITY_EXCLUSIONS[String(symbol).toUpperCase()];
+  return (articles ?? []).filter((article) => {
+    const title = String(article?.title ?? '');
+    if (!title || (exclusion && exclusion.test(title))) return false;
+    const published = article?.publishedAt ? new Date(article.publishedAt) : null;
+    if (published && !Number.isNaN(published.getTime())) {
+      const ageDays = (now.getTime() - published.getTime()) / 86400000;
+      if (ageDays < -0.25 || ageDays > 14) return false;
+    }
+    return true;
+  });
 }
 
 function parseItems(xml) {
@@ -282,14 +304,27 @@ export async function fetchStockNews(symbol, { limit = 8 } = {}) {
     chosen.articles.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
   }
 
-  // Existing processing logic using chosen.articles
+  // Relevance first, then dedupe, then material-event filtering. Sentiment
+  // must never be calculated from duplicates, similarly named companies, or
+  // headlines that merely describe a price move already present in OHLCV.
   let weighted = 0;
   let totalWeight = 0;
   let positive = 0;
   let neutral = 0;
   let negative = 0;
 
-  const rawArticles = (chosen?.articles ?? []).map((a) => {
+  const relevantArticles = filterRelevantArticles(symbol, chosen?.articles ?? []);
+  const rawArticles = relevantArticles.map((a) => {
+    const w = a.recencyWeight ?? recencyWeight(a.publishedAt);
+    return { ...a, recencyWeight: Math.round(w * 100) / 100 };
+  });
+
+  // Deduplicate syndicated/copied articles — four repeats of one story = ONE event.
+  const deduped = dedupeArticles(rawArticles);
+  const unique = deduped.unique;
+  const material = deduped.material;
+
+  for (const a of material) {
     const w = a.recencyWeight ?? recencyWeight(a.publishedAt);
     const s = a.sentiment === 'POSITIVE' ? 1 : a.sentiment === 'NEGATIVE' ? -1 : 0;
     weighted += w * s;
@@ -297,12 +332,7 @@ export async function fetchStockNews(symbol, { limit = 8 } = {}) {
     if (a.sentiment === 'POSITIVE') positive += 1;
     else if (a.sentiment === 'NEGATIVE') negative += 1;
     else neutral += 1;
-    return { ...a, recencyWeight: Math.round(w * 100) / 100 };
-  });
-
-  // Deduplicate syndicated/copied articles — four repeats of one story = ONE event.
-  const deduped = dedupeArticles(rawArticles);
-  const unique = deduped.unique;
+  }
 
   const sentimentScore = totalWeight
     ? Math.round(Math.min(100, Math.max(0, 50 + (weighted / totalWeight) * 50)))
@@ -318,7 +348,7 @@ export async function fetchStockNews(symbol, { limit = 8 } = {}) {
     overall,
     independentEvents: deduped.independentEvents,
     materialEvents: deduped.materialEvents,
-    positiveCatalysts: unique.filter((a) => a.sentiment === 'POSITIVE').slice(0, 4).map((a) => a.title),
-    negativeCatalysts: unique.filter((a) => a.sentiment === 'NEGATIVE').slice(0, 4).map((a) => a.title),
+    positiveCatalysts: material.filter((a) => a.sentiment === 'POSITIVE').slice(0, 4).map((a) => a.title),
+    negativeCatalysts: material.filter((a) => a.sentiment === 'NEGATIVE').slice(0, 4).map((a) => a.title),
   };
 }

@@ -30,6 +30,44 @@ export function mapLimit(items, limit, fn) {
   );
 }
 
+/**
+ * Applies the full stock-analysis decision to a Radar candidate.
+ * Radar finds candidates; analyzeStock() owns the published action.
+ */
+export function applyAiDecision(entry, analysis) {
+  const technicalSignal = entry.signal;
+  const valid = analysis?.ok && analysis.finalValidation?.passed;
+
+  entry.features = { ...entry.features, technicalSignal };
+
+  if (!valid) {
+    if (technicalSignal === 'BUY') {
+      entry.signal = 'WATCH';
+      entry.reason = `${entry.reason}; AI Strategy validation unavailable, so BUY was downgraded to WATCH`;
+    }
+    return entry;
+  }
+
+  const aiSignal = String(analysis.finalSignal || '').toUpperCase();
+  entry.signal = aiSignal === 'BUY' || aiSignal === 'STRONG BUY'
+    ? 'BUY'
+    : aiSignal === 'AVOID' || aiSignal.includes('SELL')
+      ? 'AVOID'
+      : 'WATCH';
+  entry.convictionScore = Number(analysis.overallScore ?? entry.convictionScore);
+  entry.features = {
+    ...entry.features,
+    aiStrategy: {
+      signal: analysis.finalSignal,
+      directionalOutlook: analysis.engine?.directionalOutlook ?? 'NEUTRAL',
+      tradeStatus: analysis.engine?.tradeStatus ?? 'WAIT',
+      score: analysis.overallScore,
+    },
+  };
+  entry.reason = `AI Strategy: ${analysis.oneLiner}`;
+  return entry;
+}
+
 async function getIndexReturn20(provider) {
   const candles = await provider.getCandles('NIFTY', '1d', 30, 'NSE');
   // Insufficient index history is genuinely UNKNOWN, not "the index returned
@@ -307,37 +345,15 @@ async function computeScan({ userId = null, limit = 15, useCachedOnly = true }) 
     scanned.sort((a, b) => b.convictionScore - a.convictionScore);
   }
 
-  // A technical screen may nominate a BUY, but only the full AI prediction
-  // engine is allowed to publish an actionable BUY. It applies the additional
-  // risk/reward, higher-timeframe, evidence-quality, freshness and trade-plan
-  // gates used by the AI Strategy page. This prevents contradictions such as
-  // Radar BUY while AI Strategy says WATCH/WAIT for the same stock.
-  const radarBuys = scanned.filter((s) => s.signal === 'BUY');
-  const aiChecks = await mapLimit(radarBuys, 4, (entry) =>
+  // The full engine is authoritative for leading candidates in both
+  // directions: it can downgrade a preliminary BUY or promote a WATCH.
+  const AI_VALIDATION_POOL = Math.min(scanned.length, 25);
+  const aiCandidates = scanned.slice(0, AI_VALIDATION_POOL);
+  const aiChecks = await mapLimit(aiCandidates, 4, (entry) =>
     analyzeStock(entry.symbol).catch(() => null),
   );
-  for (let i = 0; i < radarBuys.length; i += 1) {
-    const entry = radarBuys[i];
-    const analysis = aiChecks[i];
-    const valid = analysis?.ok && analysis.finalValidation?.passed;
-    const aiSignal = valid ? analysis.finalSignal : null;
-    const actionable = aiSignal === 'BUY' || aiSignal === 'STRONG BUY';
-    entry.signal = actionable ? 'BUY' : aiSignal === 'AVOID' ? 'AVOID' : 'WATCH';
-    if (valid) {
-      entry.convictionScore = Number(analysis.overallScore ?? entry.convictionScore);
-      entry.features = {
-        ...entry.features,
-        aiStrategy: {
-          signal: aiSignal,
-          directionalOutlook: analysis.engine?.directionalOutlook ?? 'NEUTRAL',
-          tradeStatus: analysis.engine?.tradeStatus ?? 'WAIT',
-          score: analysis.overallScore,
-        },
-      };
-      entry.reason = `AI Strategy: ${analysis.oneLiner}`;
-    } else {
-      entry.reason = `${entry.reason}; AI Strategy validation unavailable, so BUY was downgraded to WATCH`;
-    }
+  for (let i = 0; i < aiCandidates.length; i += 1) {
+    applyAiDecision(aiCandidates[i], aiChecks[i]);
   }
   scanned.sort((a, b) => b.convictionScore - a.convictionScore);
 

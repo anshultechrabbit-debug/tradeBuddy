@@ -1,0 +1,109 @@
+{
+  "generatedAt": "2026-09-01T10:19:43.022Z",
+  "methodology": {
+    "target": "next trading-session close return",
+    "walkForward": true,
+    "leakageControl": "Every prediction uses only bars dated before the target date.",
+    "split": "First 70% development, next 15% interval calibration, final 15% untouched test.",
+    "newsLimitation": "Historical point-in-time news was unavailable; news is UNKNOWN and its weight is renormalized, never neutral-filled."
+  },
+  "universe": {
+    "requested": 35,
+    "tested": 35
+  },
+  "periods": {
+    "first": "2026-01-14",
+    "calibrationStart": "2026-06-23",
+    "testStart": "2026-07-28",
+    "last": "2026-08-31",
+    "calibrationObservations": 875,
+    "testObservations": 875
+  },
+  "config": {
+    "version": "next-close-return-1.0",
+    "groupWeights": {
+      "priceMomentum": 30,
+      "trend": 20,
+      "volumeVwap": 15,
+      "volatility": 10,
+      "marketSector": 15,
+      "news": 10
+    },
+    "shrinkage": 0.25,
+    "maxAtrMultiplier": 0.75,
+    "neutralDirectionBandPct": 0.15,
+    "intervalAtrMultipliers": {
+      "p50": 0.35,
+      "p70": 0.54,
+      "p80": 0.72,
+      "p90": 1.05
+    }
+  },
+  "metrics": {
+    "currentPriceBaseline": {
+      "observations": 875,
+      "maeRupees": 25.654,
+      "maePct": 0.9532,
+      "rmseRupees": 53.841,
+      "medianAbsErrorPct": 0.6785,
+      "biasRupees": -3.814,
+      "directionalAccuracyPct": 0,
+      "avgPredictedMovePct": 0,
+      "avgActualMovePct": 0.0539
+    },
+    "averageReturnBaseline": {
+      "observations": 875,
+      "maeRupees": 27.27,
+      "maePct": 1.025,
+      "rmseRupees": 55.083,
+      "medianAbsErrorPct": 0.7586,
+      "biasRupees": 1.343,
+      "directionalAccuracyPct": 49.68,
+      "avgPredictedMovePct": 0.0725,
+      "avgActualMovePct": 0.0539
+    },
+    "oldV3": {
+      "observations": 875,
+      "maeRupees": 25.949,
+      "maePct": 0.964,
+      "rmseRupees": 54.359,
+      "medianAbsErrorPct": 0.69,
+      "biasRupees": -3.05,
+      "directionalAccuracyPct": 52.27,
+      "avgPredictedMovePct": 0.013,
+      "avgActualMovePct": 0.0539
+    },
+    "newReturnModel": {
+      "observations": 875,
+      "maeRupees": 25.688,
+      "maePct": 0.9593,
+      "rmseRupees": 53.602,
+      "medianAbsErrorPct": 0.6891,
+      "biasRupees": -2.914,
+      "directionalAccuracyPct": 46.95,
+      "avgPredictedMovePct": 0.0143,
+      "avgActualMovePct": 0.0539
+    }
+  },
+  "calibratedResidualQuantilesPct": {
+    "p50": 0.79465,
+    "p70": 1.35843,
+    "p80": 1.66924,
+    "p90": 2.29273
+  },
+  "untouchedTestIntervalCoveragePct": {
+    "p50": 56.34,
+    "p70": 76.57,
+    "p80": 83.66,
+    "p90": 91.77
+  },
+  "groupSignalCorrelationWithNextReturn": {
+    "priceMomentum": -0.01219,
+    "trend": 0.0236,
+    "volumeVwap": 0.02543,
+    "volatility": null,
+    "marketSector": 0.01875,
+    "news": null
+  },
+  "activationDecision": "FAIL_MAE_VS_CURRENT_PRICE_BASELINE_DO_NOT_REPLACE_PRODUCTION_FORECAST"
+}

@@ -75,11 +75,14 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
     this._liveCache = new Map();
     this._liveTtlMs = config.externalMarketData.liveTtlMs;
     this._indexCache = { at: 0, data: null };
+    this._indexCacheTtlMs = 30 * 1000; // 30s cache for indices (was 2s — too short, caused Python spawn per request)
+    this._indexInFlight = null; // dedup: share the slow NSE fetch across concurrent callers
     this._candleCache = new Map();
     this._candleTtlMs = 15 * 60 * 1000;
     this._breadthCache = { at: 0, data: null };
     this._breadthTtlMs = 5 * 60 * 1000;
     this._breadthInFlight = null;
+    this._topStocksInFlight = null; // dedup: share the slow NSE fetch across concurrent callers
     this._intradayCache = new Map();
     this._intradayTtlMs = 10 * 1000;
     // Background live-quote snapshot: refreshed every livePollerIntervalMs.
@@ -105,19 +108,7 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
       await this.getIndexData().catch(() => null);
       await this.getMarketBreadth().catch(() => null);
 
-      // 2. Fetch candles for universe sequentially
-      const universe = await prisma.scanUniverse.findMany({
-        where: { enabled: true, excluded: false, instrumentType: 'EQUITY' },
-        orderBy: { priority: 'asc' },
-        take: 60,
-        select: { symbol: true, exchange: true },
-      });
-
-      for (const u of universe) {
-        await this.getCandles(u.symbol, '1d', 60, u.exchange).catch(() => null);
-      }
-
-      logInfra('info', 'market-data-external', 'warm-up complete: indices + breadth + top candles cached');
+      logInfra('info', 'market-data-external', 'warm-up complete: indices + breadth cached');
     } catch (err) {
       logInfra('warn', 'market-data-external', `warm-up failed: ${err.message}`);
     }
@@ -693,46 +684,55 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
   // -------------------------------------------------------------------------
 
   async getIndexData() {
-    // 1) LIVE NSE index snapshots via jugaad (all_indices, one request), cached ~5s.
+    // 1) LIVE NSE index snapshots via jugaad (all_indices, one request), cached 30s.
     const now = Date.now();
-    if (this._indexCache.data && now - this._indexCache.at < this._liveTtlMs) {
-      return this._indexCache.data;
-    }
     const INDEX_MAP = {
       'NIFTY 50': 'NIFTY',
       'NIFTY BANK': 'NIFTYBANK',
       'SENSEX': 'SENSEX',
       'NIFTY FIN SERVICE': 'FINNIFTY',
     };
-    try {
-      const live = await this.primary.getIndexData();
-      if (Array.isArray(live) && live.length) {
-        const mapped = live
-          .filter((item) => INDEX_MAP[item.symbol])
-          .map((item) => ({
-            symbol: INDEX_MAP[item.symbol],
-            exchange: 'NSE',
-            instrumentType: 'INDEX',
-            level: round2(item.level),
-            prevClose: item.prevClose == null ? null : round2(item.prevClose),
-            change: item.change == null ? null : round2(item.change),
-            changePct: item.changePct == null ? null : round2(item.changePct),
-            advances: item.advances ?? null,
-            declines: item.declines ?? null,
-            dataSource: this.dataSource,
-            source: item.sourceTimestamp ?? null,
-          }))
-          .filter((item) => item.level != null);
-        if (mapped.length) {
-          this._indexCache = { at: now, data: mapped };
-          this._recordSuccess('quote');
-          return mapped;
-        }
-      }
-    } catch (err) {
-      this._recordError(err, 'getIndexData:jugaad');
-      logInfra('info', 'market-data-external', `getIndexData live failed: ${err.message}`);
+    if (this._indexCache && this._indexCache.data && now - this._indexCache.at < this._indexCacheTtlMs) {
+      return this._indexCache.data;
     }
+    // In-flight dedup: if a slow index fetch is already running, share it.
+    if (this._indexInFlight) return this._indexInFlight;
+    
+    this._indexInFlight = (async () => {
+      try {
+        const live = await this.primary.getIndexData();
+        if (Array.isArray(live) && live.length) {
+          const mapped = live
+            .filter((item) => INDEX_MAP[item.symbol])
+            .map((item) => ({
+              symbol: INDEX_MAP[item.symbol],
+              exchange: 'NSE',
+              instrumentType: 'INDEX',
+              level: round2(item.level),
+              prevClose: item.prevClose == null ? null : round2(item.prevClose),
+              change: item.change == null ? null : round2(item.change),
+              changePct: item.changePct == null ? null : round2(item.changePct),
+              advances: item.advances ?? null,
+              declines: item.declines ?? null,
+              dataSource: this.dataSource,
+              source: item.sourceTimestamp ?? null,
+            }))
+            .filter((item) => item.level != null);
+          if (mapped.length) {
+            this._indexCache = { at: Date.now(), data: mapped };
+            this._recordSuccess('quote');
+            return mapped;
+          }
+        }
+      } catch (err) {
+        this._recordError(err, 'getIndexData:jugaad');
+        logInfra('info', 'market-data-external', `getIndexData live failed: ${err.message}`);
+      }
+      return null;
+    })().finally(() => { this._indexInFlight = null; });
+
+    const res = await this._indexInFlight;
+    if (res) return res;
 
     // 2) Fallback: nselib EOD snapshot. nselib's market_watch_all_indices()
     // returns EVERY NSE index (sectoral, thematic, ~90 of them) — apply the
@@ -760,22 +760,22 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
       this._recordError(err, 'getIndexData:primary');
     }
 
-    // 3) Last resort: compute from cached/external candles.
     const symbols = [...INDEX_SYMBOLS];
     const out = [];
     for (const sym of symbols) {
-      const candles = await this.getCandles(sym, '1d', 2, 'NSE');
+      const candles = await this._cachedCandles(sym, 'NSE', '1d', 2);
       if (!candles.length) continue;
       const last = candles[candles.length - 1];
-      const prev = candles.length > 1 ? candles[candles.length - 2] : last;
+      const lastClose = Number(last.close);
+      const prevClose = candles.length > 1 ? Number(candles[candles.length - 2].close) : lastClose;
       out.push({
         symbol: sym,
         exchange: 'NSE',
         instrumentType: 'INDEX',
-        level: round2(last.close),
-        prevClose: round2(prev.close),
-        change: round2(last.close - prev.close),
-        changePct: prev.close > 0 ? round2(((last.close - prev.close) / prev.close) * 100) : 0,
+        level: round2(lastClose),
+        prevClose: round2(prevClose),
+        change: round2(lastClose - prevClose),
+        changePct: prevClose > 0 ? round2(((lastClose - prevClose) / prevClose) * 100) : 0,
         dataSource: this.dataSource,
       });
     }
@@ -783,20 +783,32 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
   }
 
   async getTopStocks() {
-    try {
-      const data = await this.primary.getTopStocks();
-      return {
-        gainers: (data.gainers ?? []).slice(0, 10),
-        losers: (data.losers ?? []).slice(0, 10),
-        activeByValue: (data.activeByValue ?? []).slice(0, 10),
-        activeByVolume: (data.activeByVolume ?? []).slice(0, 10),
-        timestamp: data.timestamp ?? null,
-        dataSource: this.dataSource,
-      };
-    } catch (err) {
-      this._recordError(err, 'getTopStocks');
-      return { gainers: [], losers: [], activeByValue: [], activeByVolume: [], timestamp: null, dataSource: this.dataSource };
+    // Cache top stocks for 30s to avoid spawning a fresh Python process per request
+    const now = Date.now();
+    if (this._topStocksCache && this._topStocksCache.data && now - this._topStocksCache.at < this._topStocksCacheTtlMs) {
+      return this._topStocksCache.data;
     }
+    // In-flight dedup: if a slow NSE/jugaad request is already running, share it.
+    if (this._topStocksInFlight) return this._topStocksInFlight;
+    this._topStocksInFlight = (async () => {
+      try {
+        const data = await this.primary.getTopStocks();
+        const result = {
+          gainers: (data.gainers ?? []).slice(0, 10),
+          losers: (data.losers ?? []).slice(0, 10),
+          activeByValue: (data.activeByValue ?? []).slice(0, 10),
+          activeByVolume: (data.activeByVolume ?? []).slice(0, 10),
+          timestamp: data.timestamp ?? null,
+          dataSource: this.dataSource,
+        };
+        this._topStocksCache = { at: Date.now(), data: result };
+        return result;
+      } catch (err) {
+        this._recordError(err, 'getTopStocks');
+        return { gainers: [], losers: [], activeByValue: [], activeByVolume: [], timestamp: null, dataSource: this.dataSource };
+      }
+    })().finally(() => { this._topStocksInFlight = null; });
+    return this._topStocksInFlight;
   }
 
   async getMarketBreadth() {

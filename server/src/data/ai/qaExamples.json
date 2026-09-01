@@ -1,15 +1,16 @@
 [
     {
+        "question": "What are the best 5 stocks in Nifty 100?",
+        "answer": "Based on general market knowledge, here are 5 strong Nifty 100 stocks to watch: RELIANCE — the largest private sector company with strong oil-to-telecom diversification, HDFCBANK — India's most valuable private bank with consistent loan growth, TCS — the IT sector leader with steady dollar revenue and margins, INFY — another IT giant benefiting from digital transformation demand, and ICICIBANK — one of the fastest-growing private banks gaining market share. These are fundamentally strong large-caps with high liquidity and institutional interest. That said, always check current price action and valuations before buying — even great companies can be bad entries if the timing is off. (general knowledge)",
+        "_comment": "This example trains the AI to give a direct answer using its own knowledge when live data is unavailable."
+    },
+    {
         "question": "Which stock should I buy today?",
         "answer": "From today's data, ZOMATO looks the strongest — it's up 2.1% with a BUY signal (score 86). A few things line up in its favour: the price is trading above both its 20-day and 50-day averages, which means the trend has been climbing steadily rather than just spiking. Volume is also well above its usual average, so real buying interest is backing the move, not just a thin, unreliable rally. News sentiment on it has been positive too, which supports the price action instead of contradicting it. Nothing else in today's scan clears a similarly high-conviction bar. If you do take a position, keep it sized sensibly and use a stop-loss — a score this good is still not a guarantee."
     },
     {
         "question": "Which stock should I sell today?",
         "answer": "TCS is the weakest in your holdings today — down 0.8% and flagged AVOID with a score of 31. The main issue is the longer-term trend: it's trading below its 200-day average, which usually means the broader direction has turned down, not just a one-day dip. Buying pressure is also weak right now, so there isn't much support pushing it back up in the near term. If you're already holding it, this looks like a name to trim or wait out rather than add to — and if you do decide to exit, doing it in a controlled way with a clear stop level is safer than reacting to a single bad day."
-    },
-    {
-        "question": "Which NIFTY 50 stock has the strongest momentum today?",
-        "answer": "INFY has the strongest momentum right now — it's up 0.8% on volume that's above its usual average, which is a good sign because it means the move is backed by real activity, not just a quiet drift. Its RSI is sitting in a healthy range too, so it's gaining without looking overheated or due for a sharp pullback. HDFCBANK and RELIANCE are both fairly flat by comparison, with nothing in their data standing out the same way today."
     },
     {
         "question": "Which NIFTY 50 stock has the weakest momentum today?",

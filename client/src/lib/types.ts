@@ -403,6 +403,8 @@ export interface EngineOutput {
   totalScore: number;
   classification: string;
   directionalOutlook: 'BULLISH' | 'NEUTRAL' | 'BEARISH';
+  predictionHorizon: 'CURRENT_SESSION_CLOSE' | 'NEXT_SESSION_CLOSE';
+  predictionStatus?: 'IN_PROGRESS_SESSION_ESTIMATE' | 'NEXT_SESSION_ESTIMATE';
   signal: string;
   isBuy: boolean;
   tradeStatus: string;

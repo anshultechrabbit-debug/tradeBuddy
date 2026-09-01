@@ -5,10 +5,10 @@ import { analyzeMany, analyzeSymbol, searchSymbols, suggestMarket } from '../sto
 import { fetchWatchlist } from '../store/watchlistSlice';
 import { fetchLatestScan } from '../store/radarSlice';
 import { fetchAllQuotes } from '../store/marketSlice';
-import { Card, Spinner, EmptyState, ErrorBox, Badge } from '../components/ui';
+import { Card, Spinner, EmptyState, ErrorBox } from '../components/ui';
 import { formatCurrency, formatPct, formatTimeAgo } from '../lib/format';
 import { CandleChart } from '../components/CandleChart';
-import { isMarketOpen, getMarketStatus } from '../lib/marketHours';
+import { isMarketOpen } from '../lib/marketHours';
 import type { AiAnalysis } from '../lib/types';
 
 function signalTone(signal: string): 'buy' | 'watch' | 'avoid' {
@@ -476,39 +476,17 @@ export function AiPicksPage() {
 
                 {/* Expected Trading Range & Target */}
                 {(() => {
-                  const isBuy = tone === 'buy' || active.finalSignal === 'BUY' || active.finalSignal === 'STRONG BUY';
-                  const isAvoid = tone === 'avoid' || active.finalSignal === 'AVOID';
-                  const curPrice = active.quote?.lastPrice ?? active.price ?? 0;
+                  // Trading action and price direction are different concepts.
+                  // An AVOID can be caused by valuation/data/risk gates while
+                  // the same-session price outlook is still NEUTRAL or BULLISH.
+                  // Never turn every AVOID into a fabricated "going lower" call.
+                  const outlook = active.engine?.directionalOutlook ?? active.morningBaseline?.directionalOutlook ?? 'NEUTRAL';
+                  const isBuy = outlook === 'BULLISH';
+                  const isAvoid = outlook === 'BEARISH';
+                  const curPrice = active.quote?.lastPrice ?? active.engine?.predictionReferencePrice ?? 0;
                   const bearVal = active.engine?.closingRange?.bear ?? active.morningBaseline?.bearCase;
                   const bullVal = active.engine?.closingRange?.bull ?? active.morningBaseline?.bullCase;
                   const baseVal = active.engine?.closingRange?.base ?? active.morningBaseline?.baseCase ?? active.expectedClose;
-
-                  let displayTarget = baseVal;
-                  let displayTargetPct = 0;
-                  let targetLabel = 'Target';
-                  let badgeBg = 'bg-emerald-50/70 dark:bg-emerald-950/25 border-emerald-200 dark:border-emerald-800/40';
-                  let badgeText = 'text-emerald-700 dark:text-emerald-400';
-                  let valueColor = 'text-emerald-600 dark:text-emerald-400';
-
-                  if (isBuy) {
-                    displayTarget = bullVal ?? (curPrice > 0 ? curPrice * 1.025 : baseVal);
-                    displayTargetPct = curPrice > 0 && displayTarget ? ((displayTarget - curPrice) / curPrice) * 100 : 2.5;
-                    targetLabel = 'Upside Target';
-                  } else if (isAvoid) {
-                    displayTarget = bearVal ?? (curPrice > 0 ? curPrice * 0.975 : baseVal);
-                    displayTargetPct = curPrice > 0 && displayTarget ? ((displayTarget - curPrice) / curPrice) * 100 : -2.5;
-                    targetLabel = 'Risk Floor';
-                    badgeBg = 'bg-rose-50/70 dark:bg-rose-950/25 border-rose-200 dark:border-rose-800/40';
-                    badgeText = 'text-rose-700 dark:text-rose-400';
-                    valueColor = 'text-rose-600 dark:text-rose-400';
-                  } else {
-                    displayTarget = baseVal ?? curPrice;
-                    displayTargetPct = curPrice > 0 && displayTarget ? ((displayTarget - curPrice) / curPrice) * 100 : 0;
-                    targetLabel = 'Base Target';
-                    badgeBg = 'bg-blue-50/70 dark:bg-blue-950/25 border-blue-200 dark:border-blue-800/40';
-                    badgeText = 'text-blue-700 dark:text-blue-400';
-                    valueColor = 'text-blue-600 dark:text-blue-400';
-                  }
 
                   if (isBuy) {
                     const targetHigh = bullVal ?? (curPrice > 0 ? curPrice * 1.025 : baseVal);

@@ -5,22 +5,22 @@ import { fetchSummary } from '../store/portfolioSlice';
 import { fetchLatestScan } from '../store/radarSlice';
 import { fetchWatchlist } from '../store/watchlistSlice';
 
-import { isMarketOpen } from '../lib/marketHours';
-
 /**
  * Global Live Market Sync Engine (Optimized)
- * 
- * Synchronizes market indices and essentials from a single coordinated,
- * non-overlapping tick loop during active trading hours (09:15–15:30 IST).
+ *
+ * Synchronizes market data from a single coordinated, non-overlapping tick loop.
+ * Polling is intentionally relaxed (30s) to prevent request pile-ups when the
+ * server's external market-data provider is slow (NSE/jugaad can take 40s+).
  */
 export function useLiveMarketSync() {
   const dispatch = useAppDispatch();
   const token = useAppSelector((s) => s.auth.token);
   const syncLock = useRef(false);
   const cycleCount = useRef(0);
+  const lastPollAt = useRef(0);
 
   useEffect(() => {
-    // 1. Single initial load on startup (loads latest EOD/live snapshot)
+    // 1. Single initial load on mount
     dispatch(fetchIndices());
     dispatch(fetchTopStocks());
     dispatch(fetchBreadth());
@@ -30,47 +30,43 @@ export function useLiveMarketSync() {
       dispatch(fetchLatestScan());
     }
 
-    // 2. Coordinated Heartbeat (~10s interval — active continuously)
+    // 2. Coordinated heartbeat — 30s interval to avoid hammering a slow provider.
+    //    syncLock ensures we never have two concurrent sync cycles.
     const syncTimer = setInterval(async () => {
       if (document.hidden || syncLock.current) return;
       syncLock.current = true;
       cycleCount.current += 1;
-
-
+      lastPollAt.current = Date.now();
 
       try {
-        // Fast cycle: Live Indices & Top Movers (every tick ~10s)
-        await Promise.allSettled([
-          dispatch(fetchIndices()),
-          dispatch(fetchTopStocks()),
-        ]);
+        // Every 30s: indices only (lightest call)
+        await dispatch(fetchIndices()).catch(() => {});
 
-        // Medium cycle: Breadth & Watchlist (every 2nd tick ~20s)
+        // Every 2nd tick (~60s): add top movers + breadth
         if (cycleCount.current % 2 === 0) {
           await Promise.allSettled([
+            dispatch(fetchTopStocks()),
             dispatch(fetchBreadth()),
             token ? dispatch(fetchWatchlist()) : Promise.resolve(),
             token ? dispatch(fetchSummary()) : Promise.resolve(),
           ]);
         }
 
-        // Slow cycle: Radar Scan (every 4th tick ~40s)
+        // Every 4th tick (~120s): radar scan
         if (token && cycleCount.current % 4 === 0) {
           await dispatch(fetchLatestScan()).catch(() => {});
         }
       } finally {
         syncLock.current = false;
       }
-    }, 10000);
+    }, 30000);
 
-    // 3. Tab visibility / window focus listener
+    // 3. Refetch on tab focus — only if last poll was > 25s ago
     const handleFocus = () => {
-      if (!document.hidden && !syncLock.current) {
+      if (!document.hidden && !syncLock.current && Date.now() - lastPollAt.current > 25000) {
+        lastPollAt.current = Date.now();
         dispatch(fetchIndices());
-        dispatch(fetchTopStocks());
-        if (token) {
-          dispatch(fetchSummary());
-        }
+        if (token) dispatch(fetchSummary());
       }
     };
 

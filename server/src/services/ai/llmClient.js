@@ -13,11 +13,11 @@ export async function chat({ system, messages = [], maxTokens, temperature, stre
   const body = {
     model: aiConfig.model,
     messages: system ? [{ role: 'system', content: system }, ...messages] : messages,
-    // Groq's OpenAI-compatible endpoint accepts both; reasoning models there
-    // key off max_completion_tokens specifically, so send both rather than
-    // guess which one this model reads.
-    max_tokens: tokens,
-    max_completion_tokens: tokens,
+    // Groq accepts both max_tokens and max_completion_tokens; OpenAI does not.
+    // Send only one based on provider.
+    ...(aiConfig.provider === 'groq'
+      ? { max_tokens: tokens, max_completion_tokens: tokens }
+      : { max_tokens: tokens }),
     temperature: temperature ?? aiConfig.temperature,
     stream,
     ...(aiConfig.provider === 'groq'
