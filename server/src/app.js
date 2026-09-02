@@ -33,6 +33,10 @@ export function createApp() {
       docs: '/api/health',
     });
   });
+  app.get('/health', (_req, res) => {
+    res.send("okay server is running")
+  });
+
 
   app.use('/api', routes);
 

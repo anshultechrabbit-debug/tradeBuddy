@@ -566,23 +566,30 @@ export function AiPicksPage() {
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2 pt-1">
-                        <div className="p-2.5 rounded-xl bg-white/70 dark:bg-black/30 border border-amber-200/60 dark:border-white/10">
-                          <div className="text-[10px] uppercase font-bold text-slate-400">Resistance Ceiling</div>
-                          <div className="font-mono text-sm font-black text-slate-900 dark:text-white">
-                            {bullVal != null ? formatCurrency(bullVal) : '—'}
-                          </div>
+                      <div className="pt-0.5">
+                        <div className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Predicted Closing Price</div>
+                        <div className="font-mono text-xl font-black text-amber-600 dark:text-amber-400">
+                          {baseVal != null ? formatCurrency(baseVal) : '—'}
                         </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 pt-1">
                         <div className="p-2.5 rounded-xl bg-white/70 dark:bg-black/30 border border-amber-200/60 dark:border-white/10">
                           <div className="text-[10px] uppercase font-bold text-slate-400">Support Floor</div>
                           <div className="font-mono text-sm font-black text-slate-900 dark:text-white">
                             {bearVal != null ? formatCurrency(bearVal) : '—'}
                           </div>
                         </div>
+                        <div className="p-2.5 rounded-xl bg-white/70 dark:bg-black/30 border border-amber-200/60 dark:border-white/10">
+                          <div className="text-[10px] uppercase font-bold text-slate-400">Resistance Ceiling</div>
+                          <div className="font-mono text-sm font-black text-slate-900 dark:text-white">
+                            {bullVal != null ? formatCurrency(bullVal) : '—'}
+                          </div>
+                        </div>
                       </div>
 
                       <div className="pt-1.5 text-[11px] text-slate-600 dark:text-slate-400 font-medium">
-                        Price is consolidating inside this channel. Wait for a breakout before taking action.
+                        Price is consolidating inside this channel — the predicted close above is the model's best single estimate; support/resistance are the outer bounds it's unlikely to break.
                       </div>
                     </div>
                   );
@@ -767,8 +774,12 @@ export function AiPicksPage() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541]">
                   <div>
-                    <span className="font-bold text-xs text-slate-900 dark:text-white uppercase">{active.news.overall} sentiment</span>
-                    <span className="text-[10px] text-slate-400 font-mono ml-1">({active.news.sentimentScore}/100)</span>
+                    <span className="font-bold text-xs text-slate-900 dark:text-white uppercase">
+                      {active.news.sentimentScore != null ? `${active.news.overall} sentiment` : 'No recent news'}
+                    </span>
+                    {active.news.sentimentScore != null && (
+                      <span className="text-[10px] text-slate-400 font-mono ml-1">({active.news.sentimentScore}/100)</span>
+                    )}
                   </div>
                   <div className="flex gap-2 text-xs font-bold font-mono">
                     <span className="text-emerald-600 dark:text-emerald-400">+{active.news.positive}</span>

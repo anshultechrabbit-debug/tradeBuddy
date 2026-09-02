@@ -9,9 +9,11 @@
  * market happens to be doing when the job runs.
  */
 
+import { getTradingDayStatus, istDateKey, nextTradingDate } from './nseTradingCalendar.js';
+
 // IST calendar day, independent of the server OS timezone.
 export function dayKey(d = new Date()) {
-  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  return istDateKey(d);
 }
 
 function istMinutesOfDay(d = new Date()) {
@@ -38,15 +40,35 @@ const MARKET_OPEN_MINUTES = 9 * 60 + 15;
 
 export function isPastClose(d = new Date()) {
   const day = istWeekday(d);
+  if (!getTradingDayStatus(d).isTradingDay) return true;
   if (day === 0 || day === 6) return true; // weekend — no session today, prior close already final
   return istMinutesOfDay(d) > MARKET_CLOSE_MINUTES;
 }
 
 export function isMarketOpen(d = new Date()) {
   const day = istWeekday(d);
+  if (!getTradingDayStatus(d).isTradingDay) return false;
   if (day === 0 || day === 6) return false;
   const mins = istMinutesOfDay(d);
   return mins >= MARKET_OPEN_MINUTES && mins <= MARKET_CLOSE_MINUTES;
+}
+
+export function getMarketSessionStatus(d = new Date()) {
+  const tradingDay = getTradingDayStatus(d);
+  const minutes = istMinutesOfDay(d);
+  let session = 'CLOSED';
+  if (!tradingDay.isTradingDay) session = tradingDay.reason === 'NSE_HOLIDAY' ? 'HOLIDAY' : tradingDay.reason;
+  else if (minutes < MARKET_OPEN_MINUTES) session = 'PRE_OPEN';
+  else if (minutes <= MARKET_CLOSE_MINUTES) session = 'OPEN';
+  return {
+    session,
+    isOpen: session === 'OPEN',
+    tradeDate: tradingDay.date,
+    nextTradingDate: session === 'OPEN' ? tradingDay.date : nextTradingDate(d),
+    reason: tradingDay.reason,
+    holiday: tradingDay.holiday ?? null,
+    checkedAt: d.toISOString(),
+  };
 }
 
 // Sources that indicate synthetic/generated data — never use for evaluation.

@@ -449,7 +449,13 @@ function scoreFundamentals(f) {
 const VALUATION_STALE_DAYS = 7;
 
 function scoreValuation(f) {
-  const pe = f?.pe;
+  // Yahoo Finance (the preferred, richer fundamentals source — see
+  // getFundamentals in RealDevelopmentMarketDataProvider.js) returns the P/E
+  // ratio as `pe_ratio` (see market_data.py); only the secondary NSE-only
+  // fallback path uses `pe`/`adjustedPe`. Reading `f.pe` alone meant
+  // valuation came back UNKNOWN for nearly every stock whenever the
+  // preferred source succeeded — which is most of the time.
+  const pe = f?.pe_ratio ?? f?.pe ?? f?.adjustedPe;
   if (pe == null) return { score: null, available: false, flag: null, stale: false, ageDays: null };
   const ageDays = f?.tradeDate ? Math.round((Date.now() - new Date(f.tradeDate).getTime()) / 86400000) : null;
   const stale = ageDays != null && ageDays > VALUATION_STALE_DAYS;
@@ -838,7 +844,7 @@ async function computeAnalysis(provider, sym, { includeNews }) {
     },
     fundamentals: {
       available: fundResult.available,
-      pe: fundamentals?.pe ?? null,
+      pe: fundamentals?.pe_ratio ?? fundamentals?.pe ?? null,
       adjustedPe: fundamentals?.adjustedPe ?? null,
       tradeDate: fundamentals?.tradeDate ?? null,
       roe: fundamentals?.roe ?? null,
@@ -1171,7 +1177,7 @@ export function simpleLanguageNote(result) {
   let reason;
   if (buyish || dip) {
     const t = trend === 'Bullish' ? 'price is going up' : 'price is steady';
-    const n = result.news?.overall && result.news.overall !== 'Neutral'
+    const n = result.news?.overall && !['Neutral', 'Unknown'].includes(result.news.overall)
       ? ` and news is ${String(result.news.overall).toLowerCase()}`
       : '';
     const extra = topPositive ? ` ${topPositive.charAt(0).toLowerCase()}${topPositive.slice(1)}.` : '';

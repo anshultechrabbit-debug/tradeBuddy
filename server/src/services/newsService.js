@@ -334,10 +334,18 @@ export async function fetchStockNews(symbol, { limit = 8 } = {}) {
     else neutral += 1;
   }
 
+  // No weighted signal means no material recent article was found at all
+  // (e.g. nothing in the last 14 days — recencyWeight's own cutoff) — that's
+  // genuinely UNKNOWN sentiment, not a "50 = neutral" reading. A real
+  // neutral score only exists when there's real coverage that nets out
+  // even; fabricating 50 here made "no news for months" indistinguishable
+  // from "plenty of news, evenly mixed" to every downstream consumer.
   const sentimentScore = totalWeight
     ? Math.round(Math.min(100, Math.max(0, 50 + (weighted / totalWeight) * 50)))
-    : 50;
-  const overall = sentimentScore >= 60 ? 'Positive' : sentimentScore <= 40 ? 'Negative' : 'Neutral';
+    : null;
+  const overall = sentimentScore == null
+    ? 'Unknown'
+    : sentimentScore >= 60 ? 'Positive' : sentimentScore <= 40 ? 'Negative' : 'Neutral';
 
   return {
     articles: unique,

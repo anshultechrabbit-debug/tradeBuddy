@@ -328,7 +328,7 @@ export interface AiNews {
   neutral: number;
   negative: number;
   overall: string;
-  sentimentScore: number;
+  sentimentScore: number | null;
   available: boolean;
   articles: { title: string; link: string; publishedAt: string; sentiment: string; keyword: string }[];
   positiveCatalysts: string[];

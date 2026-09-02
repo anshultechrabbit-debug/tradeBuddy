@@ -1,6 +1,6 @@
 import { atr, clamp, ema, linReg, sma, vwmaClose } from './radar/indicators.js';
 import { round2 } from '../utils/helpers.js';
-import { dayKey, isMarketOpen, isPastClose } from './officialClose.js';
+import { dayKey, getMarketSessionStatus } from './officialClose.js';
 
 export const NEXT_CLOSE_CONFIG = Object.freeze({
   version: 'next-close-return-1.0',
@@ -178,11 +178,15 @@ export function extractNextCloseFeatures({ currentPrice, candles, benchmarkCandl
 }
 
 function sessionMetadata(now) {
-  const marketSession = isMarketOpen(now) ? 'OPEN' : isPastClose(now) ? 'CLOSED' : 'PRE_OPEN';
+  const status = getMarketSessionStatus(now);
+  const marketSession = status.session;
   return {
     marketSession,
     predictionHorizon: marketSession === 'OPEN' ? 'CURRENT_SESSION_CLOSE' : 'NEXT_SESSION_CLOSE',
     tradeDate: dayKey(now),
+    targetTradingDate: status.nextTradingDate,
+    marketSessionReason: status.reason,
+    marketHoliday: status.holiday,
   };
 }
 

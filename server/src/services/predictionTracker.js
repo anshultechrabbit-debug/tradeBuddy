@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { round2 } from '../utils/helpers.js';
 import { dayKey } from './officialClose.js';
+import { getTradingDayStatus } from './nseTradingCalendar.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, '..', 'data');
@@ -57,8 +58,7 @@ function istMinutesOfDay(ts) {
 export function isMorningPredictionWindow(ts = new Date()) {
   const minutes = istMinutesOfDay(ts);
   const date = ts instanceof Date ? ts : new Date(ts);
-  const weekday = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', weekday: 'short' }).format(date);
-  return !['Sat', 'Sun'].includes(weekday)
+  return getTradingDayStatus(date).isTradingDay
     && minutes >= MORNING_WINDOW_START_MINUTES
     && minutes <= MORNING_WINDOW_END_MINUTES;
 }
