@@ -17547,7 +17547,7 @@
     "reasonForChange": [
       "Scheduled checkpoint check-in"
     ],
-    "status": "ACTIVE",
+    "status": "UPDATED",
     "lastCheckedAt": "2026-09-03T06:44:35.781Z",
     "latestObservation": {
       "price": 680.95,
@@ -17559,7 +17559,8 @@
       ],
       "confidence": 71,
       "checkedAt": "2026-09-03T06:44:35.781Z"
-    }
+    },
+    "replacedAt": "2026-09-03T06:46:11.354Z"
   },
   {
     "id": "ICICIBANK-1788415325390",
@@ -17670,17 +17671,17 @@
       "technicalMomentum changed materially"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:44:37.770Z",
+    "lastCheckedAt": "2026-09-03T06:46:11.908Z",
     "latestObservation": {
-      "price": 423.2,
-      "predictedClose": 424.3,
+      "price": 423.55,
+      "predictedClose": 424.65,
       "expectedReturnPct": 0.26,
       "targetZone": [
-        420.09,
-        428.51
+        420.46,
+        428.84
       ],
       "confidence": 68,
-      "checkedAt": "2026-09-03T06:44:37.770Z"
+      "checkedAt": "2026-09-03T06:46:11.908Z"
     }
   },
   {
@@ -19225,7 +19226,7 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:46:04.313Z",
+    "lastCheckedAt": "2026-09-03T06:46:05.407Z",
     "latestObservation": {
       "price": 176.91,
       "predictedClose": 176.65,
@@ -19235,7 +19236,7 @@
         178.39
       ],
       "confidence": 63,
-      "checkedAt": "2026-09-03T06:46:04.313Z"
+      "checkedAt": "2026-09-03T06:46:05.407Z"
     }
   },
   {
@@ -20666,17 +20667,17 @@
       "Predicted close changed -0.36%"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:44:39.299Z",
+    "lastCheckedAt": "2026-09-03T06:46:13.062Z",
     "latestObservation": {
       "price": 328.2,
       "predictedClose": 328.46,
       "expectedReturnPct": 0.08,
       "targetZone": [
-        324.7,
-        332.22
+        324.72,
+        332.2
       ],
       "confidence": 71,
-      "checkedAt": "2026-09-03T06:44:39.299Z"
+      "checkedAt": "2026-09-03T06:46:13.062Z"
     }
   },
   {
@@ -20850,17 +20851,17 @@
       "Predicted close changed -0.38%"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:44:39.060Z",
+    "lastCheckedAt": "2026-09-03T06:46:09.007Z",
     "latestObservation": {
-      "price": 12040,
-      "predictedClose": 12059.97,
+      "price": 12047,
+      "predictedClose": 12067.59,
       "expectedReturnPct": 0.17,
       "targetZone": [
-        11938.47,
-        12181.47
+        11946.71,
+        12188.47
       ],
       "confidence": 68,
-      "checkedAt": "2026-09-03T06:44:39.060Z"
+      "checkedAt": "2026-09-03T06:46:09.007Z"
     }
   },
   {
@@ -20911,17 +20912,17 @@
       "Predicted close changed -0.36%"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:44:48.890Z",
+    "lastCheckedAt": "2026-09-03T06:46:07.783Z",
     "latestObservation": {
-      "price": 4060.9,
-      "predictedClose": 4071.43,
+      "price": 4060.5,
+      "predictedClose": 4070.97,
       "expectedReturnPct": 0.26,
       "targetZone": [
-        4022.33,
-        4120.53
+        4022.12,
+        4119.82
       ],
       "confidence": 71,
-      "checkedAt": "2026-09-03T06:44:48.890Z"
+      "checkedAt": "2026-09-03T06:46:07.783Z"
     }
   },
   {
@@ -21164,17 +21165,17 @@
       "technicalMomentum changed materially"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:44:37.497Z",
+    "lastCheckedAt": "2026-09-03T06:46:11.952Z",
     "latestObservation": {
-      "price": 9230.5,
-      "predictedClose": 9258.14,
+      "price": 9231,
+      "predictedClose": 9258.41,
       "expectedReturnPct": 0.3,
       "targetZone": [
-        9174.83,
-        9341.45
+        9175.53,
+        9341.29
       ],
       "confidence": 68,
-      "checkedAt": "2026-09-03T06:44:37.497Z"
+      "checkedAt": "2026-09-03T06:46:11.952Z"
     }
   },
   {
@@ -21627,7 +21628,68 @@
       "news changed materially"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:46:03.906Z",
+    "lastCheckedAt": "2026-09-03T06:46:08.121Z",
+    "latestObservation": {
+      "price": 269,
+      "predictedClose": 268.58,
+      "expectedReturnPct": -0.16,
+      "targetZone": [
+        263.23,
+        273.93
+      ],
+      "confidence": 66,
+      "checkedAt": "2026-09-03T06:46:08.121Z"
+    }
+  },
+  {
+    "id": "DLF-1788417971354",
+    "symbol": "DLF",
+    "tradeDate": "2026-09-03",
+    "timeframe": "INTRADAY",
+    "generatedAt": "2026-09-03T06:46:11.354Z",
+    "dataTimestamp": "2026-09-03T06:46:11.351Z",
+    "checkpoint": null,
+    "eventType": "MATERIAL",
+    "signal": "WATCH",
+    "score": 77,
+    "confidence": 71,
+    "price": 680.55,
+    "expectedDirection": "NEUTRAL",
+    "predictedClose": 681.27,
+    "targetZone": [
+      672.74,
+      689.8
+    ],
+    "expectedReturnPct": 0.11,
+    "riskReward": 1.4,
+    "stopLoss": 645.85,
+    "riskProfile": 2.18,
+    "majorFactors": [
+      {
+        "name": "trend",
+        "score": 100
+      },
+      {
+        "name": "technicalMomentum",
+        "score": 95
+      },
+      {
+        "name": "volumeConfirmation",
+        "score": 94
+      }
+    ],
+    "confirmationConditions": [
+      "Price is in an uptrend, trading above its 50-day average",
+      "Above its 200-day average — long-term trend is up",
+      "Buying pressure is healthy (53.64/100) — not overheated",
+      "Price moved up 2.02% over the last month"
+    ],
+    "invalidationCondition": "Market mood is weak (Nifty is in a downtrend) — this drags on the whole market, so be extra careful",
+    "reasonForChange": [
+      "Predicted close changed -0.36%"
+    ],
+    "status": "ACTIVE",
+    "lastCheckedAt": "2026-09-03T06:46:11.354Z",
     "latestObservation": null
   }
 ]
