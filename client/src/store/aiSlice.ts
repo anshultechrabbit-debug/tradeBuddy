@@ -38,10 +38,13 @@ export function normalizeAnalysis(raw: RawAnalysis): AiAnalysis {
     trend: t.trend ?? 'Neutral',
   };
 
+  // Fallback only — the server's own oneLineExplanation() (plain language)
+  // normally fills raw.oneLiner. Keep this fallback in the same everyday
+  // tone rather than a technical "(score X) ... RSI Y" sentence, in case a
+  // caller ever omits it.
   const oneLiner =
     raw.oneLiner ??
-    `${raw.finalSignal ?? 'N/A'} (score ${raw.overallScore ?? 0}) — strongest factor is ${Object.keys(scores).sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0))[0] ?? 'n/a'
-    }. ${t.trend ?? 'Neutral'} trend, RSI ${t.rsi ?? 'n/a'}.`;
+    `Signal: ${raw.finalSignal ?? 'not available'}. Price trend looks ${(t.trend ?? 'Neutral').toLowerCase()} right now.`;
 
   return {
     ok: Boolean(raw.ok),
@@ -128,6 +131,8 @@ export function normalizeAnalysis(raw: RawAnalysis): AiAnalysis {
     expectedPct: raw.expectedPct ?? null,
     engine: raw.engine ?? null,
     engineWhy: raw.engineWhy ?? null,
+    intradayPrediction: raw.intradayPrediction ?? null,
+    multiTimeframePredictions: raw.multiTimeframePredictions ?? null,
     dataTimestamp: raw.dataTimestamp ?? new Date().toISOString(),
     disclaimer: raw.disclaimer ?? '',
   };

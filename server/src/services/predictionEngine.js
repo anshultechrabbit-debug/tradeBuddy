@@ -2,7 +2,9 @@ import { round2 } from '../utils/helpers.js';
 import {
   clamp,
   linReg,
+  linRegSlope,
   vwmaClose,
+  recencyWeightedVwmaClose,
   ema,
   stochastic,
   cci,
@@ -23,9 +25,18 @@ import {
   candlestickPattern,
   betaAndCorrelation,
 } from './radar/indicators.js';
-import { isMarketOpen, isPastClose } from './officialClose.js';
+import { getMarketSessionStatus, isMarketOpen } from './officialClose.js';
 
 const MODEL_VERSION = 'tradebuddy-engine-1.1';
+
+export const INTRADAY_FORECAST_CONFIG = Object.freeze({
+  historicalWeights: Object.freeze({ strongBullish: 0.08, bullish: 0.06, neutral: 0.07, bearish: 0.03, strongBearish: 0.01, breakdown: 0 }),
+  trendWeight: 0.45,
+  recentMomentumWeight: 0.35,
+  marketRegimeWeight: 0.20,
+  recencyDecay: 0.86,
+  neutralBandPct: 0.35,
+});
 
 function num(v, d = null) {
   if (v == null) return d;
@@ -168,18 +179,109 @@ export function nseSessionProgress(d = new Date()) {
  * objectively the stronger close estimate. This also exposes the weights for
  * deterministic regression tests and UI diagnostics.
  */
-export function blendEodProjection(price, regressionPrice, vwmaPrice, sessionProgress = 0) {
-  if (!Number.isFinite(price) || price <= 0) return { projected: null, liveWeight: 0, historicalWeight: 0 };
+// `maxHistoricalWeight`: an optional cap (0-1) on how much influence the
+// historical anchor (regression+VWMA blend) may have, regardless of session
+// progress. Exists so a stale multi-day anchor can be forced toward
+// near-zero influence when it conflicts with a decisively one-sided body of
+// evidence (see the trend-conflict protection around its call site in
+// buildEngineResult) — without this, the ordinary session-progress-based
+// weight alone let the anchor claim up to 30% of the forecast early in the
+// session even when every other signal disagreed with it.
+export function blendEodProjection(price, regressionPrice, vwmaPrice, sessionProgress = 0, maxHistoricalWeight = null) {
+  if (!Number.isFinite(price) || price <= 0) return { projected: null, liveWeight: 0, historicalWeight: 0, historical: null };
   const historical = Number.isFinite(regressionPrice) && Number.isFinite(vwmaPrice)
     ? regressionPrice * 0.6 + vwmaPrice * 0.4
     : Number.isFinite(regressionPrice) ? regressionPrice
       : Number.isFinite(vwmaPrice) ? vwmaPrice : price;
   const progress = clamp(Number(sessionProgress) || 0, 0, 1);
-  const liveWeight = clamp(0.70 + 0.28 * progress, 0.70, 0.98);
+  let liveWeight = clamp(0.70 + 0.28 * progress, 0.70, 0.98);
+  if (maxHistoricalWeight != null) {
+    liveWeight = Math.max(liveWeight, 1 - clamp(maxHistoricalWeight, 0, 1));
+  }
   return {
     projected: price * liveWeight + historical * (1 - liveWeight),
     liveWeight,
     historicalWeight: 1 - liveWeight,
+    historical,
+  };
+}
+
+// How much of the forecast a stale historical anchor (10-day regression +
+// VWMA) may claim when it pulls AGAINST a lopsided body of recent evidence
+// (market regime, relative strength, regression slope, trend, SMA position,
+// confirmation-category count). Initial parameters only — matches the
+// app's documented forecast-bias fix; not yet backtested/calibrated against
+// historical outcomes (see predictionEngine.test.js for the specific cases
+// this is meant to satisfy, and TODO in the codebase for a future
+// walk-forward calibration pass). Returns null when the evidence isn't
+// lopsided enough to warrant overriding the normal session-progress weight.
+export function conflictWeightCap(agreementCount) {
+  if (agreementCount >= 6) return 0; // breakdown: full agreement against the anchor
+  if (agreementCount >= 5) return 0.02;
+  if (agreementCount >= 4) return 0.05;
+  return null;
+}
+
+export function classifyIntradayDirection(expectedMovePct, neutralBandPct = INTRADAY_FORECAST_CONFIG.neutralBandPct) {
+  if (!Number.isFinite(expectedMovePct)) return 'NEUTRAL';
+  if (expectedMovePct > neutralBandPct) return 'BULLISH';
+  if (expectedMovePct < -neutralBandPct) return 'BEARISH';
+  return 'NEUTRAL';
+}
+
+/** Regime-aware forecast kernel. Inputs must be a timestamp-safe snapshot. */
+export function buildRegimeAwareForecast(input, config = INTRADAY_FORECAST_CONFIG) {
+  const price = num(input.price);
+  if (price == null || price <= 0) return null;
+  const slope = num(input.regressionSlope, 0);
+  const slopePct = slope / price * 100;
+  const bearishChecks = [
+    input.recentTrend === 'Bearish', slope < 0, input.marketRegime === 'BEARISH',
+    num(input.relativeStrength, 0) < 0, num(input.buyingPressure, 50) < 45,
+    num(input.confirmations, 7) <= 2, input.below50 === true, input.below200 === true,
+  ].filter(Boolean).length;
+  const bullishChecks = [
+    input.recentTrend === 'Bullish', slope > 0, input.marketRegime === 'BULLISH',
+    num(input.relativeStrength, 0) > 0, num(input.buyingPressure, 50) >= 55,
+    num(input.confirmations, 0) >= 5, input.below50 === false, input.below200 === false,
+  ].filter(Boolean).length;
+  const breakdown = input.breakdown === true || (bearishChecks >= 7 && num(input.confirmations, 7) === 0);
+  let regimeKey = 'neutral';
+  if (breakdown) regimeKey = 'breakdown';
+  else if (bearishChecks >= 6) regimeKey = 'strongBearish';
+  else if (bearishChecks >= 4) regimeKey = 'bearish';
+  else if (bullishChecks >= 6) regimeKey = 'strongBullish';
+  else if (bullishChecks >= 4) regimeKey = 'bullish';
+  const remaining = 1 - clamp(num(input.sessionProgress, 0), 0, 1);
+  const historicalWeight = config.historicalWeights[regimeKey] * Math.max(0.25, remaining);
+  const historicalAnchor = num(input.historicalAnchor, price);
+  const directionalEdgePct = clamp((num(input.directionalScore, 50) - 50) / 50, -1, 1) * num(input.atrPct, 2) * 0.32;
+  const marketEdgePct = input.marketRegime === 'BULLISH' ? 0.08 : input.marketRegime === 'BEARISH' ? -0.08 : 0;
+  const trendEdgePct = slopePct * Math.max(0.2, remaining);
+  const recentEdgePct = trendEdgePct * config.trendWeight
+    + directionalEdgePct * config.recentMomentumWeight + marketEdgePct * config.marketRegimeWeight;
+  const recentForecast = price * (1 + recentEdgePct / 100);
+  const rawPredictedClose = recentForecast * (1 - historicalWeight) + historicalAnchor * historicalWeight;
+  const rawExpectedMovePercent = (rawPredictedClose - price) / price * 100;
+  let validatedPredictedClose = rawPredictedClose;
+  const rawDirection = classifyIntradayDirection(rawExpectedMovePercent, config.neutralBandPct);
+  // A stale anchor may reduce magnitude, but cannot reverse a lopsided current regime.
+  if (bearishChecks >= 5 && rawPredictedClose > price) validatedPredictedClose = Math.min(price, recentForecast);
+  if (bullishChecks >= 5 && rawPredictedClose < price) validatedPredictedClose = Math.max(price, recentForecast);
+  const validatedExpectedMovePercent = (validatedPredictedClose - price) / price * 100;
+  const validatedDirection = classifyIntradayDirection(validatedExpectedMovePercent, config.neutralBandPct);
+  const forecastQuality = Math.abs(validatedExpectedMovePercent) <= config.neutralBandPct ? 'NEUTRAL_NOISE'
+    : num(input.confirmations, 0) === 0 ? 'LOW_CONVICTION'
+      : num(input.confirmations, 0) >= 5 && ((validatedDirection === 'BULLISH' && bullishChecks >= 5) || (validatedDirection === 'BEARISH' && bearishChecks >= 5)) ? 'HIGH_SIGNAL'
+        : num(input.confirmations, 0) >= 3 ? 'VALIDATED' : 'LOW_CONVICTION';
+  return {
+    rawPredictedClose: round2(rawPredictedClose), rawExpectedMovePercent: round2(rawExpectedMovePercent), rawDirection,
+    validatedPredictedClose: round2(validatedPredictedClose), validatedExpectedMovePercent: round2(validatedExpectedMovePercent),
+    validatedDirection, forecastQuality, historicalAnchor: round2(historicalAnchor), historicalAnchorWeight: round2(historicalWeight),
+    recentForecast: round2(recentForecast), regressionValue: num(input.regressionValue), regressionSlope: slope,
+    regressionDirection: slope > 0 ? 'UP' : slope < 0 ? 'DOWN' : 'FLAT',
+    trendStrength: Math.abs(slopePct) >= 0.25 ? 'STRONG' : Math.abs(slopePct) >= 0.08 ? 'MODERATE' : 'WEAK',
+    regimeKey, bearishChecks, bullishChecks,
   };
 }
 
@@ -192,6 +294,17 @@ export function buildEngineResult(a) {
   const quote = a.quote ?? {};
   const price = num(a.price);
   const unknown = [];
+
+  // Every session/time-of-day-dependent read below (session progress, market
+  // open/closed, remaining-session scaling) must be anchored to WHEN this
+  // analysis is for, not the real wall clock at the moment this function
+  // happens to run. For live calls those are the same instant, so behavior
+  // is unchanged; for a backtest walking through historical bars (see
+  // liveEngineBacktest.js), `a.dataTimestamp` is each bar's own timestamp —
+  // without this, every historical bar was silently scored using TODAY's
+  // real session-progress instead of its own, a look-ahead-bias-adjacent bug
+  // (not a price/news leak, but a real backtest-fidelity defect).
+  const asOf = a.dataTimestamp ? new Date(a.dataTimestamp) : new Date();
 
   // Full OHLCV history + Nifty closes, when the caller provided them (see
   // stockAnalysisService.js's _candles/_closes/_niftyCloses) — same series
@@ -575,9 +688,12 @@ export function buildEngineResult(a) {
   // re-expressions of the SAME underlying trend/momentum evidence — counting
   // each one as an independent "signal" (the old `agreeingSignals`) double-
   // counted a single view up to 5 times. Count agreement at the CATEGORY
-  // level instead: does trend, momentum, volume, relative strength, news and
-  // market EACH, as a category, point the same direction?
-  const catTrend = tr === 'Bullish' ? true : tr === 'Bearish' ? false : null;
+  // level instead. The 7 categories are Momentum, Volume, Relative Strength,
+  // News, Market Mood, Price Action, and Fundamental/Valuation Support —
+  // `trend` is deliberately NOT its own confirmation-category slot (it's
+  // already folded into momentum/gates elsewhere via `htfAgrees`); giving
+  // fundamentals/valuation a real vote here means a technically-so-so but
+  // fundamentally strong setup can still clear the confirmation bar.
   const catMomentum = momentum >= 60 ? true : momentum <= 40 ? false : null;
   const catVolume = vol >= 60 ? true : vol <= 40 ? false : null;
   const catRelStrength = relStrength != null ? relStrength >= 55 : null;
@@ -587,14 +703,15 @@ export function buildEngineResult(a) {
   // confirmation pool alongside the original 6. volatility does NOT — it's
   // a risk/magnitude read, same reason it's excluded from directionalScore.
   const catPriceAction = priceActionScore != null ? priceActionScore >= 55 : null;
+  const catFundamentalValuation = fundScore != null ? fundScore >= 55 : null;
   const confirmationCategories = {
-    trend: catTrend,
     momentum: catMomentum,
     volume: catVolume,
     relativeStrength: catRelStrength,
     news: catNews,
     market: catMarket,
     priceAction: catPriceAction,
+    fundamentalValuation: catFundamentalValuation,
   };
   const agreeingCategories = Object.values(confirmationCategories).filter((val) => val === true).length;
 
@@ -753,6 +870,13 @@ export function buildEngineResult(a) {
   if (priceActionScore == null) dataQualityReasons.push('price-action indicators (breakout/swing/gap/candlestick) unavailable');
   const evidenceQualityScore = clamp(Math.round(evq), 0, 100);
   const confidenceScore = evidenceQualityScore; // legacy alias — same number, old name
+  // Categorical label for the same evidence-quality number, for display
+  // contexts that want HIGH/MEDIUM/LOW rather than a 0-100 score. Bands
+  // match the gates that already key off evidenceQualityScore above
+  // (MIN_EVIDENCE_QUALITY_FOR_BUY / _FOR_NORMAL_GATING), so "HIGH" here
+  // always means "evidence good enough to clear the easier BUY gate" etc.
+  const confidenceLabel = evidenceQualityScore >= MIN_EVIDENCE_QUALITY_FOR_NORMAL_GATING ? 'HIGH'
+    : evidenceQualityScore >= MIN_EVIDENCE_QUALITY_FOR_BUY ? 'MEDIUM' : 'LOW';
 
   // ---- Gates (BUY discipline) (§9, §10) ----
   const volumeConfirms = catVolume === true; // directional now: high volume AND price up, not volume alone
@@ -872,16 +996,26 @@ export function buildEngineResult(a) {
   // `atr` is already declared above in the trade-plan section (num(t.atr, ...)).
 
   let projectedBase = null;
+  let forecastDiagnostics = null;
   if (price != null) {
     const lrClose = rawCloses.length >= 3 ? linReg(rawCloses, 10) : null;
-    const vwClose = rawCandles.length >= 3 ? vwmaClose(rawCandles, 10) : null;
+    const lrSlope = rawCloses.length >= 3 ? linRegSlope(rawCloses, 10) : null;
+    const vwClose = rawCandles.length >= 3
+      ? recencyWeightedVwmaClose(rawCandles, 10, INTRADAY_FORECAST_CONFIG.recencyDecay)
+      : null;
 
-    let liveAnchorWeight = 0;
-    const sessionProgress = isMarketOpen() ? nseSessionProgress() : 0;
+    const sessionProgress = isMarketOpen(asOf) ? nseSessionProgress(asOf) : 0;
     if (lrClose != null || vwClose != null) {
-      const blended = blendEodProjection(price, lrClose, vwClose, sessionProgress);
-      projectedBase = blended.projected;
-      liveAnchorWeight = blended.liveWeight;
+      const historicalAnchor = lrClose != null && vwClose != null ? lrClose * 0.6 + vwClose * 0.4 : lrClose ?? vwClose;
+      forecastDiagnostics = buildRegimeAwareForecast({
+        price, regressionValue: lrClose, regressionSlope: lrSlope, historicalAnchor, sessionProgress,
+        recentTrend: tr, marketRegime: m.regime, relativeStrength: relStrength,
+        buyingPressure: rsi, confirmations: agreeingCategories,
+        below50: s50 != null ? price < s50 : null, below200: s200 != null ? price < s200 : null,
+        breakdown: swing?.structure === 'LOWER_LOW' || (priceActionScore != null && priceActionScore <= 20),
+        atrPct, directionalScore,
+      });
+      projectedBase = forecastDiagnostics?.validatedPredictedClose ?? price;
     } else {
       // Fallback: original heuristic (no raw data available, e.g. in tests)
       const CONSERVATIVE_MULTIPLIER = 0.32;
@@ -891,8 +1025,8 @@ export function buildEngineResult(a) {
     }
 
     // RSI mean-reversion nudge (§4-RSI)
-    if (rsi != null) {
-      const remainingModelWeight = Math.max(0.02, 1 - liveAnchorWeight);
+    if (rsi != null && forecastDiagnostics == null) {
+      const remainingModelWeight = 1;
       if (rsi > 72) projectedBase *= 1 - 0.0025 * remainingModelWeight;
       else if (rsi > 65) projectedBase *= 1 - 0.0010 * remainingModelWeight;
       else if (rsi < 30) projectedBase *= 1 + 0.0025 * remainingModelWeight;
@@ -913,11 +1047,13 @@ export function buildEngineResult(a) {
     }
 
     // Hard clamp: one session rarely moves more than 1 ATR from the last close.
-    const remainingSessionScale = isMarketOpen()
-      ? Math.max(0.20, Math.sqrt(1 - nseSessionProgress()))
+    const remainingSessionScale = isMarketOpen(asOf)
+      ? Math.max(0.20, Math.sqrt(1 - nseSessionProgress(asOf)))
       : 1;
     const maxMove = (atr ?? price * 0.03) * remainingSessionScale;
     projectedBase = clamp(projectedBase, price - maxMove, price + maxMove);
+    if (forecastDiagnostics?.bearishChecks >= 5) projectedBase = Math.min(price, projectedBase);
+    if (forecastDiagnostics?.bullishChecks >= 5) projectedBase = Math.max(price, projectedBase);
   }
 
   let base = projectedBase != null ? round2(projectedBase) : null;
@@ -931,16 +1067,26 @@ export function buildEngineResult(a) {
   // forecast. Evidence-derived directionalScore remains a diagnostic, but
   // it may not contradict the price target shown to the user. Moves inside
   // +/-0.35% are market noise and are therefore labelled NEUTRAL.
-  const FORECAST_NEUTRAL_BAND_PCT = 0.35;
-  directionalOutlook = sessionExpectedMovePct == null ? 'NEUTRAL'
-    : sessionExpectedMovePct > FORECAST_NEUTRAL_BAND_PCT ? 'BULLISH'
-      : sessionExpectedMovePct < -FORECAST_NEUTRAL_BAND_PCT ? 'BEARISH' : 'NEUTRAL';
+  const FORECAST_NEUTRAL_BAND_PCT = INTRADAY_FORECAST_CONFIG.neutralBandPct;
+  directionalOutlook = classifyIntradayDirection(sessionExpectedMovePct, FORECAST_NEUTRAL_BAND_PCT);
+  if (forecastDiagnostics) {
+    forecastDiagnostics.validatedPredictedClose = base;
+    forecastDiagnostics.validatedExpectedMovePercent = sessionExpectedMovePct;
+    forecastDiagnostics.validatedDirection = directionalOutlook;
+    forecastDiagnostics.forecastQuality = Math.abs(sessionExpectedMovePct ?? 0) <= FORECAST_NEUTRAL_BAND_PCT
+      ? 'NEUTRAL_NOISE'
+      : agreeingCategories === 0 ? 'LOW_CONVICTION'
+        : agreeingCategories >= 5 ? 'HIGH_SIGNAL' : agreeingCategories >= 3 ? 'VALIDATED' : 'LOW_CONVICTION';
+  }
 
   // Final forecast-consistency BUY gates. These are additive: none of the
-  // existing discipline gates above are removed or weakened.
-  const MIN_BUY_FORECAST_RETURN_PCT = 0.25;
+  // existing discipline gates above are removed or weakened. The minimum
+  // upside required for a BUY uses the SAME threshold as the neutral band
+  // above (0.35%) — a predicted move that's too small to even count as
+  // "BULLISH" direction obviously can't be large enough to justify a BUY
+  // either; these must never be two independently-drifting constants.
   gates.predictedCloseAboveAnchor = base != null && price != null && base > price;
-  gates.minimumForecastUpside = sessionExpectedMovePct != null && sessionExpectedMovePct >= MIN_BUY_FORECAST_RETURN_PCT;
+  gates.minimumForecastUpside = sessionExpectedMovePct != null && sessionExpectedMovePct >= FORECAST_NEUTRAL_BAND_PCT;
   gates.forecastDirectionBullish = directionalOutlook === 'BULLISH';
   gates.forecastConsistent = gates.predictedCloseAboveAnchor
     && gates.minimumForecastUpside
@@ -960,8 +1106,8 @@ export function buildEngineResult(a) {
   let bull = null;
   if (base != null && price != null) {
     const effectiveAtr = Math.max(atr ?? (price * 0.015), price * 0.005);
-    const remainingSessionScale = isMarketOpen()
-      ? Math.max(0.25, Math.sqrt(1 - nseSessionProgress()))
+    const remainingSessionScale = isMarketOpen(asOf)
+      ? Math.max(0.25, Math.sqrt(1 - nseSessionProgress(asOf)))
       : 1;
     const rangeHalfWidth = effectiveAtr * 0.8 * remainingSessionScale;
 
@@ -984,7 +1130,8 @@ export function buildEngineResult(a) {
   }
   const rangeOrdered = bear != null && base != null && bull != null && bear < base && base < bull;
 
-  const sessionOverFlag = isPastClose();
+  const marketSession = getMarketSessionStatus(asOf);
+  const sessionOverFlag = marketSession.session !== 'OPEN';
   const predictionHorizon = sessionOverFlag ? 'NEXT_SESSION_CLOSE' : 'CURRENT_SESSION_CLOSE';
   const predictionStatus = sessionOverFlag ? 'NEXT_SESSION_ESTIMATE' : 'IN_PROGRESS_SESSION_ESTIMATE';
 
@@ -1053,6 +1200,7 @@ export function buildEngineResult(a) {
     correlationToNifty: betaCorr?.correlation != null ? round2(betaCorr.correlation) : null,
     totalScore: total,
     classification,
+    confidenceLabel,
     directionalOutlook,
     // NEW: the 0-100 evidence behind directionalOutlook, and the horizon/
     // reference price it applies to. totalScore stays the multi-factor
@@ -1062,6 +1210,10 @@ export function buildEngineResult(a) {
     directionalScore,
     predictionHorizon,
     predictionStatus,
+    marketSession: marketSession.session,
+    marketSessionReason: marketSession.reason,
+    marketHoliday: marketSession.holiday,
+    targetTradingDate: marketSession.nextTradingDate,
     predictionReferencePrice: price != null ? round2(price) : null,
     confirmationCategories,
     // NEW, preferred name for what "confidence" always actually measured:
@@ -1087,6 +1239,13 @@ export function buildEngineResult(a) {
       bull,
       range: bear != null && bull != null ? [bear, bull] : null,
       expectedMovePct: sessionExpectedMovePct,
+      rawPredictedClose: forecastDiagnostics?.rawPredictedClose ?? base,
+      rawExpectedMovePct: forecastDiagnostics?.rawExpectedMovePercent ?? sessionExpectedMovePct,
+      validatedPredictedClose: base,
+      validatedExpectedMovePct: sessionExpectedMovePct,
+      validatedDirection: directionalOutlook,
+      forecastQuality: forecastDiagnostics?.forecastQuality ?? (Math.abs(sessionExpectedMovePct ?? 0) <= FORECAST_NEUTRAL_BAND_PCT ? 'NEUTRAL_NOISE' : 'UNVALIDATED'),
+      forecastDiagnostics,
       // `confidence`/`confidenceScore` are the original field names — kept
       // numeric/populated because outputValidator.js's CHECK_12 requires
       // confidenceScore specifically to be a number, and the client UI
@@ -1095,7 +1254,12 @@ export function buildEngineResult(a) {
       // dropped the old field, which failed CHECK_12 for every symbol
       // (visible as the RELIANCE validation error). Both names now point at
       // the same number — pick whichever reads better going forward.
-      confidence: a.confidence ?? 'LOW',
+      // `confidence` itself is the categorical label (HIGH/MEDIUM/LOW) —
+      // previously read `a.confidence`, a field nothing upstream ever set,
+      // so every symbol silently showed "LOW" forever regardless of actual
+      // evidence quality. Derive it from the real evidenceQualityScore
+      // computed just above instead.
+      confidence: confidenceLabel,
       confidenceScore,
       // dataQuality: input data completeness. NOT a forecast accuracy metric.
       dataQuality: a.dataQuality ?? 'LOW',

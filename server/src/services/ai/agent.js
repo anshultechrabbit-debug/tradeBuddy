@@ -263,7 +263,12 @@ export async function portfolioReview(userId) {
     const newHash = generateHoldingsHash(holdings);
     const cached = reviewCache.get(userId);
     const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-    const isGenericFallback = cached?.review?.holdings?.[0]?.reason === 'Awaiting AI signal — refresh to update';
+    // Was matching a fixed string ('Awaiting AI signal — refresh to update')
+    // that buildDeterministicReview() below no longer produces after a past
+    // refactor — this check was always false, so a deterministic-fallback
+    // review (served when the LLM call fails) could sit in cache for the
+    // full 5-minute TTL instead of being retried on the next request.
+    const isGenericFallback = cached?.review?.isDeterministicFallback === true;
     if (cached && !isGenericFallback && cached.holdingsHash === newHash && Date.now() - cached.timestamp < CACHE_TTL_MS) {
       console.log(`[AI Review Cache] Serving cached review for user ${userId} (instant)`);
       return cached.review;
@@ -307,6 +312,7 @@ export async function portfolioReview(userId) {
         portfolioScore: null,
         rebalancing: '',
         holdings: [],
+        isDeterministicFallback: true,
       };
     }
     // Use signalMap built above (if available)
@@ -382,7 +388,7 @@ export async function portfolioReview(userId) {
       return { symbol: h.symbol, action, reason };
     });
 
-    return { overallNarrative, portfolioScore: score, rebalancing, holdings: holdingsReview };
+    return { overallNarrative, portfolioScore: score, rebalancing, holdings: holdingsReview, isDeterministicFallback: true };
   }
 
   const question = `You are a portfolio analyst. Output ONLY valid JSON, no markdown, no <think> tags, no reasoning, no extra text.

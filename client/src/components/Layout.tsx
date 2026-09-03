@@ -1,10 +1,10 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom';
-import { useAppSelector } from '../store/hooks';
+import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { useTheme } from '../hooks/useTheme';
 import { useLiveMarketSync } from '../hooks/useLiveMarketSync';
 import { formatNumber, formatPct } from '../lib/format';
-import { getMarketStatus } from '../lib/marketHours';
+import { fetchMarketStatus } from '../store/marketSlice';
 import { TradePandaChat } from './TradePandaChat';
 
 // Modern Outline SVG Icons
@@ -160,13 +160,25 @@ function initials(name?: string | null, email?: string) {
 export function Layout({ children }: { children: ReactNode }) {
   useLiveMarketSync();
 
+  const dispatch = useAppDispatch();
   const location = useLocation();
   const navigate = useNavigate();
   const user = useAppSelector((s) => s.auth.user);
   const indices = useAppSelector((s) => s.market.indices);
   const topMovers = useAppSelector((s) => s.market.top);
+  const marketStatus = useAppSelector((s) => s.market.status);
   const isAdmin = user?.role === 'ADMIN';
   const { theme, toggleTheme } = useTheme();
+
+  // The one canonical, holiday-aware market-status source (see marketSlice's
+  // fetchMarketStatus) — session state changes on the order of minutes at
+  // most (open/close/holiday transitions), so a minute is plenty granular
+  // and avoids polling more than the actual value ever changes.
+  useEffect(() => {
+    dispatch(fetchMarketStatus());
+    const timer = setInterval(() => dispatch(fetchMarketStatus()), 60000);
+    return () => clearInterval(timer);
+  }, [dispatch]);
 
   const [chatOpen, setChatOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -252,21 +264,21 @@ export function Layout({ children }: { children: ReactNode }) {
 
         {/* Right: Market Status + Quick Actions + Profile */}
         <div className="flex items-center gap-1.5 sm:gap-2.5">
-          {/* Live / Closed Market Badge */}
-          {(() => {
-            const mStatus = getMarketStatus();
-            return mStatus.isOpen ? (
-              <div className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-[10.5px] font-mono font-bold" title={mStatus.detail}>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span>NSE CASH · OPEN</span>
-              </div>
-            ) : (
-              <div className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-[10.5px] font-mono font-bold" title={mStatus.detail}>
-                <span className="w-2 h-2 rounded-full bg-amber-400" />
-                <span>NSE CASH · CLOSED</span>
-              </div>
-            );
-          })()}
+          {/* Live / Closed Market Badge — sourced from the server's holiday-aware
+              calendar (marketSlice.fetchMarketStatus), not a local weekday+clock
+              guess, so this can never say OPEN on an NSE holiday when every
+              prediction on the page already knows the market is closed. */}
+          {marketStatus?.isOpen ? (
+            <div className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-[10.5px] font-mono font-bold" title={marketStatus.holiday ?? undefined}>
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>NSE CASH · OPEN</span>
+            </div>
+          ) : marketStatus ? (
+            <div className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-[10.5px] font-mono font-bold" title={marketStatus.holiday ?? marketStatus.session}>
+              <span className="w-2 h-2 rounded-full bg-amber-400" />
+              <span>NSE CASH · {marketStatus.session === 'HOLIDAY' ? 'HOLIDAY' : 'CLOSED'}</span>
+            </div>
+          ) : null}
 
 
           {/* Quick AI Trigger */}

@@ -191,13 +191,16 @@ export function DashboardPage() {
 
   const top = scanResult?.opportunities.slice(0, 5) ?? [];
   const topOpp = top[0];
-  const aiTop = picks[0] ?? (topOpp ? {
-    symbol: topOpp.symbol,
-    overallScore: topOpp.convictionScore,
-    finalSignal: topOpp.signal,
-    confidence: 'High',
-    oneLiner: `${topOpp.symbol} — ${topOpp.signal} signal with conviction ${topOpp.convictionScore}% from Radar scan.`,
-  } : null);
+  // aiTop is the canonical AI prediction (predictionEngine.buildEngineResult
+  // via analyzeStock) ONLY — never coerce Radar's independently-computed
+  // convictionScore/signal into this shape. Radar and the AI engine are two
+  // different scoring models; presenting one as the other's "overallScore"/
+  // "confidence" is exactly the kind of silently-mislabeled cross-pipeline
+  // value this card used to show. When there's no AI pick loaded yet, fall
+  // back to showing the Radar opportunity honestly labeled as Radar data
+  // (see radarFallback below) instead of faking an AI result.
+  const aiTop = picks[0] ?? null;
+  const radarFallback = !aiTop && topOpp ? topOpp : null;
   const horizonLabel = aiTop?.engine?.predictionHorizon === 'CURRENT_SESSION_CLOSE'
     ? 'Today Close'
     : aiTop?.engine?.predictionHorizon === 'NEXT_SESSION_CLOSE'
@@ -384,27 +387,50 @@ export function DashboardPage() {
           <div className="space-y-2.5">
             <div className="flex items-center justify-between">
               <div className="text-[10.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Today's AI Strategy Playbook</div>
-              <Pill label="HIGH CONVICTION" variant="green" />
+              {aiTop ? <Pill label={aiTop.finalSignal} variant={aiTop.finalSignal?.includes('BUY') ? 'green' : aiTop.finalSignal === 'AVOID' ? 'red' : 'amber'} /> : null}
             </div>
 
-            <div className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white leading-snug">
-              {aiTop ? (aiTop.oneLiner ?? `${aiTop.symbol} — ${aiTop.finalSignal}`) : 'DIVISLAB — BUY signal with conviction 83% from Radar scan.'}
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 bg-slate-50 dark:bg-black/30 border border-slate-200/80 dark:border-[#1c2541] rounded-xl p-2.5 text-center">
-              <div>
-                <div className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">Score</div>
-                <div className="font-mono text-lg font-black text-blue-600 dark:text-blue-400 mt-0.5">{aiTop?.overallScore ?? 83}</div>
+            {aiTop ? (
+              <>
+                <div className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white leading-snug">
+                  {aiTop.oneLiner ?? `${aiTop.symbol} — ${aiTop.finalSignal}`}
+                </div>
+                <div className="grid grid-cols-3 gap-2 bg-slate-50 dark:bg-black/30 border border-slate-200/80 dark:border-[#1c2541] rounded-xl p-2.5 text-center">
+                  <div>
+                    <div className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">Score</div>
+                    <div className="font-mono text-lg font-black text-blue-600 dark:text-blue-400 mt-0.5">{aiTop.overallScore}</div>
+                  </div>
+                  <div>
+                    <div className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">Confidence</div>
+                    <div className="font-mono text-lg font-black text-amber-500 dark:text-amber-400 mt-0.5">{aiTop.confidence}</div>
+                  </div>
+                  <div>
+                    <div className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">Horizon</div>
+                    <div className="font-mono text-lg font-black text-slate-700 dark:text-slate-300 mt-0.5">{horizonLabel}</div>
+                  </div>
+                </div>
+              </>
+            ) : radarFallback ? (
+              <>
+                <div className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white leading-snug">
+                  {radarFallback.symbol} — {radarFallback.signal} (Radar scan — AI analysis not run yet)
+                </div>
+                <div className="grid grid-cols-2 gap-2 bg-slate-50 dark:bg-black/30 border border-slate-200/80 dark:border-[#1c2541] rounded-xl p-2.5 text-center">
+                  <div>
+                    <div className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">Radar Conviction</div>
+                    <div className="font-mono text-lg font-black text-blue-600 dark:text-blue-400 mt-0.5">{radarFallback.convictionScore}%</div>
+                  </div>
+                  <div>
+                    <div className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">Source</div>
+                    <div className="font-mono text-sm font-black text-slate-700 dark:text-slate-300 mt-0.5">Radar Scan</div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="text-xs text-slate-500 dark:text-slate-400 italic">
+                {analyzing ? 'Running AI analysis…' : 'No AI pick yet — run AI Picks to generate one.'}
               </div>
-              <div>
-                <div className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">Confidence</div>
-                <div className="font-mono text-lg font-black text-amber-500 dark:text-amber-400 mt-0.5">{aiTop?.confidence ?? 'High'}</div>
-              </div>
-              <div>
-                <div className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">Horizon</div>
-                <div className="font-mono text-lg font-black text-slate-700 dark:text-slate-300 mt-0.5">{horizonLabel}</div>
-              </div>
-            </div>
+            )}
           </div>
 
           <Link

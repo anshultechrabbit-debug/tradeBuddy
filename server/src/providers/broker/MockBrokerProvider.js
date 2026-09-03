@@ -97,16 +97,25 @@ export class MockBrokerProvider extends BrokerProvider {
 
     const noise = Array.from({ length: 3 }, (_, i) => {
       const sym = pickOther(symbols, i);
+      const quantity = 5 + Math.floor(rng() * 20);
+      const averagePrice = round2(500 + rng() * 2000);
+      const currentPrice = round2(500 + rng() * 2000);
+      // Was hardcoded to 0 despite having a real quantity/price — a holding
+      // with quantity and price but ₹0 value/P&L is self-contradictory.
+      // Derive it the same way the main holdings loop above does.
+      const costValue = round2(quantity * averagePrice);
+      const currentValue = round2(quantity * currentPrice);
+      const pnl = round2(currentValue - costValue);
       return {
         symbol: sym,
         exchange: 'NSE',
-        quantity: 5 + Math.floor(rng() * 20),
-        averagePrice: 500 + rng() * 2000,
-        currentPrice: 500 + rng() * 2000,
-        costValue: 0,
-        currentValue: 0,
-        pnl: 0,
-        pnlPct: 0,
+        quantity,
+        averagePrice,
+        currentPrice,
+        costValue,
+        currentValue,
+        pnl,
+        pnlPct: round2((pnl / costValue) * 100),
         provider: 'mock',
         environment: 'development',
       };

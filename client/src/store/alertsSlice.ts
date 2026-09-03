@@ -65,11 +65,6 @@ export const evaluateAlerts = createAsyncThunk('alerts/evaluate', async () => {
   return data.triggered;
 });
 
-export const markNotificationsRead = createAsyncThunk('alerts/notificationsRead', async () => {
-  const { data } = await apiClient.post<{ ok: boolean }>('/alerts/notifications/read');
-  return data;
-});
-
 const alertsSlice = createSlice({
   name: 'alerts',
   initialState,

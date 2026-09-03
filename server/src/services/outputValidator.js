@@ -165,6 +165,37 @@ export function validateAnalysis(result) {
     fail('CHECK_14', 'Prediction/trade decision not separated', 'engine.classification (prediction) and engine.tradeStatus (trade decision) must both be present as independent fields.');
   }
 
+  // CHECK 15: top-level confidence must be a real categorical label, not a
+  // silently-hardcoded default. Guards against the bug where result.confidence
+  // was never set upstream and every symbol showed "LOW" forever regardless
+  // of actual evidence quality.
+  if (!['HIGH', 'MEDIUM', 'LOW'].includes(result.confidence)) {
+    fail('CHECK_15', 'Confidence is not a valid label', `result.confidence is "${result.confidence}" — must be HIGH, MEDIUM, or LOW.`);
+  }
+  if (result.confidence !== e.confidenceLabel) {
+    fail('CHECK_15', 'Confidence disagrees with the engine', `result.confidence (${result.confidence}) must equal engine.confidenceLabel (${e.confidenceLabel}) — one canonical confidence value.`);
+  }
+
+  // CHECK 16: each multi-timeframe horizon's own predicted price must sit
+  // inside its own uncertainty zone, and its expected-return % must be the
+  // one number mathematically implied by that horizon's own current/predicted
+  // price pair — never a second, independently-drifted "expected move".
+  const horizons = result.multiTimeframePredictions?.horizons ?? [];
+  for (const h of horizons) {
+    if (h.expectedPriceZone && h.expectedPrice != null) {
+      const [lo, hi] = h.expectedPriceZone;
+      if (!(lo <= h.expectedPrice && h.expectedPrice <= hi)) {
+        fail('CHECK_16', 'Horizon predicted price outside its own zone', `${h.timeframe}: expectedPrice ${h.expectedPrice} is not within expectedPriceZone [${lo}, ${hi}].`);
+      }
+    }
+    if (h.currentPrice > 0 && h.expectedPrice != null && h.expectedReturnPct != null) {
+      const implied = ((h.expectedPrice - h.currentPrice) / h.currentPrice) * 100;
+      if (Math.abs(implied - h.expectedReturnPct) > 0.5) {
+        fail('CHECK_16', 'Horizon expected-return % does not match its own prices', `${h.timeframe}: expectedReturnPct (${h.expectedReturnPct}) should equal (expectedPrice-currentPrice)/currentPrice*100 (${implied.toFixed(2)}).`);
+      }
+    }
+  }
+
   return { passed: failed.length === 0, failedChecks: failed };
 }
 

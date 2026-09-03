@@ -8,13 +8,44 @@ import { fetchAllQuotes } from '../store/marketSlice';
 import { Card, Spinner, EmptyState, ErrorBox } from '../components/ui';
 import { formatCurrency, formatPct, formatTimeAgo } from '../lib/format';
 import { CandleChart } from '../components/CandleChart';
-import { isMarketOpen } from '../lib/marketHours';
-import type { AiAnalysis } from '../lib/types';
+import type { AiAnalysis, IntradayPredictionVersion } from '../lib/types';
+
+// Mirrors server/src/services/intradayPredictionTimeline.js's
+// INTRADAY_CHECKPOINTS — the fixed schedule every intraday prediction is
+// rechecked against. Kept here as a plain display list (not fetched) since
+// these exact four times are already a fixed constant referenced throughout
+// this app's own UI copy.
+const INTRADAY_CHECKPOINTS: { key: 'OPEN' | 'MID_MORNING' | 'EARLY_AFTERNOON' | 'LATE_SESSION'; label: string; minutes: number }[] = [
+  { key: 'OPEN', label: '09:20', minutes: 9 * 60 + 20 },
+  { key: 'MID_MORNING', label: '11:30', minutes: 11 * 60 + 30 },
+  { key: 'EARLY_AFTERNOON', label: '13:15', minutes: 13 * 60 + 15 },
+  { key: 'LATE_SESSION', label: '14:30', minutes: 14 * 60 + 30 },
+];
+
+function istMinutesOfDay(value: string) {
+  const date = new Date(value);
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(date);
+  return Number(parts.find((p) => p.type === 'hour')?.value ?? 0) * 60
+    + Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
+}
 
 function signalTone(signal: string): 'buy' | 'watch' | 'avoid' {
   if (signal.includes('BUY')) return 'buy';
   if (signal.includes('AVOID')) return 'avoid';
   return 'watch';
+}
+
+function formatIstTimestamp(value: string | null | undefined, includeDate = false) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    ...(includeDate ? { day: '2-digit', month: 'short', year: 'numeric' } : {}),
+    hour: '2-digit', minute: '2-digit', hour12: true,
+  }).format(date) + ' IST';
 }
 
 const FACTORS: { key: keyof AiAnalysis['factorScores']; label: string; icon: string }[] = [
@@ -25,6 +56,13 @@ const FACTORS: { key: keyof AiAnalysis['factorScores']; label: string; icon: str
   { key: 'market', label: 'Market mood', icon: '📊' },
   { key: 'risk', label: 'Safety', icon: '🛡️' },
 ];
+
+const INTRADAY_TIMELINE_SLOTS = [
+  { key: 'OPEN', label: '09:20 am IST' },
+  { key: 'MID_MORNING', label: '11:30 am IST' },
+  { key: 'EARLY_AFTERNOON', label: '01:15 pm IST' },
+  { key: 'LATE_SESSION', label: '02:30 pm IST' },
+] as const;
 
 function ScoreGauge({ value, signal }: { value: number; signal: string }) {
   const radius = 42;
@@ -94,6 +132,12 @@ function FactorRow({ factor, score, reason }: { factor: (typeof FACTORS)[number]
 export function AiPicksPage() {
   const dispatch = useAppDispatch();
   const { picks, bySymbol, analyzing, error, lastUpdated, suggestions, searching } = useAppSelector((s) => s.ai);
+  // Layout already fetches/polls this from the server's one canonical,
+  // holiday-aware market-status source — read it here instead of the old
+  // local weekday+clock check, which had no holiday calendar and could show
+  // "MARKET OPEN" on an NSE holiday while every prediction on this same page
+  // already knows the session is closed.
+  const marketOpen = useAppSelector((s) => s.market.status?.isOpen ?? false);
   const { watchlist } = useAppSelector((s) => s.watchlist);
   const { scanResult } = useAppSelector((s) => s.radar);
   const { allQuotes } = useAppSelector((s) => s.market);
@@ -104,6 +148,7 @@ export function AiPicksPage() {
   const [searched, setSearched] = useState<string | null>(null);
   const [suggestCount, setSuggestCount] = useState(5);
   const [showWhy, setShowWhy] = useState(false);
+  const [timeframeKey, setTimeframeKey] = useState('INTRADAY');
 
   useEffect(() => {
     dispatch(fetchWatchlist());
@@ -193,6 +238,7 @@ export function AiPicksPage() {
 
   const searchedPick = searched ? (bySymbol[searched] ?? picks.find((p) => p.symbol === searched) ?? null) : null;
   const active = searched ? searchedPick : (bySymbol[selected ?? ''] ?? picks.find((p) => p.symbol === selected) ?? picks[0] ?? null);
+  const canonicalIntraday = active?.multiTimeframePredictions?.current ?? null;
 
   const onAnalyze = (symbol?: string) => {
     const target = (symbol ?? symbolInput).trim().toUpperCase();
@@ -238,7 +284,7 @@ export function AiPicksPage() {
         <div className="relative z-10 flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-white/10">
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-electric-950/80 border border-electric-500/30 text-electric-300 text-[10.5px] font-mono font-bold tracking-wider mb-1.5">
-              {isMarketOpen() ? (
+              {marketOpen ? (
                 <>
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                   <span>QUANTILOT 7-FACTOR ENGINE · LIVE</span>
@@ -254,18 +300,18 @@ export function AiPicksPage() {
               AI Strategy Picks
             </h1>
             <p className="mt-0.5 text-xs text-slate-300">
-              {isMarketOpen()
+              {marketOpen
                 ? 'Algorithmic research on live Nifty data + news catalyst scoring — every factor explained.'
                 : 'Showing latest verified EOD session data & quantitative factor analysis (NSE/BSE Closed).'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold flex items-center gap-1.5 ${isMarketOpen()
+            <span className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold flex items-center gap-1.5 ${marketOpen
               ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300'
               : 'bg-amber-500/20 border border-amber-500/40 text-amber-300'
               }`}>
-              <span className={`w-2 h-2 rounded-full ${isMarketOpen() ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-              {isMarketOpen() ? 'MARKET OPEN' : 'MARKET CLOSED'}
+              <span className={`w-2 h-2 rounded-full ${marketOpen ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+              {marketOpen ? 'MARKET OPEN' : 'MARKET CLOSED'}
             </span>
             <span className="px-3 py-1.5 rounded-xl bg-white/10 text-xs font-mono font-semibold text-slate-300">
               Updated {lastUpdated ? formatTimeAgo(lastUpdated) : 'EOD'}
@@ -464,6 +510,192 @@ export function AiPicksPage() {
                   {active.oneLiner}
                 </p>
 
+                {active.intradayPrediction && (
+                  <div className="mt-4 rounded-2xl border border-blue-300/70 dark:border-blue-500/30 bg-blue-50/60 dark:bg-blue-950/20 p-3 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                          {active.intradayPrediction.current ? '● Current Intraday Prediction' : '● Final Intraday Prediction — Market Closed'}
+                        </div>
+                        <div className="mt-1 font-mono text-lg font-black text-slate-900 dark:text-white">
+                          {canonicalIntraday?.signal ?? active.finalSignal}
+                          {' — '}
+                          {formatCurrency(canonicalIntraday?.expectedPrice ?? active.engine?.closingRange?.base)}
+                        </div>
+                        {(canonicalIntraday?.generatedAt ?? active.engine?.generatedAt) && (
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                            Generated {formatIstTimestamp(canonicalIntraday?.generatedAt ?? active.engine!.generatedAt, true)}
+                            {' · Data checked '}
+                            {formatIstTimestamp(canonicalIntraday?.lastUpdatedAt ?? active.engine!.generatedAt, true)}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right text-[10px] text-slate-500 dark:text-slate-400">
+                        <div className="font-bold uppercase">Next scheduled check</div>
+                        <div className="font-mono font-black text-blue-600 dark:text-blue-400">{active.intradayPrediction.nextPredictionLabel}</div>
+                      </div>
+                    </div>
+
+                    {(() => {
+                      const cur = canonicalIntraday;
+                      if (!cur) return null;
+                      // The header above shows latestObservation's predictedClose
+                      // when a fresher one exists (a same-version refresh, not a
+                      // new checkpoint) — read expectedReturnPct/confidence from
+                      // that SAME observation, not the version's older fields, so
+                      // this stat grid can never show a percentage that no longer
+                      // matches the predictedClose in the header right above it.
+                      const expectedReturnPct = cur.expectedReturnPct;
+                      const confidence = cur.confidence;
+                      return (
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          <div className="p-2 rounded-lg bg-white/70 dark:bg-black/20">
+                            <div className="text-[9px] uppercase font-bold text-slate-400">Score</div>
+                            <div className="font-mono text-xs font-black text-slate-900 dark:text-white">{cur.score ?? '—'}/100</div>
+                          </div>
+                          <div className="p-2 rounded-lg bg-white/70 dark:bg-black/20">
+                            <div className="text-[9px] uppercase font-bold text-slate-400">Confidence</div>
+                            <div className="font-mono text-xs font-black text-slate-900 dark:text-white">{confidence ?? '—'}/100</div>
+                          </div>
+                          <div className="p-2 rounded-lg bg-white/70 dark:bg-black/20">
+                            <div className="text-[9px] uppercase font-bold text-slate-400">Expected Return</div>
+                            <div className="font-mono text-xs font-black text-slate-900 dark:text-white">
+                              {expectedReturnPct != null ? `${expectedReturnPct > 0 ? '+' : ''}${expectedReturnPct.toFixed(2)}%` : '—'}
+                            </div>
+                          </div>
+                          <div className="p-2 rounded-lg bg-white/70 dark:bg-black/20">
+                            <div className="text-[9px] uppercase font-bold text-slate-400">Risk/Reward</div>
+                            <div className="font-mono text-xs font-black text-slate-900 dark:text-white">{cur.riskReward != null ? `${cur.riskReward.toFixed(1)}x` : '—'}</div>
+                          </div>
+                          {(cur.confirmationConditions?.length || cur.invalidationConditions?.length) && (
+                            <div className="col-span-2 sm:col-span-4 space-y-1 pt-1">
+                              {cur.confirmationConditions?.length ? (
+                                <div className="text-[10px] text-emerald-700 dark:text-emerald-400">
+                                  <span className="font-bold">Confirms if: </span>{cur.confirmationConditions.filter((item) => item.passed === true).map((item) => item.name).join('; ') || 'No confirmation gate currently passes'}
+                                </div>
+                              ) : null}
+                              {cur.invalidationConditions?.length ? (
+                                <div className="text-[10px] text-rose-600 dark:text-rose-400">
+                                  <span className="font-bold">Invalidated if: </span>{cur.invalidationConditions.join('; ')}
+                                </div>
+                              ) : null}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {(() => {
+                      // Always show all 4 scheduled checkpoints, not just
+                      // whichever ones happened to produce a recorded row —
+                      // a quiet day (or a checkpoint the background job
+                      // hasn't reached yet) should read as "not checked yet",
+                      // not silently vanish from the table.
+                      const timeline = active.intradayPrediction!.timeline;
+                      const cur = active.intradayPrediction!.current ?? active.intradayPrediction!.latest;
+                      // Not every row carries an exact checkpoint tag — the
+                      // FIRST prediction of the day is created whenever
+                      // anyone/anything first checks the stock, which can
+                      // land well after 09:20-09:25's tagging window (e.g.
+                      // 10:44am), leaving checkpoint: null even though it's
+                      // clearly "the 09:20-era prediction" for display
+                      // purposes. Untagged rows fall back to the latest
+                      // checkpoint slot at or before their own generatedAt
+                      // time, so a real prediction never gets shown as
+                      // PENDING just because of when it happened to fire.
+                      const assignedCheckpoint = (v: IntradayPredictionVersion): string | null => {
+                        if (v.checkpoint) return v.checkpoint;
+                        const mins = istMinutesOfDay(v.generatedAt);
+                        let assigned: string | null = null;
+                        for (const cp of INTRADAY_CHECKPOINTS) {
+                          if (mins >= cp.minutes) assigned = cp.key;
+                        }
+                        return assigned;
+                      };
+                      const allRows = [...timeline];
+                      if (cur && !allRows.some((v) => v.id === cur.id)) allRows.push(cur);
+                      allRows.sort((a, b) => new Date(a.generatedAt).getTime() - new Date(b.generatedAt).getTime());
+                      const byCheckpoint = new Map<string, IntradayPredictionVersion>();
+                      const offSchedule: IntradayPredictionVersion[] = [];
+                      for (const v of allRows) {
+                        const key = assignedCheckpoint(v);
+                        if (key) byCheckpoint.set(key, v); // later rows in the same window win
+                        else offSchedule.push(v);
+                      }
+                      const scheduleRows = INTRADAY_CHECKPOINTS.map((cp) => ({ cp, version: byCheckpoint.get(cp.key) ?? null }));
+
+                      const renderVersionRow = (key: string, timeLabel: string, version: IntradayPredictionVersion) => {
+                        // A non-material market refresh updates the current observation without
+                        // creating another historical version. Keep old rows immutable, but make
+                        // the CURRENT row agree with the headline's latest checked estimate.
+                        const observation = version.isCurrent ? version.latestObservation : null;
+                        const displayedClose = observation?.predictedClose ?? version.predictedClose;
+                        const displayedRange = observation?.targetZone ?? version.targetZone;
+                        return (
+                          <div
+                            key={key}
+                            title={version.isCurrent && observation ? `Prediction version created ${formatIstTimestamp(version.generatedAt, true)}; last checked ${formatIstTimestamp(observation.checkedAt, true)}` : `Prediction generated ${formatIstTimestamp(version.generatedAt, true)}`}
+                            className="grid grid-cols-[80px_72px_1fr_68px] items-center gap-2 rounded-lg bg-white/70 dark:bg-black/20 px-2 py-1.5 text-[10px]"
+                          >
+                            <span className="font-mono text-slate-500">{timeLabel}</span>
+                            <span className="font-mono font-black text-slate-800 dark:text-slate-200">
+                              {displayedClose != null ? `₹${displayedClose.toFixed(2)}` : '—'}
+                            </span>
+                            <span className="font-mono font-bold text-slate-600 dark:text-slate-300">
+                              {displayedRange?.[0] != null && displayedRange?.[1] != null
+                                ? `₹${displayedRange[0].toFixed(2)} – ₹${displayedRange[1].toFixed(2)}`
+                                : 'Range unavailable'}
+                            </span>
+                            {/* A checkpoint slot that isn't the latest one always reads EXPIRED —
+                                its window has passed and a newer checkpoint has superseded it.
+                                "UPDATED" (the raw per-version history status) reads confusingly
+                                here, as if that PAST row were the one just refreshed. INVALIDATED
+                                is kept as its own label since it carries real information (a BUY
+                                call broke), not just "time passed". */}
+                            <span className={`font-bold text-right ${version.isCurrent ? 'text-blue-600 dark:text-blue-400' : version.status === 'INVALIDATED' ? 'text-rose-600' : 'text-slate-400'}`}>
+                              {version.isCurrent ? 'CURRENT' : version.status === 'INVALIDATED' ? 'INVALIDATED' : 'EXPIRED'}
+                            </span>
+                          </div>
+                        );
+                      };
+
+                      return (
+                        <div>
+                          <div className="mb-1.5 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                            {active.intradayPrediction!.current ? 'Today’s Prediction Timeline' : 'Today’s Final Prediction Timeline'}
+                          </div>
+                          <div className="grid grid-cols-[80px_72px_1fr_68px] gap-2 px-2 text-[8px] font-bold uppercase tracking-wider text-slate-400">
+                            <span>Time</span><span>Prediction</span><span>Expected range</span><span className="text-right">Status</span>
+                          </div>
+                          <div className="space-y-1">
+                            {scheduleRows.map(({ cp, version }) => version
+                              ? renderVersionRow(cp.key, cp.label, version)
+                              : (
+                                <div
+                                  key={cp.key}
+                                  title="No prediction has been recorded for this checkpoint yet"
+                                  className="grid grid-cols-[80px_72px_1fr_68px] items-center gap-2 rounded-lg bg-slate-100/70 dark:bg-white/[0.03] px-2 py-1.5 text-[10px] opacity-70"
+                                >
+                                  <span className="font-mono text-slate-400">{cp.label}</span>
+                                  <span className="font-mono text-slate-400">—</span>
+                                  <span className="font-mono text-slate-400">Not checked yet</span>
+                                  <span className="font-bold text-right text-slate-400">PENDING</span>
+                                </div>
+                              ))}
+                            {offSchedule.map((version) => renderVersionRow(version.id, formatIstTimestamp(version.generatedAt), version))}
+                          </div>
+                          {cur?.reasonForChange?.length ? (
+                            <div className="mt-2 text-[10px] text-slate-600 dark:text-slate-300">
+                              <span className="font-bold">Why it changed: </span>
+                              {cur.reasonForChange.join('; ')}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
                 {/* Plain language note */}
                 {active.simpleNote && (
                   <div className="mt-3 p-3 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200/60 dark:border-blue-800/30 text-xs text-slate-800 dark:text-slate-200 leading-relaxed">
@@ -480,18 +712,45 @@ export function AiPicksPage() {
                   // An AVOID can be caused by valuation/data/risk gates while
                   // the same-session price outlook is still NEUTRAL or BULLISH.
                   // Never turn every AVOID into a fabricated "going lower" call.
-                  const outlook = active.engine?.directionalOutlook ?? active.morningBaseline?.directionalOutlook ?? 'NEUTRAL';
+                  // Read the direction from the SAME frozen snapshot as the
+                  // numbers below it (active.engine?.directionalOutlook keeps
+                  // recomputing live — post-market it can disagree with the
+                  // recorded prediction this card's own numbers come from,
+                  // which would show e.g. a green "Going Higher" card around
+                  // a number that's actually inside the neutral band).
+                  const canonicalSnapshot = active.intradayPrediction?.current ?? active.intradayPrediction?.latest;
+                  const outlook = canonicalSnapshot?.expectedDirection ?? active.engine?.directionalOutlook ?? 'NEUTRAL';
                   const isBuy = outlook === 'BULLISH';
                   const isAvoid = outlook === 'BEARISH';
+                  // "Current Price" is a live, continuously-updating concept;
+                  // the prediction's own move % must NOT be recomputed from
+                  // it client-side — that mixes a live price against a
+                  // predicted close that was generated against an earlier
+                  // snapshot, silently drifting from the server's own
+                  // canonical expectedPct as soon as the quote ticks. Always
+                  // display the one number the server already computed.
                   const curPrice = active.quote?.lastPrice ?? active.engine?.predictionReferencePrice ?? 0;
-                  const bearVal = active.engine?.closingRange?.bear ?? active.morningBaseline?.bearCase;
-                  const bullVal = active.engine?.closingRange?.bull ?? active.morningBaseline?.bullCase;
-                  const baseVal = active.engine?.closingRange?.base ?? active.morningBaseline?.baseCase ?? active.expectedClose;
+                  // Read the SAME recorded/frozen intraday snapshot the
+                  // "Latest Prediction" card and Prediction Timeline below
+                  // use (active.multiTimeframePredictions.current is built
+                  // from that same snapshot server-side). engine.closingRange
+                  // keeps recomputing live on every request — its projection
+                  // formula behaves differently once the market closes — so
+                  // reading it directly here showed a different "predicted
+                  // close" than the rest of this same prediction on the page.
+                  // Only fall back to the live engine when no snapshot exists
+                  // yet (e.g. the very first check of a new session).
+                  const mtfCurrent = active.multiTimeframePredictions?.current;
+                  const baseVal = mtfCurrent?.expectedPrice ?? active.expectedClose ?? active.engine?.closingRange?.base ?? null;
+                  const expectedPct = mtfCurrent?.expectedReturnPct ?? active.expectedPct ?? active.engine?.closingRange?.expectedMovePct ?? null;
+                  const bearVal = mtfCurrent?.expectedPriceZone?.[0] ?? active.engine?.closingRange?.bear;
+                  const bullVal = mtfCurrent?.expectedPriceZone?.[1] ?? active.engine?.closingRange?.bull;
 
                   if (isBuy) {
-                    const targetHigh = bullVal ?? (curPrice > 0 ? curPrice * 1.025 : baseVal);
-                    const targetLow = baseVal ?? (curPrice > 0 ? curPrice * 1.008 : targetHigh);
-                    const gainPct = curPrice > 0 && targetHigh ? ((targetHigh - curPrice) / curPrice) * 100 : 1.5;
+                    const predictedClose = baseVal;
+                    const rangeLow = bearVal ?? (curPrice > 0 && predictedClose != null ? curPrice * 0.985 : predictedClose);
+                    const rangeHigh = bullVal ?? (curPrice > 0 && predictedClose != null ? curPrice * 1.025 : predictedClose);
+                    const gainPct = expectedPct ?? 0;
 
                     return (
                       <div className="mt-3 p-3.5 rounded-2xl border border-emerald-500/30 bg-emerald-50/70 dark:bg-emerald-950/25 space-y-2">
@@ -505,16 +764,16 @@ export function AiPicksPage() {
                         </div>
 
                         <div className="pt-0.5">
-                          <div className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Projected High Target</div>
+                          <div className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Predicted Closing Price</div>
                           <div className="font-mono text-xl font-black text-emerald-600 dark:text-emerald-400">
-                            {formatCurrency(targetHigh)}
+                            {formatCurrency(predictedClose)}
                           </div>
                         </div>
 
                         <div className="pt-2 border-t border-emerald-200/60 dark:border-white/10 flex items-center justify-between text-[11px] font-mono">
-                          <span className="text-slate-500 dark:text-slate-400">Expected High Range:</span>
+                          <span className="text-slate-500 dark:text-slate-400">Uncertainty Range:</span>
                           <span className="font-bold text-slate-900 dark:text-white">
-                            {formatCurrency(targetLow)} — {formatCurrency(targetHigh)}
+                            {formatCurrency(rangeLow)} — {formatCurrency(rangeHigh)}
                           </span>
                         </div>
                       </div>
@@ -522,9 +781,10 @@ export function AiPicksPage() {
                   }
 
                   if (isAvoid) {
-                    const targetLow = bearVal ?? (curPrice > 0 ? curPrice * 0.975 : baseVal);
-                    const targetHigh = baseVal ?? (curPrice > 0 ? curPrice * 0.992 : targetLow);
-                    const lossPct = curPrice > 0 && targetLow ? ((targetLow - curPrice) / curPrice) * 100 : -2.5;
+                    const predictedClose = baseVal ?? curPrice;
+                    const rangeLow = bearVal ?? (curPrice > 0 ? curPrice * 0.975 : predictedClose);
+                    const rangeHigh = bullVal ?? (curPrice > 0 ? curPrice * 1.005 : predictedClose);
+                    const lossPct = curPrice > 0 && predictedClose ? ((predictedClose - curPrice) / curPrice) * 100 : 0;
 
                     return (
                       <div className="mt-3 p-3.5 rounded-2xl border border-rose-500/30 bg-rose-50/70 dark:bg-rose-950/25 space-y-2">
@@ -538,16 +798,16 @@ export function AiPicksPage() {
                         </div>
 
                         <div className="pt-0.5">
-                          <div className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Projected Low Target</div>
+                          <div className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Predicted Closing Price</div>
                           <div className="font-mono text-xl font-black text-rose-600 dark:text-rose-400">
-                            {formatCurrency(targetLow)}
+                            {formatCurrency(predictedClose)}
                           </div>
                         </div>
 
                         <div className="pt-2 border-t border-rose-200/60 dark:border-white/10 flex items-center justify-between text-[11px] font-mono">
-                          <span className="text-slate-500 dark:text-slate-400">Expected Drop Range:</span>
+                          <span className="text-slate-500 dark:text-slate-400">Uncertainty Range:</span>
                           <span className="font-bold text-slate-900 dark:text-white">
-                            {formatCurrency(targetLow)} — {formatCurrency(targetHigh)}
+                            {formatCurrency(rangeLow)} — {formatCurrency(rangeHigh)}
                           </span>
                         </div>
                       </div>
@@ -638,62 +898,99 @@ export function AiPicksPage() {
             </div>
           </div>
 
-          {/* ── MORNING BASELINE FORECAST (LOCKED TARGET) ── */}
-          {active.morningBaseline && (
-            <div className="p-5 rounded-3xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541] space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-base">📌</span>
-                  <h3 className="font-black text-sm text-slate-900 dark:text-white">Morning Baseline Forecast (Locked Target)</h3>
-                </div>
-                <span className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono ${active.morningBaseline.trajectoryStatus === 'ON_TRACK'
-                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/50'
-                  : active.morningBaseline.trajectoryStatus === 'INVALIDATED'
-                    ? 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300 border border-rose-300 dark:border-rose-800/50'
-                    : active.morningBaseline.trajectoryStatus === 'PULLBACK'
-                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-300 dark:border-amber-800/50'
-                      : 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border border-blue-300 dark:border-blue-800/50'
-                  }`}>
-                  {active.morningBaseline.trajectoryStatus === 'ON_TRACK'
-                    ? '🟢 ON TRACK'
-                    : active.morningBaseline.trajectoryStatus === 'INVALIDATED'
-                      ? '🔴 THESIS INVALIDATED'
-                      : active.morningBaseline.trajectoryStatus === 'PULLBACK'
-                        ? '🟡 PULLBACK'
-                        : '🔵 NEUTRAL RANGE'}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-                <div className="p-3 rounded-2xl bg-white dark:bg-black/30 border border-slate-200 dark:border-white/5">
-                  <span className="text-[10px] uppercase font-bold text-slate-400">Morning Outlook</span>
-                  <div className="font-bold text-xs text-slate-900 dark:text-white mt-0.5">
-                    {active.morningBaseline.directionalOutlook} (recorded at {formatCurrency(active.morningBaseline.predictionPrice)})
-                  </div>
-                </div>
-                <div className="p-3 rounded-2xl bg-white dark:bg-black/30 border border-slate-200 dark:border-white/5">
-                  <span className="text-[10px] uppercase font-bold text-slate-400">Expected Closing Range</span>
-                  <div className="font-mono font-bold text-xs text-slate-900 dark:text-white mt-0.5">
-                    {active.morningBaseline.bearCase != null && active.morningBaseline.bullCase != null
-                      ? `${formatCurrency(active.morningBaseline.bearCase)} – ${formatCurrency(active.morningBaseline.bullCase)}`
-                      : 'n/a'}
-                  </div>
-                </div>
-                <div className="p-3 rounded-2xl bg-white dark:bg-black/30 border border-slate-200 dark:border-white/5">
-                  <span className="text-[10px] uppercase font-bold text-slate-400">Invalidation Level</span>
-                  <div className="font-mono font-bold text-xs text-rose-500 dark:text-rose-400 mt-0.5">
-                    {active.morningBaseline.invalidationPrice != null ? formatCurrency(active.morningBaseline.invalidationPrice) : 'n/a'}
-                  </div>
-                </div>
-              </div>
-
-              <p className="text-xs text-slate-500 dark:text-slate-400 font-light leading-relaxed">
-                {active.morningBaseline.trajectoryReason}. Official EOD evaluation at 15:30 IST is judged against this locked morning target.
-              </p>
-            </div>
-          )}
-
           {/* ── ACTION PLAN & KEY FACTORS BENTO ── */}
+          {active.multiTimeframePredictions?.horizons?.length ? (() => {
+            const horizons = active.multiTimeframePredictions!.horizons;
+            const view = horizons.find((item) => item.key === timeframeKey) ?? horizons[0];
+            const passed = view.confirmationConditions.filter((item) => item.passed).length;
+            return (
+              <Card title="Multi-Timeframe Predictions — Separate Models">
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {horizons.map((item) => (
+                    <button type="button" key={item.key} onClick={() => setTimeframeKey(item.key)}
+                      className={`rounded-xl border px-3 py-2 text-xs font-bold transition-colors ${view.key === item.key ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 dark:border-[#1c2541] text-slate-600 dark:text-slate-300 hover:border-blue-400'}`}>
+                      {item.timeframe}
+                    </button>
+                  ))}
+                </div>
+                {view.summary && (
+                  <div className="mb-3 p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541] text-sm font-medium text-slate-800 dark:text-slate-200 leading-relaxed">
+                    {view.summary}
+                  </div>
+                )}
+                {view.description && (
+                  <div className="mb-4 p-3 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200/60 dark:border-blue-800/30 text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+                    <span className="font-bold text-blue-600 dark:text-blue-400 uppercase text-[10px] tracking-wider block mb-1">
+                      What does "{view.timeframe}" mean?
+                    </span>
+                    {view.description}
+                  </div>
+                )}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-[#1c2541] p-3">
+                    <div className="text-[10px] uppercase font-bold text-slate-400">Signal</div>
+                    <div className="mt-1 text-sm font-black text-slate-900 dark:text-white">{view.signal}</div>
+                    <div className="text-[10px] text-slate-500">{view.horizon}</div>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-[#1c2541] p-3">
+                    <div className="text-[10px] uppercase font-bold text-slate-400">Score / Evidence</div>
+                    <div className="mt-1 font-mono text-sm font-black">{view.score ?? '—'}/100 · {view.confidence ?? '—'}/100</div>
+                    <div className="text-[10px] text-slate-500">{passed}/{view.confirmationConditions.length} confirmations</div>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-[#1c2541] p-3">
+                    <div className="text-[10px] uppercase font-bold text-slate-400">Expected price</div>
+                    <div className="mt-1 font-mono text-sm font-black">{formatCurrency(view.expectedPrice)}</div>
+                    <div className={`text-[10px] font-bold ${(view.expectedReturnPct ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatPct(view.expectedReturnPct)} expected return</div>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-[#1c2541] p-3">
+                    <div className="text-[10px] uppercase font-bold text-slate-400">Zone / Risk-reward</div>
+                    <div className="mt-1 font-mono text-xs font-black">{view.expectedPriceZone ? `${formatCurrency(view.expectedPriceZone[0])} – ${formatCurrency(view.expectedPriceZone[1])}` : 'Unavailable'}</div>
+                    <div className="text-[10px] text-slate-500">R/R {view.riskReward?.toFixed(2) ?? '—'}</div>
+                  </div>
+                </div>
+                {view.key === 'INTRADAY' && (
+                  <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-2 rounded-xl border border-blue-200 dark:border-blue-800/40 bg-blue-50/50 dark:bg-blue-950/20 p-3">
+                    <div><div className="text-[9px] font-bold uppercase text-slate-400">Raw forecast</div><div className="font-mono text-xs font-black">{formatCurrency(view.rawExpectedPrice)}</div></div>
+                    <div><div className="text-[9px] font-bold uppercase text-slate-400">Raw move</div><div className="font-mono text-xs font-black">{formatPct(view.rawExpectedReturnPct)}</div></div>
+                    <div><div className="text-[9px] font-bold uppercase text-slate-400">Validated direction</div><div className="text-xs font-black">{view.validatedDirection ?? 'NEUTRAL'}</div></div>
+                    <div><div className="text-[9px] font-bold uppercase text-slate-400">Forecast quality</div><div className="text-xs font-black">{view.forecastQuality?.replaceAll('_', ' ') ?? 'UNVALIDATED'}</div></div>
+                    <div><div className="text-[9px] font-bold uppercase text-slate-400">Trade decision</div><div className="text-xs font-black">{view.signal}</div></div>
+                  </div>
+                )}
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                  <div><div className="font-black uppercase text-emerald-600 mb-2">Supporting factors</div><div className="space-y-1 text-slate-600 dark:text-slate-300">{view.supportingFactors.length ? view.supportingFactors.map((item) => <div key={item}>✓ {item}</div>) : <div>No verified supporting factor</div>}</div></div>
+                  <div>
+                    <div className="font-black uppercase text-blue-600 mb-2">Confirmations</div>
+                    <div className="space-y-1 text-slate-600 dark:text-slate-300">
+                      {view.confirmationConditions.map((item) => {
+                        // `available === false` is a genuinely missing input
+                        // (UNAVAILABLE). A boolean pass/fail gate has no 0-100
+                        // score at all — that's a different, valid state, not
+                        // "unavailable" — so only show UNAVAILABLE for the
+                        // former, never merely because `score` is absent.
+                        const icon = item.passed === true ? '✓' : item.available === false ? '—' : item.passed === false ? '✗' : '○';
+                        const suffix = item.available === false ? ' UNAVAILABLE' : item.score != null ? ` ${item.score}/100` : '';
+                        return <div key={item.name}>{icon} {item.name}{suffix}</div>;
+                      })}
+                    </div>
+                  </div>
+                  <div><div className="font-black uppercase text-rose-600 mb-2">Invalidation / missing gates</div><div className="space-y-1 text-slate-600 dark:text-slate-300">{view.invalidationConditions.map((item) => <div key={item}>• {item}</div>)}</div></div>
+                </div>
+                <div className="mt-4 border-t border-slate-200 dark:border-[#1c2541] pt-3 flex flex-wrap justify-between gap-2 text-[10px] text-slate-500">
+                  <span>Generated {formatIstTimestamp(view.generatedAt, true)} · Updated {formatIstTimestamp(view.lastUpdatedAt, true)}</span>
+                  <span>{view.thresholdStatus}</span>
+                </div>
+                {(view.updateFrequency || view.nextUpdateLabel) && (
+                  <div className="mt-1.5 flex flex-wrap justify-between gap-2 text-[10px] text-blue-600 dark:text-blue-400">
+                    <span>{view.updateFrequency}</span>
+                    <span className="font-bold">{view.nextUpdateLabel}</span>
+                  </div>
+                )}
+                <p className="mt-2 text-[10px] text-amber-700 dark:text-amber-300">{view.disclaimer}</p>
+              </Card>
+            );
+          })() : null}
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card title="Detailed Action Plan">
               <div className="space-y-2.5">

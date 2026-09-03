@@ -147,7 +147,13 @@ export async function sync(userId, broker, { ip } = {}) {
   assertSupportedBroker(broker);
   const conn = await getConnection(userId, broker);
   if (conn.status === 'EXPIRED' || (conn.expiryAt && conn.expiryAt < new Date())) {
-    await markConnectionStatus(userId, broker, 'EXPIRED', ip);
+    // markConnectionStatus takes (connectionId, status) — passing (userId, broker,
+    // status, ip) silently threw "Invalid status: <broker>" since the broker
+    // name (e.g. 'zerodha') isn't a valid CONNECTION_STATUSES value, so the
+    // connection was never actually flipped to EXPIRED and the audit trail
+    // for this transition never got recorded either.
+    await markConnectionStatus(conn.id, 'EXPIRED');
+    await audit(userId, 'BROKER_TOKEN_EXPIRED', 'broker_connection', conn.id, { broker }, ip);
     throw new BadRequestError('Broker connection has expired', 'BROKER_TOKEN_EXPIRED');
   }
   if (conn.status !== 'CONNECTED') {

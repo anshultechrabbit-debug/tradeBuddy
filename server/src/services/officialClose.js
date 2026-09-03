@@ -64,7 +64,7 @@ export function getMarketSessionStatus(d = new Date()) {
     session,
     isOpen: session === 'OPEN',
     tradeDate: tradingDay.date,
-    nextTradingDate: session === 'OPEN' ? tradingDay.date : nextTradingDate(d),
+    nextTradingDate: ['PRE_OPEN', 'OPEN'].includes(session) ? tradingDay.date : nextTradingDate(d),
     reason: tradingDay.reason,
     holiday: tradingDay.holiday ?? null,
     checkedAt: d.toISOString(),

@@ -59,8 +59,10 @@ export function extractQuote(raw) {
 
   if (change == null && prevClose != null) change = round2(lastPrice - prevClose);
   if (changePct == null && prevClose && prevClose > 0) changePct = round2(((lastPrice - prevClose) / prevClose) * 100);
-  if (change == null) change = 0;
-  if (changePct == null) changePct = 0;
+  // Previously defaulted to 0 here when genuinely unknown (no vendor field
+  // AND no prevClose to derive from) — indistinguishable downstream from a
+  // real flat/unchanged quote. Leave as null so callers can tell "no data"
+  // from "no change".
 
   return {
     lastPrice,

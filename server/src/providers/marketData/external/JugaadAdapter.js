@@ -3,11 +3,11 @@ import { extractQuote, normalizeCandles } from './normalize.js';
 import { resolveLiveSymbol, canonicalSymbol } from './symbolAliases.js';
 
 /**
- * JugaadAdapter — FALLBACK external development source.
+ * JugaadAdapter — PRIMARY external development source.
  *
  * Wraps the `jugaad-data` Python package via the Python bridge. Provides live
- * quotes, historical stock/index candles and option chains as a fallback when
- * nselib is unavailable. Built-in caching in jugaad-data keeps NSE requests low.
+ * quotes, historical stock/index candles and option chains, polled
+ * continuously. Built-in caching in jugaad-data keeps NSE requests low.
  *
  * NOTE: unofficial/free source for development/testing. Does NOT provide
  * complete licensed NSE/BSE/F&O coverage and must never be presented as such.

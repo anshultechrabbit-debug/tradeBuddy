@@ -1,6 +1,6 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import { apiClient } from '../api/client';
-import type { Breadth, IndexQuote, Instrument, MarketQuote, TopMovers } from '../lib/types';
+import type { Breadth, IndexQuote, Instrument, MarketQuote, MarketSessionStatus, TopMovers } from '../lib/types';
 
 export interface MarketState {
   breadth: Breadth | null;
@@ -10,6 +10,7 @@ export interface MarketState {
   allQuotes: MarketQuote[];
   liveDetail: Record<string, MarketQuote>;
   top: TopMovers | null;
+  status: MarketSessionStatus | null;
   loading: boolean;
   error: string | null;
   lastUpdated: number | null;
@@ -23,6 +24,7 @@ const initialState: MarketState = {
   allQuotes: [],
   liveDetail: {},
   top: null,
+  status: null,
   loading: false,
   error: null,
   lastUpdated: null,
@@ -64,6 +66,16 @@ export const fetchAllQuotes = createAsyncThunk('market/allQuotes', async () => {
 
 export const fetchTopStocks = createAsyncThunk('market/top', async () => {
   const { data } = await apiClient.get<TopMovers>('/market/top');
+  return data;
+});
+
+// The one canonical market-status source — same holiday-aware calendar the
+// server's prediction engine itself uses (nseTradingCalendar.js via
+// officialClose.js's getMarketSessionStatus). Every "is the market open"
+// UI check should read this instead of locally re-deriving it from weekday
+// + clock time, which has no holiday calendar and disagrees with the server.
+export const fetchMarketStatus = createAsyncThunk('market/status', async () => {
+  const { data } = await apiClient.get<MarketSessionStatus>('/market/status');
   return data;
 });
 
@@ -130,6 +142,12 @@ const marketSlice = createSlice({
       })
       .addCase(fetchInstruments.rejected, (state, action) => {
         state.error = action.error.message ?? 'Failed to load instruments';
+      })
+      .addCase(fetchMarketStatus.fulfilled, (state, action) => {
+        state.status = action.payload;
+      })
+      .addCase(fetchMarketStatus.rejected, (state, action) => {
+        state.error = action.error.message ?? 'Failed to load market status';
       });
   },
 });

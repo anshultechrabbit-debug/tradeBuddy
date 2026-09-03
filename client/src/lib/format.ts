@@ -55,11 +55,6 @@ export function formatDate(value: string | null | undefined): string {
   return new Date(value).toLocaleDateString('en-IN', { dateStyle: 'medium' });
 }
 
-export function pnlClass(value: number | null | undefined): string {
-  if (value == null || value === 0) return 'text-muted';
-  return value > 0 ? 'text-positive' : 'text-negative';
-}
-
 export function signalBadgeClass(signal: string): string {
   switch (signal) {
     case 'BUY':
@@ -82,10 +77,4 @@ export function regimeBadgeClass(regime: string): string {
     default:
       return 'badge badge-watch';
   }
-}
-
-export function toCamelCase(input: string): string {
-  return input
-    .toLowerCase()
-    .replace(/[^a-z0-9]+(.)/g, (_, c: string) => c.toUpperCase());
 }

@@ -91,7 +91,10 @@ export function AlertsPage() {
 
   async function runEvaluate() {
     await dispatch(evaluateAlerts());
-    await dispatch(fetchEvents());
+    // Must pass the current page — omitting it silently refetches page 1
+    // while the PaginationBar still shows whatever page the user was on,
+    // so the table and the pager disagree about what's displayed.
+    await dispatch(fetchEvents(eventPage));
     await dispatch(fetchNotifications());
   }
 

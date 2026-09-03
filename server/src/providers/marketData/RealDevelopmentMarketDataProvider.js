@@ -83,6 +83,11 @@ export class RealDevelopmentMarketDataProvider extends MarketDataProvider {
     this._breadthTtlMs = 5 * 60 * 1000;
     this._breadthInFlight = null;
     this._topStocksInFlight = null; // dedup: share the slow NSE fetch across concurrent callers
+    // Was never initialized, so `now - undefined` is always NaN (falsy) and
+    // the 30s cache check right below in getTopStocks() never passed —
+    // every call re-spawned a fresh Python process instead of reusing this.
+    this._topStocksCache = { at: 0, data: null };
+    this._topStocksCacheTtlMs = 30 * 1000;
     this._intradayCache = new Map();
     this._intradayTtlMs = 10 * 1000;
     // Background live-quote snapshot: refreshed every livePollerIntervalMs.

@@ -3,7 +3,7 @@ import { extractQuote, normalizeCandles } from './normalize.js';
 import { resolveLiveSymbol, canonicalSymbol } from './symbolAliases.js';
 
 /**
- * NselibAdapter — PRIMARY external development source.
+ * NselibAdapter — FALLBACK external development source (used when jugaad-data fails).
  *
  * Wraps the `nselib` Python package via the Python bridge to fetch real NSE
  * equities, indices, F&O and option-chain data. Covers capital market

@@ -6,6 +6,7 @@ import { getPredictions, evaluatePredictions, freezeDailyPredictions, recordFrom
 import { isMorningPredictionWindow } from './predictionTracker.js';
 import { isPastClose, getOfficialOHLC, dayKey } from './officialClose.js';
 import { analyzeStock } from './stockAnalysisService.js';
+import { getIntradaySchedule } from './intradayPredictionTimeline.js';
 
 let alertTimer = null;
 let expiryTimer = null;
@@ -15,16 +16,30 @@ let alertRunning = false;
 let predictionEvalRunning = false;
 let morningPredictionRunning = false;
 let morningPredictionCompletedDate = null;
+let intradayCheckpointRunning = false;
+const completedIntradayCheckpoints = new Set();
 
-const MORNING_PREDICTION_UNIVERSE = [
-  'RELIANCE', 'TCS', 'HDFCBANK', 'ICICIBANK', 'INFY', 'SBIN', 'BHARTIARTL', 'ITC',
-  'LT', 'AXISBANK', 'KOTAKBANK', 'BAJFINANCE', 'MARUTI', 'M&M', 'BAJAJ-AUTO',
-  'SUNPHARMA', 'TITAN', 'ULTRACEMCO', 'NTPC', 'POWERGRID', 'ONGC', 'COALINDIA',
-  'TECHM', 'HCLTECH', 'WIPRO', 'ADANIPORTS', 'ASIANPAINT', 'NESTLEIND', 'TATASTEEL',
-  'JSWSTEEL', 'HINDALCO', 'DRREDDY', 'CIPLA', 'DIVISLAB', 'EICHERMOT', 'DLF',
-  'HINDZINC', 'ETERNAL', 'SIEMENS', 'JINDALSTEL', 'VEDL', 'BEL', 'BPCL', 'GAIL',
-  'HINDUNILVR', 'BRITANNIA', 'PIDILITIND', 'TATACONSUM', 'SBILIFE', 'BAJAJFINSV',
-];
+// Was a hardcoded ~48-symbol large-cap list — any stock outside it (e.g.
+// TATAPOWER) never got an automatic checkpoint prediction at all: its
+// 09:20/11:30/13:15/14:30 rows only ever appeared if a user happened to open
+// that exact stock's page during the exact checkpoint window. Every
+// checkpoint job now pulls the same tracked-equity universe already used
+// everywhere else in the app (Radar's full scan, the Markets "All Equities"
+// tab), so a stock's scheduled predictions run whether or not anyone is
+// looking at it. Cached briefly since this only needs to run ~4 times/day —
+// no need to hit the DB freshly on every single checkpoint check tick.
+let universeCache = { at: 0, symbols: null };
+const UNIVERSE_CACHE_TTL_MS = 15 * 60_000;
+async function getTrackedUniverse() {
+  if (universeCache.symbols && Date.now() - universeCache.at < UNIVERSE_CACHE_TTL_MS) return universeCache.symbols;
+  const rows = await prisma.scanUniverse.findMany({
+    where: { enabled: true, excluded: false, instrumentType: 'EQUITY' },
+    select: { symbol: true },
+  });
+  const symbols = rows.map((r) => r.symbol);
+  universeCache = { at: Date.now(), symbols };
+  return symbols;
+}
 
 export async function runMorningPredictionLoop(now = new Date()) {
   const today = dayKey(now);
@@ -34,7 +49,8 @@ export async function runMorningPredictionLoop(now = new Date()) {
     const existing = new Set(getPredictions()
       .filter((p) => p.date === today && p.snapshotType === 'MORNING_OPEN')
       .map((p) => p.symbol));
-    const pending = MORNING_PREDICTION_UNIVERSE.filter((symbol) => !existing.has(symbol));
+    const universe = await getTrackedUniverse();
+    const pending = universe.filter((symbol) => !existing.has(symbol));
     let analysed = 0;
     let recorded = 0;
     let failed = 0;
@@ -54,6 +70,39 @@ export async function runMorningPredictionLoop(now = new Date()) {
     return { skipped: false, error: err.message };
   } finally {
     morningPredictionRunning = false;
+  }
+}
+
+export async function runScheduledIntradayPredictionLoop(now = new Date()) {
+  const schedule = getIntradaySchedule(now);
+  const checkpoint = schedule.activeCheckpoint;
+  if (!checkpoint || intradayCheckpointRunning) return { skipped: true, nextPredictionAt: schedule.nextPredictionAt };
+  const key = `${dayKey(now)}:${checkpoint.key}`;
+  if (completedIntradayCheckpoints.has(key)) return { skipped: true, completed: true, nextPredictionAt: schedule.nextPredictionAt };
+  if (checkpoint.key === 'OPEN') {
+    const result = await runMorningPredictionLoop(now);
+    if (!result.error) completedIntradayCheckpoints.add(key);
+    return { ...result, checkpoint: checkpoint.key, nextPredictionAt: schedule.nextPredictionAt };
+  }
+  intradayCheckpointRunning = true;
+  try {
+    const universe = await getTrackedUniverse();
+    let analysed = 0;
+    let failed = 0;
+    for (let i = 0; i < universe.length; i += 5) {
+      const batch = universe.slice(i, i + 5);
+      const results = await Promise.all(batch.map((symbol) => analyzeStock(symbol, { includeNews: true }).catch(() => null)));
+      analysed += results.filter((result) => result?.ok).length;
+      failed += results.filter((result) => !result?.ok).length;
+    }
+    completedIntradayCheckpoints.add(key);
+    logInfra('info', 'predictions', `Intraday ${checkpoint.label} checkpoint completed: ${analysed} analysed, ${failed} failed`);
+    return { skipped: false, checkpoint: checkpoint.key, analysed, failed, nextPredictionAt: schedule.nextPredictionAt };
+  } catch (err) {
+    logInfra('error', 'predictions', `Intraday checkpoint failed: ${err.message}`);
+    return { skipped: false, checkpoint: checkpoint.key, error: err.message, nextPredictionAt: schedule.nextPredictionAt };
+  } finally {
+    intradayCheckpointRunning = false;
   }
 }
 
@@ -154,18 +203,18 @@ export function startBackgroundJobs() {
   runAlertLoop();
   runExpiryLoop();
   runPredictionCloseEvaluationLoop();
-  runMorningPredictionLoop();
+  runScheduledIntradayPredictionLoop();
   alertTimer = setInterval(runAlertLoop, 30_000);
   expiryTimer = setInterval(runExpiryLoop, 60 * 60 * 1000);
   // No-ops before close, so polling every 15 minutes is cheap; frequent
   // enough to catch EOD data as soon as it's published after 15:30 IST.
   predictionEvalTimer = setInterval(runPredictionCloseEvaluationLoop, 15 * 60 * 1000);
-  morningPredictionTimer = setInterval(runMorningPredictionLoop, 30_000);
+  morningPredictionTimer = setInterval(runScheduledIntradayPredictionLoop, 30_000);
   if (typeof alertTimer.unref === 'function') alertTimer.unref();
   if (typeof expiryTimer.unref === 'function') expiryTimer.unref();
   if (typeof predictionEvalTimer.unref === 'function') predictionEvalTimer.unref();
   if (typeof morningPredictionTimer.unref === 'function') morningPredictionTimer.unref();
-  logInfra('info', 'app', 'Background jobs started (automatic morning predictions 09:20-09:35 IST, alerts every 30s, broker expiry hourly, close evaluation every 15min)');
+  logInfra('info', 'app', 'Background jobs started (holiday-aware predictions at 09:20, 11:30, 13:15, 14:30 IST; alerts every 30s; close evaluation every 15min)');
 }
 
 export function stopBackgroundJobs() {

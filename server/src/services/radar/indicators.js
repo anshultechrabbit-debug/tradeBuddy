@@ -107,6 +107,28 @@ export function linReg(values, period = 10) {
 }
 
 /**
+ * Same regression as linReg(), but returns the per-period slope (price
+ * units per day) instead of the projected value — lets callers tell a
+ * genuinely trending series (slope far from 0) from a flat one, and check
+ * whether the trend line itself agrees with a projection derived from it.
+ * Returns null under the same conditions linReg() would (fewer than 3 points).
+ */
+export function linRegSlope(values, period = 10) {
+  const slice = values.length >= period ? values.slice(-period) : values.slice();
+  const n = slice.length;
+  if (n < 3) return null;
+  const xMean = (n - 1) / 2;
+  const yMean = slice.reduce((s, v) => s + v, 0) / n;
+  let ssXY = 0;
+  let ssXX = 0;
+  for (let i = 0; i < n; i++) {
+    ssXY += (i - xMean) * (slice[i] - yMean);
+    ssXX += (i - xMean) ** 2;
+  }
+  return ssXX !== 0 ? ssXY / ssXX : 0;
+}
+
+/**
  * Volume-weighted mean close over the last `period` candles.
  * Acts as a VWAP proxy (where did price spend most time weighted by activity).
  * Returns null if no volume data is present.
@@ -559,4 +581,23 @@ export function betaAndCorrelation(stockCloses, benchmarkCloses, period = 60) {
   const beta = cov / varB;
   const correlation = varS > 0 ? cov / Math.sqrt(varS * varB) : null;
   return { beta, correlation };
+}
+
+/** True VWMA with exponential recency decay; newest candle has weight 1. */
+export function recencyWeightedVwmaClose(candles, period = 10, decay = 0.86) {
+  const slice = candles.length >= period ? candles.slice(-period) : candles.slice();
+  let sumPV = 0;
+  let sumV = 0;
+  for (let i = 0; i < slice.length; i += 1) {
+    const candle = slice[i];
+    const volume = Number(candle.volume) || 0;
+    const price = Number(candle.close);
+    const recencyWeight = Math.pow(decay, slice.length - 1 - i);
+    const effectiveVolume = volume * recencyWeight;
+    if (Number.isFinite(price) && effectiveVolume > 0) {
+      sumPV += price * effectiveVolume;
+      sumV += effectiveVolume;
+    }
+  }
+  return sumV > 0 ? sumPV / sumV : null;
 }

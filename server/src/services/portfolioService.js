@@ -150,7 +150,10 @@ export async function getPortfolioSummary(userId) {
     holdingsCount: withSector.length,
     diversificationScore: diversification,
     concentrationRisk: concentration,
-    dataSource: 'development',
+    // Was hardcoded 'development' regardless of which provider actually
+    // priced these holdings (overlayLivePrices() above can pull from the
+    // live provider) — report the real source like every other endpoint does.
+    dataSource: getMarketDataProvider().dataSource,
   };
 }
 

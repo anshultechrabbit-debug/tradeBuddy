@@ -4,10 +4,21 @@ import { authenticate } from '../middleware/auth.js';
 import { validate } from '../utils/validation.js';
 import { getMarketDataProvider } from '../providers/marketData/index.js';
 import { searchInstruments } from '../services/adminService.js';
+import { getMarketSessionStatus } from '../services/officialClose.js';
 
 const router = Router();
 
 router.use(authenticate);
+
+// The single canonical market-status source (PRE_OPEN/OPEN/CLOSED/HOLIDAY),
+// holiday-aware via nseTradingCalendar.js — the same function predictionEngine.js
+// itself uses for every prediction's marketSession/marketSessionReason fields.
+// Every UI surface (header badge, AI Picks, Radar) should read this instead
+// of each re-implementing its own weekday+clock check, which has no holiday
+// calendar and disagrees with the server on NSE holidays.
+router.get('/status', (req, res) => {
+  res.json(getMarketSessionStatus());
+});
 
 router.get(
   '/search',

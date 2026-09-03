@@ -97,6 +97,20 @@ export interface Breadth {
   dataSource: string;
 }
 
+// Mirrors server/src/services/officialClose.js's getMarketSessionStatus() —
+// the one canonical, holiday-aware market-status source. `session` covers
+// every state the server can report (OPEN/PRE_OPEN/CLOSED/HOLIDAY, or a
+// weekend/other closed reason string).
+export interface MarketSessionStatus {
+  session: string;
+  isOpen: boolean;
+  tradeDate: string;
+  nextTradingDate: string | null;
+  reason: string;
+  holiday: string | null;
+  checkedAt: string;
+}
+
 export interface IndexQuote {
   symbol: string;
   exchange: string;
@@ -390,6 +404,8 @@ export interface EngineOutput {
   modelVersion: string;
   generatedAt: string;
   dataTimestamp: string | null;
+  checkpoint?: 'OPEN' | 'MID_MORNING' | 'EARLY_AFTERNOON' | 'LATE_SESSION' | null;
+  eventType?: 'SCHEDULED' | 'MATERIAL';
   dataStatus: string;
   subScores: {
     technicalMomentum: number | null;
@@ -428,6 +444,13 @@ export interface EngineOutput {
     bull: number | null;
     range: [number, number] | null;
     expectedMovePct: number | null;
+    rawPredictedClose?: number | null;
+    rawExpectedMovePct?: number | null;
+    validatedPredictedClose?: number | null;
+    validatedExpectedMovePct?: number | null;
+    validatedDirection?: 'BULLISH' | 'NEUTRAL' | 'BEARISH';
+    forecastQuality?: 'HIGH_SIGNAL' | 'VALIDATED' | 'NEUTRAL_NOISE' | 'LOW_CONVICTION' | 'UNVALIDATED';
+    forecastDiagnostics?: Record<string, unknown> | null;
     confidence: string;
     confidenceScore: number;
     probability: string;
@@ -481,19 +504,87 @@ export interface AiAnalysis {
   expectedPct: number | null;
   engine: EngineOutput | null;
   engineWhy: EngineWhy | null;
-  morningBaseline?: {
-    predictionTimestamp: string;
-    predictionPrice: number | null;
-    directionalOutlook: string;
-    baseCase: number | null;
-    bearCase: number | null;
-    bullCase: number | null;
-    expectedMovePct: number | null;
-    invalidationPrice: number | null;
-    trajectoryStatus: 'ON_TRACK' | 'PULLBACK' | 'INVALIDATED' | 'NEUTRAL_RANGE';
-    trajectoryReason: string;
+  intradayPrediction?: {
+    current: IntradayPredictionVersion | null;
+    latest: IntradayPredictionVersion | null;
+    timeline: IntradayPredictionVersion[];
+    nextPredictionAt: string | null;
+    nextPredictionLabel: string;
+    marketSession: string;
+  } | null;
+  multiTimeframePredictions?: {
+    generatedAt: string;
+    current: TimeframePrediction;
+    horizons: TimeframePrediction[];
+    separationRule: string;
   } | null;
   dataTimestamp: string;
+  disclaimer: string;
+}
+
+export interface IntradayPredictionVersion {
+  id: string;
+  timeframe?: string;
+  generatedAt: string;
+  dataTimestamp: string | null;
+  checkpoint?: 'OPEN' | 'MID_MORNING' | 'EARLY_AFTERNOON' | 'LATE_SESSION' | null;
+  signal: string;
+  score?: number | null;
+  confidence: number;
+  price: number;
+  expectedDirection: 'BULLISH' | 'NEUTRAL' | 'BEARISH';
+  predictedClose: number | null;
+  targetZone: [number, number] | null;
+  expectedReturnPct?: number | null;
+  riskReward?: number | null;
+  stopLoss: number | null;
+  majorFactors: { name: string; score: number }[];
+  confirmationConditions?: string[];
+  invalidationCondition?: string | null;
+  reasonForChange: string[];
+  status: 'ACTIVE' | 'UPDATED' | 'INVALIDATED' | 'EXPIRED';
+  isCurrent?: boolean;
+  lastCheckedAt?: string;
+  latestObservation?: {
+    price: number;
+    predictedClose: number | null;
+    expectedReturnPct: number | null;
+    targetZone: [number, number] | null;
+    confidence: number;
+    checkedAt: string;
+  } | null;
+}
+
+export interface TimeframePrediction {
+  key: 'INTRADAY' | 'SHORT_TERM' | 'SWING' | 'MEDIUM_TERM' | 'LONG_TERM';
+  timeframe: string;
+  horizon: string;
+  description?: string;
+  summary?: string;
+  signal: string;
+  score: number | null;
+  confidence: number | null;
+  currentPrice: number | null;
+  expectedPrice: number | null;
+  expectedPriceZone: [number, number] | null;
+  expectedReturnPct: number | null;
+  rawExpectedPrice?: number | null;
+  rawExpectedReturnPct?: number | null;
+  validatedDirection?: 'BULLISH' | 'NEUTRAL' | 'BEARISH';
+  forecastQuality?: string;
+  riskReward: number | null;
+  generatedAt: string;
+  lastUpdatedAt: string;
+  updateFrequency?: string;
+  nextUpdateAt?: string | null;
+  nextUpdateLabel?: string;
+  thresholdStatus: string;
+  supportingFactors: string[];
+  confirmationConditions: { name: string; available?: boolean; passed: boolean | null; score?: number | null }[];
+  invalidationConditions: string[];
+  gates: Record<string, unknown>;
+  confirmingCategories?: number;
+  requiredConfirmations?: number;
   disclaimer: string;
 }
 

@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { TradePandaChat } from '../components/TradePandaChat';
 import { Badge, Card, EmptyState, ErrorBox, PaginationBar, Spinner } from '../components/ui';
 import { formatCurrency, formatDateTime, formatPct, formatTimeAgo, regimeBadgeClass, signalBadgeClass } from '../lib/format';
-import { isMarketOpen } from '../lib/marketHours';
 import { fetchAllQuotes } from '../store/marketSlice';
 import { fetchLatestScan, fetchOpportunities, fetchSignals, runScan } from '../store/radarSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
@@ -175,6 +174,12 @@ export function RadarPage() {
   const dispatch = useAppDispatch();
   const { scanResult, scanning, lastScannedAt, opportunities, signals, loading, signalsLoading, error } = useAppSelector((state) => state.radar);
   const { indices, allQuotes, breadth: liveBreadth } = useAppSelector((state) => state.market);
+  // Layout already fetches/polls this from the server's one canonical,
+  // holiday-aware market-status source — using it here (instead of the old
+  // local weekday+clock check with no holiday calendar) means this page
+  // agrees with every prediction shown on it about whether the market is
+  // actually open right now.
+  const marketOpen = useAppSelector((s) => s.market.status?.isOpen ?? false);
 
   const sliderRef = useRef<HTMLDivElement>(null);
 
@@ -225,11 +230,13 @@ export function RadarPage() {
   useEffect(() => {
     dispatch(fetchLatestScan());
     dispatch(fetchAllQuotes());
-    if (isMarketOpen()) {
-      const quotesTimer = setInterval(() => dispatch(fetchAllQuotes()), 60000);
-      return () => clearInterval(quotesTimer);
-    }
   }, [dispatch]);
+
+  useEffect(() => {
+    if (!marketOpen) return;
+    const quotesTimer = setInterval(() => dispatch(fetchAllQuotes()), 60000);
+    return () => clearInterval(quotesTimer);
+  }, [dispatch, marketOpen]);
 
 
   const scanRows = scanResult?.opportunities ?? [];
@@ -344,7 +351,7 @@ export function RadarPage() {
         <div className="relative z-10 flex flex-wrap items-start justify-between gap-4 pb-4 border-b border-white/10">
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-blue-950/80 border border-blue-400/30 text-blue-300 text-[10.5px] font-mono font-bold tracking-wider mb-1.5">
-              {isMarketOpen() ? (
+              {marketOpen ? (
                 <>
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                   <span>NIFTY 100 MARKET INTELLIGENCE · LIVE</span>
@@ -360,19 +367,19 @@ export function RadarPage() {
               Opportunity Radar
             </h1>
             <p className="mt-0.5 max-w-xl text-xs text-slate-300 leading-relaxed font-light">
-              {isMarketOpen()
+              {marketOpen
                 ? 'Systematic screening of available Nifty 100 data, with clear trend context, risk filters and AI-validated actions.'
                 : 'Showing latest verified EOD session data & multi-factor opportunity scans (NSE/BSE Closed).'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
             <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-mono font-bold ${
-              isMarketOpen()
+              marketOpen
                 ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
                 : 'bg-amber-500/20 border-amber-500/40 text-amber-300'
             }`}>
-              <span className={`w-2 h-2 rounded-full ${isMarketOpen() ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-              {isMarketOpen() ? 'MARKET OPEN' : 'MARKET CLOSED'}
+              <span className={`w-2 h-2 rounded-full ${marketOpen ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+              {marketOpen ? 'MARKET OPEN' : 'MARKET CLOSED'}
             </span>
             <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/40 border border-white/10 text-xs font-mono font-semibold text-slate-300">
               {lastScannedAt ? `UPDATED ${formatTimeAgo(lastScannedAt).toUpperCase()}` : 'AWAITING SCAN'}

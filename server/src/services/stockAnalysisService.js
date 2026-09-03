@@ -17,11 +17,12 @@ import { getMarketDataProvider } from '../providers/marketData/index.js';
 import { sma, ema, rsi, atr, roc, clamp } from './radar/indicators.js';
 import { fetchStockNews } from './newsService.js';
 import { buildEngineResult, buildWhySection } from './predictionEngine.js';
-import { generateNextClosePrediction } from './nextClosePredictionModel.js';
+import { recordIntradayPrediction } from './intradayPredictionTimeline.js';
+import { buildMultiTimeframePredictions } from './multiTimeframePredictionEngine.js';
 import { validateAnalysis } from './outputValidator.js';
 import { round2 } from '../utils/helpers.js';
 import { isPastClose, isMarketOpen, dayKey } from './officialClose.js';
-import { recordFromAnalysis, getPredictions } from './predictionTracker.js';
+import { recordFromAnalysis } from './predictionTracker.js';
 
 // ---------------------------------------------------------------------------
 // Data gathering (each block degrades gracefully)
@@ -875,6 +876,7 @@ async function computeAnalysis(provider, sym, { includeNews }) {
     },
     valuation: {
       available: valResult.available,
+      score: valResult.score ?? null,
       pe: valResult.pe ?? null,
       flag: valResult.flag,
       stale: valResult.stale,
@@ -929,28 +931,26 @@ async function computeAnalysis(provider, sym, { includeNews }) {
   result.engineWhy = buildWhySection(result);
   result.overallScore = result.engine.totalScore;
   result.finalSignal = result.engine.signal;
+  // Was never set here, so every symbol's top-level confidence silently
+  // fell back to the client's hardcoded 'LOW' default forever — the engine
+  // computed a real evidence-quality label but nothing published it. Mirror
+  // it up the same way overallScore/finalSignal are, right after the engine
+  // runs, so the top-level field and engine.closingRange.confidence (which
+  // reads this same value) can never disagree.
+  result.confidence = result.engine.confidenceLabel;
 
-  // Feed news into the separate price predictor only when the news service
-  // found at least one verified, independent material event. Zero events,
-  // unavailable feeds, or a missing score remain UNKNOWN and carry no weight.
-  const materialNewsCount = Number(newsResult.materialEvents);
-  const predictionNewsAvailable = Boolean(newsResult.available ?? newsResult.articles?.length)
-    && Number.isFinite(materialNewsCount)
-    && materialNewsCount > 0
-    && Number.isFinite(Number(newsResult.score));
-  result.nextClosePrediction = generateNextClosePrediction({
-    currentPrice: tech.price,
-    candles: tech.candles,
-    benchmarkCandles: (market.niftyCloses ?? []).map((close) => ({ close })),
-    news: predictionNewsAvailable ? {
-      available: true,
-      materialEvents: materialNewsCount,
-      score: Number(newsResult.score),
-    } : null,
-    predictionTimestamp: result.dataTimestamp,
-    dataTimestamp: tech.quote?.timestamp ?? result.dataTimestamp,
-    dataQuality,
-  });
+  // NOTE: this used to also compute result.nextClosePrediction via a second,
+  // fully independent price-prediction model (nextClosePredictionModel.js) —
+  // same input price as the engine above, completely different math, so it
+  // could (and did) produce a different "predicted close" for the same
+  // stock at the same instant. It was never read by any client or route —
+  // dead compute shipped in every /ai/analyze response as a landmine for
+  // any future code that reached into it expecting a second opinion. Removed
+  // from the live pipeline; the module itself stays for its own tests and
+  // for predictionEngineV3.js's offline backtesting, where a second model
+  // being compared against the live one is the point.
+  result.intradayPrediction = recordIntradayPrediction(result);
+  result.multiTimeframePredictions = buildMultiTimeframePredictions(result);
 
   // Auto-record morning baseline snapshot if during market hours and not yet recorded today
   const today = dayKey();
@@ -958,64 +958,41 @@ async function computeAnalysis(provider, sym, { includeNews }) {
     recordFromAnalysis(result, today);
   }
 
-  // Attach morning baseline and live trajectory status (if snapshot exists)
-  const morningSnapshot = getPredictions().find((p) => p.symbol === sym && p.date === today);
-  if (morningSnapshot) {
-    const mbPrice = morningSnapshot.predictionPrice;
-    const mbOutlook = morningSnapshot.directionalOutlook ?? 'NEUTRAL';
-    const mbBase = morningSnapshot.baseCase;
-    const mbBear = morningSnapshot.bearCase;
-    const mbBull = morningSnapshot.bullCase;
-    const mbInv = morningSnapshot.invalidationPrice ?? morningSnapshot.stopLoss;
-    const curPrice = tech.price;
+  // NOTE: this used to also attach a `result.morningBaseline` (single frozen
+  // morning snapshot + a locally-derived ON_TRACK/PULLBACK/INVALIDATED
+  // trajectory read). Removed — `result.intradayPrediction` above already
+  // covers the same need with a real, versioned, multi-checkpoint timeline
+  // and material-change detection (intradayPredictionTimeline.js), so the
+  // two were duplicating one concept with the timeline strictly more
+  // capable. The `getPredictions()`-backed snapshot recorded just above is
+  // still used — predictionTracker.js's EOD accuracy grading/stats
+  // (allStats/weeklyStats/evaluatePredictions) still read it — only this
+  // redundant UI-facing re-derivation was removed.
 
-    let trajectoryStatus = 'ON_TRACK';
-    let trajectoryReason = '';
-
-    if (mbOutlook === 'BULLISH') {
-      if (mbInv != null && curPrice <= mbInv) {
-        trajectoryStatus = 'INVALIDATED';
-        trajectoryReason = `Price ₹${curPrice} fell below morning support level ₹${mbInv}`;
-      } else if (mbPrice != null && curPrice >= mbPrice) {
-        trajectoryStatus = 'ON_TRACK';
-        trajectoryReason = `Price ₹${curPrice} progressing towards morning target range (₹${mbBear ?? '—'}–₹${mbBull ?? '—'})`;
-      } else {
-        trajectoryStatus = 'PULLBACK';
-        trajectoryReason = `Price ₹${curPrice} pulled back below morning price ₹${mbPrice}, but support ₹${mbInv ?? '—'} holds`;
-      }
-    } else if (mbOutlook === 'BEARISH') {
-      if (mbInv != null && curPrice >= mbInv) {
-        trajectoryStatus = 'INVALIDATED';
-        trajectoryReason = `Price ₹${curPrice} broke above morning resistance level ₹${mbInv}`;
-      } else if (mbPrice != null && curPrice <= mbPrice) {
-        trajectoryStatus = 'ON_TRACK';
-        trajectoryReason = `Price ₹${curPrice} progressing down towards target range (₹${mbBear ?? '—'}–₹${mbBull ?? '—'})`;
-      } else {
-        trajectoryStatus = 'PULLBACK';
-        trajectoryReason = `Price ₹${curPrice} moved above morning price ₹${mbPrice}, but resistance ₹${mbInv ?? '—'} holds`;
-      }
-    } else {
-      trajectoryStatus = 'NEUTRAL_RANGE';
-      trajectoryReason = 'Price is within expected neutral range';
-    }
-
-    result.morningBaseline = {
-      predictionTimestamp: morningSnapshot.predictionTimestamp ?? morningSnapshot.createdAt,
-      predictionPrice: mbPrice,
-      directionalOutlook: mbOutlook,
-      baseCase: mbBase,
-      bearCase: mbBear,
-      bullCase: mbBull,
-      expectedMovePct: morningSnapshot.expectedMovePct,
-      invalidationPrice: mbInv,
-      trajectoryStatus,
-      trajectoryReason,
-    };
-  }
-
-  // Align top-level expected close properties with the spec-compliant engine's ATR-based closing range prediction
-  result.expectedClose = result.engine.closingRange?.base ?? null;
-  result.expectedPct = result.engine.closingRange?.expectedMovePct ?? null;
+  // Canonical intraday prediction numbers: prefer the recorded/versioned
+  // snapshot (intradayPredictionTimeline.js) over the raw engine output.
+  // Both start out equal at generation time, but engine.closingRange keeps
+  // recomputing fresh on every analyzeStock() call — its ATR projection is
+  // scaled by remaining-session-progress, so once the market closes
+  // (isMarketOpen() flips false) it produces a materially different number
+  // than what was last recorded while the market was still open.
+  // recordIntradayPrediction() correctly freezes the snapshot at that point
+  // (so "the current prediction" doesn't keep silently changing after
+  // hours); without reading it here too, the numeric top-level fields kept
+  // drifting from the frozen prediction shown in the timeline/prediction
+  // card, showing two different "predicted close" values for what looked
+  // like the same prediction.
+  // Within an open session, latestObservation is a lighter-weight refresh
+  // of price/predictedClose/expectedReturnPct that doesn't create a new
+  // timeline version (see intradayPredictionTimeline.js) — prefer it over
+  // the version's own (slightly older) fields when present, since it's
+  // recorded as one matched set (predictedClose alongside its own
+  // expectedReturnPct, not mixed with a stale one) and it's the exact same
+  // value the client's prediction-card header displays.
+  const intradaySnapshotForClose = result.intradayPrediction?.current ?? result.intradayPrediction?.latest ?? null;
+  const intradayObservation = intradaySnapshotForClose?.latestObservation;
+  result.expectedClose = intradayObservation?.predictedClose ?? intradaySnapshotForClose?.predictedClose ?? result.engine.closingRange?.base ?? null;
+  result.expectedPct = intradayObservation?.expectedReturnPct ?? intradaySnapshotForClose?.expectedReturnPct ?? result.engine.closingRange?.expectedMovePct ?? null;
 
   // Narrative text is generated AFTER the single score/signal is fixed, so
   // it can never describe a different verdict than what's published.
@@ -1115,15 +1092,40 @@ export function formatAnalysis(result) {
   return lines.join('\n');
 }
 
+// Plain-English phrase for each raw internal flag — never show the raw
+// ALL-CAPS code (e.g. "PRICE RAN UP FAST") in a sentence a user reads.
+const FLAG_PHRASES = {
+  'PRICE RAN UP FAST': 'the price has climbed quickly lately, so it may be due for a pause',
+  'WEAK MARKET': 'the broader market is weak right now, which adds risk for every stock',
+  'LIMITED COMPANY DATA': "we don't have much financial data on this company yet",
+  'STALE VALUATION DATA': 'our value-for-money read on this stock is a bit outdated',
+  EXPENSIVE: 'the stock looks expensive relative to its earnings',
+};
+function humanizeFlag(flag) {
+  return FLAG_PHRASES[flag] ?? flag.toLowerCase();
+}
+
+const SIGNAL_PHRASES = {
+  'STRONG BUY': "this looks like a strong buying opportunity",
+  BUY: 'this looks like a good buying opportunity',
+  WATCH: "this is worth keeping an eye on, but it's not quite ready to act on yet",
+  AVOID: "we'd steer clear of this one for now",
+  'NO TRADE': "the evidence doesn't clearly support a trade either way right now",
+  HOLD: "if you already own it, there's no strong reason to change that; not a fresh buy",
+};
+
 export function oneLineExplanation(result) {
   const s = result.scores;
   const known = Object.entries(s).filter(([, v]) => v != null);
   const driver = known.length ? known.sort((a, b) => b[1] - a[1])[0] : null;
-  const driverNames = { news: 'news', technical: 'price action', fundamentals: 'company health', valuation: 'price vs value', market: 'market mood', risk: 'safety' };
-  const trend = result.technical.trend === 'Bullish' ? 'uptrend' : result.technical.trend === 'Bearish' ? 'downtrend' : 'range-bound';
-  const trendPhrase = trend === 'range-bound' ? 'a range' : trend === 'uptrend' ? 'an uptrend' : 'a downtrend';
-  const driverText = driver ? `the strongest factor is ${driverNames[driver[0]]} at ${driver[1]}/100` : 'no factor scores are known with confidence yet';
-  return `${result.finalSignal} (score ${result.overallScore}) — ${driverText}. Price is in ${trendPhrase}, buying pressure ${result.technical.rsi != null ? `${result.technical.rsi}/100` : 'n/a'}.${result.flags.length ? ' Flags: ' + result.flags.join(', ') + '.' : ''}`;
+  const driverNames = { news: 'recent news', technical: 'the price action', fundamentals: "the company's financial health", valuation: 'how the price compares to value', market: 'the overall market mood', risk: 'how safe it looks' };
+  const trendPhrase = result.technical.trend === 'Bullish' ? 'moving up' : result.technical.trend === 'Bearish' ? 'moving down' : 'moving sideways';
+  const driverText = driver ? `mainly because of ${driverNames[driver[0]] ?? driver[0]}` : "though we don't have enough reliable data yet to point to one clear reason";
+  const signalPhrase = SIGNAL_PHRASES[result.finalSignal] ?? result.finalSignal.toLowerCase();
+  const flagSentence = result.flags.length
+    ? ` Worth knowing: ${result.flags.map(humanizeFlag).join('; ')}.`
+    : '';
+  return `Our take: ${signalPhrase}, ${driverText}. The price has been ${trendPhrase} recently.${flagSentence}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1233,10 +1235,20 @@ export function simpleLanguageNote(result) {
   const sessionOver = isPastClose();
   const realizedPct = result.quote?.changePct;
 
+  // Read the same recorded/frozen intraday snapshot every other prediction
+  // display uses (see result.expectedClose/expectedPct above), not the raw
+  // engine output directly. engine.closingRange keeps recomputing on every
+  // call — its ATR projection is session-progress-scaled, so it produces a
+  // materially different number once the market closes than what was last
+  // recorded intraday. Without this, this plain-language note could quote
+  // an expected range that disagreed with the numeric prediction cards and
+  // the timeline shown elsewhere on the same page for the same prediction.
+  const intradaySnapshot = result.intradayPrediction?.current ?? result.intradayPrediction?.latest ?? null;
+  const intradayObs = intradaySnapshot?.latestObservation;
   const cr = result.engine?.closingRange ?? {};
-  const expPct = cr.expectedMovePct;
-  const bear = cr.bear;
-  const bull = cr.bull;
+  const expPct = intradayObs?.expectedReturnPct ?? intradaySnapshot?.expectedReturnPct ?? cr.expectedMovePct;
+  const bear = (intradayObs?.targetZone ?? intradaySnapshot?.targetZone)?.[0] ?? cr.bear;
+  const bull = (intradayObs?.targetZone ?? intradaySnapshot?.targetZone)?.[1] ?? cr.bull;
 
   const nifty = result.market?.niftyLevel;
   const marketWord = marketRegime === 'BULLISH' ? 'market looks like it will rise'

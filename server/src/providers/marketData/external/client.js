@@ -45,7 +45,9 @@ export class RateLimiter {
     if (this.calls.length >= this.perMinute) {
       const waitMs = 60000 - (now - this.calls[0]) + 50;
       await new Promise((resolve) => setTimeout(resolve, waitMs));
-      this.calls = this.calls.filter((t) => now - t < 60000);
+      // Re-check against a fresh timestamp, not the pre-wait `now` — otherwise
+      // this cleanup pass is stale by however long we just slept.
+      this.calls = this.calls.filter((t) => Date.now() - t < 60000);
     }
     this.calls.push(Date.now());
   }

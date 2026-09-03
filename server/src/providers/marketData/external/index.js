@@ -6,8 +6,8 @@ import { NseArchivesAdapter } from './NseArchivesAdapter.js';
  * External adapter registry.
  *
  * `getExternalAdapters()` returns `{ primary, fallback, backfill }`:
- *   - primary   nselib          — real NSE equities, indices, F&O, option chains
- *   - fallback  jugaad-data     — live quotes + historical when nselib fails
+ *   - primary   jugaad-data     — live quotes + historical, polled continuously
+ *   - fallback  nselib          — real NSE equities, indices, F&O, option chains, used when jugaad fails
  *   - backfill  indian-market-data / nse-archives — bulk bhavcopy + history
  *
  * The RealDevelopmentMarketDataProvider tries primary first, falls back to the

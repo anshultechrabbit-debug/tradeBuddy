@@ -53,11 +53,7 @@ export const fetchSignals = createAsyncThunk(
 const radarSlice = createSlice({
   name: 'radar',
   initialState,
-  reducers: {
-    clearError: (state) => {
-      state.error = null;
-    },
-  },
+  reducers: {},
   extraReducers: (builder) => {
     builder
       .addCase(runScan.pending, (state) => {
@@ -106,5 +102,4 @@ const radarSlice = createSlice({
   },
 });
 
-export const { clearError } = radarSlice.actions;
 export default radarSlice.reducer;

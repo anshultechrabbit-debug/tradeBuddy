@@ -122,17 +122,21 @@ export function PortfolioPage() {
     dispatch(askPortfolioQuestion(question.trim()));
   };
 
-  const totalValue = summary?.currentValue ?? 236327.75;
-  const investedVal = summary?.invested ?? 236488.72;
-  const totalPnl = summary?.totalPnl ?? (totalValue - investedVal);
-  const pnlPct = summary?.pnlPct ?? ((totalPnl / (investedVal || 1)) * 100);
-  const isProfit = totalPnl >= 0;
+  // No fabricated placeholder numbers here — if the summary hasn't loaded
+  // (or failed), these stay null and the metric cards below show "—"
+  // rather than a specific-looking fake portfolio value.
+  const totalValue = summary?.currentValue ?? null;
+  const investedVal = summary?.invested ?? null;
+  const totalPnl = summary?.totalPnl ?? (totalValue != null && investedVal != null ? totalValue - investedVal : null);
+  const pnlPct = summary?.pnlPct ?? (totalPnl != null && investedVal ? (totalPnl / investedVal) * 100 : null);
+  const isProfit = totalPnl != null && totalPnl >= 0;
+  const totalValueForWeights = totalValue ?? 0;
 
   // Enrich holdings with Sector metadata and weights
   const enrichedHoldings = useMemo(() => {
     return holdings.map((h) => {
       const meta = STOCK_SECTORS[h.symbol.toUpperCase()] ?? { sector: h.sector || 'Diversified', icon: '📈', color: '#3b82f6' };
-      const weight = totalValue > 0 ? ((h.currentValue || 0) / totalValue) * 100 : 0;
+      const weight = totalValueForWeights > 0 ? ((h.currentValue || 0) / totalValueForWeights) * 100 : 0;
       return {
         ...h,
         sectorName: meta.sector,
@@ -141,7 +145,7 @@ export function PortfolioPage() {
         weight,
       };
     });
-  }, [holdings, totalValue]);
+  }, [holdings, totalValueForWeights]);
 
   // Sector breakdown
   const computedSectors = useMemo(() => {
@@ -155,18 +159,19 @@ export function PortfolioPage() {
       map[sec].count += 1;
     });
 
-    const total = totalValue || 1;
+    const total = totalValueForWeights || 1;
     return Object.values(map)
       .map((item) => ({
         ...item,
         percentage: (item.value / total) * 100,
       }))
       .sort((a, b) => b.value - a.value);
-  }, [enrichedHoldings, totalValue]);
+  }, [enrichedHoldings, totalValueForWeights]);
 
-  // Base and Simulated Health Score
-  const baseHealthScore = review?.portfolioScore ?? summary?.diversificationScore ?? 55;
-  const simulatedHealthScore = Math.min(95, Math.round(baseHealthScore + rebalanceSimPct * 0.7));
+  // Base and Simulated Health Score — null (not a fabricated default) when
+  // neither the AI review nor the summary has a real score to offer yet.
+  const baseHealthScore = review?.portfolioScore ?? summary?.diversificationScore ?? null;
+  const simulatedHealthScore = baseHealthScore != null ? Math.min(95, Math.round(baseHealthScore + rebalanceSimPct * 0.7)) : null;
 
   // Concentration Warnings
   const concentrationWarnings = useMemo(() => {
@@ -277,15 +282,15 @@ export function PortfolioPage() {
           <div className="rounded-2xl border border-white/10 bg-white/5 p-3 sm:p-4 backdrop-blur-md">
             <div className="flex items-center justify-between">
               <div className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-slate-400 truncate">HEALTH</div>
-              <span className="font-mono text-[10.5px] sm:text-xs font-bold text-amber-400">{baseHealthScore}/100</span>
+              <span className="font-mono text-[10.5px] sm:text-xs font-bold text-amber-400">{baseHealthScore ?? '—'}/100</span>
             </div>
             <div className="mt-0.5 font-mono text-lg sm:text-2xl font-bold text-white truncate">
-              {baseHealthScore} <span className="text-[10px] sm:text-xs font-normal text-slate-400">/ 100</span>
+              {baseHealthScore ?? '—'} <span className="text-[10px] sm:text-xs font-normal text-slate-400">/ 100</span>
             </div>
             <div className="mt-1.5 h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
               <div
-                className={`h-full rounded-full ${baseHealthScore >= 70 ? 'bg-emerald-400' : baseHealthScore >= 45 ? 'bg-amber-400' : 'bg-rose-400'}`}
-                style={{ width: `${baseHealthScore}%` }}
+                className={`h-full rounded-full ${baseHealthScore == null ? 'bg-slate-500' : baseHealthScore >= 70 ? 'bg-emerald-400' : baseHealthScore >= 45 ? 'bg-amber-400' : 'bg-rose-400'}`}
+                style={{ width: `${baseHealthScore ?? 0}%` }}
               />
             </div>
           </div>
@@ -345,7 +350,7 @@ export function PortfolioPage() {
         {/* Narrative & Rebalance tip */}
         <div className="flex flex-col md:flex-row items-start gap-4 p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-[#1c2541]">
           <div className="flex flex-col items-center justify-center p-3 rounded-xl bg-white dark:bg-black/30 border border-slate-200 dark:border-white/10 shrink-0 min-w-[90px] text-center shadow-sm">
-            <span className="font-mono text-3xl font-black text-amber-500">{baseHealthScore}</span>
+            <span className="font-mono text-3xl font-black text-amber-500">{baseHealthScore ?? '—'}</span>
             <span className="text-[8.5px] font-bold uppercase tracking-wider text-slate-400 mt-0.5">HEALTH SCORE</span>
           </div>
 
@@ -373,7 +378,9 @@ export function PortfolioPage() {
               <span>✨</span> Interactive What-If Rebalancer: Simulate Trimming Concentration
             </div>
             <div className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">
-              Projected Health: {simulatedHealthScore}/100 (+{simulatedHealthScore - baseHealthScore} pts)
+              {simulatedHealthScore != null && baseHealthScore != null
+                ? `Projected Health: ${simulatedHealthScore}/100 (+${simulatedHealthScore - baseHealthScore} pts)`
+                : 'Projected Health: — (no health score available yet)'}
             </div>
           </div>
 

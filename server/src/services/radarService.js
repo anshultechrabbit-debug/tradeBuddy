@@ -14,6 +14,7 @@ import { sma } from './radar/indicators.js';
 import { round2, logInfra, audit } from '../utils/helpers.js';
 import { publishRadar } from './eventHub.js';
 import { analyzeStock } from './stockAnalysisService.js';
+import { isMarketOpen } from './officialClose.js';
 
 export function mapLimit(items, limit, fn) {
   const results = [];
@@ -117,8 +118,13 @@ async function computeBreadthFromCache(symbols) {
       unchanged: 0,
       total: 0,
       covered: 0,
+      // 0, not 50 — matches RealDevelopmentMarketDataProvider._computeBreadth()
+      // and DevelopmentMarketDataProvider.getMarketBreadth()'s identical
+      // "no data" case. A stray 50 here (vs 0 everywhere else) could flip
+      // computeRegime()'s BULLISH/BEARISH read depending on which code path
+      // happened to run for the same "we have no breadth data" condition.
       breadthPctAboveSma20: 0,
-      breadthPctAboveSma50: 50,
+      breadthPctAboveSma50: 0,
       averageChangePct: 0,
     };
   }
@@ -165,7 +171,7 @@ async function computeBreadthFromCache(symbols) {
     total,
     covered,
     breadthPctAboveSma20: total ? round2((aboveSma20 / total) * 100) : 0,
-    breadthPctAboveSma50: total ? round2((aboveSma50 / total) * 100) : 50,
+    breadthPctAboveSma50: total ? round2((aboveSma50 / total) * 100) : 0,
     averageChangePct: total ? round2(sumChangePct / total) : 0,
   };
 }
@@ -568,14 +574,6 @@ export async function getLatestScanFromDb(limit = 0) {
   };
 }
 
-function isMarketOpen() {
-  const ist = new Date(Date.now() + 5.5 * 3600 * 1000);
-  const day = ist.getUTCDay();
-  if (day === 0 || day === 6) return false;
-  const t = ist.getUTCHours() * 60 + ist.getUTCMinutes();
-  return t >= 9 * 60 + 15 && t <= 15 * 60 + 30;
-}
-
 /** Starts the live-radar loop: recomputes scores continuously (all symbols, no limits). */
 export function startRadarScheduler(intervalMs = 60000) {
   if (schedulerTimer) return schedulerTimer;
@@ -621,7 +619,10 @@ export async function listSignals({ userId, page = 1, limit = 20, signal, outloo
       signal: o.signal,
       regime: o.regime || lastScanResult.regime,
       convictionScore: o.convictionScore,
-      features: { directionalOutlook: o.directionalOutlook || 'BULLISH' },
+      // Was `|| 'BULLISH'` — fabricated the most bullish label as a "default"
+      // instead of reporting genuinely-unknown direction as null, biasing
+      // any UI filter/read on stocks with no real directional evidence.
+      features: { directionalOutlook: o.directionalOutlook ?? null },
       reason: o.explanation || `${o.symbol} flagged with ${o.convictionScore}% conviction.`,
       dataSource: o.dataSource || 'LIVE',
     }));
@@ -682,7 +683,8 @@ export async function listOpportunities({ userId, page = 1, limit = 20, signal, 
       regime: o.regime || lastScanResult.regime,
       convictionScore: o.convictionScore,
       explanation: o.explanation,
-      directionalOutlook: o.directionalOutlook || 'BULLISH',
+      // Unknown direction must stay null, never fabricated as 'BULLISH'.
+      directionalOutlook: o.directionalOutlook ?? null,
       dataSource: o.dataSource || 'LIVE',
       createdAt: new Date(),
     }));
@@ -740,7 +742,8 @@ export async function listOpportunities({ userId, page = 1, limit = 20, signal, 
       regime: o.regime,
       convictionScore: o.convictionScore,
       explanation: o.explanation,
-      directionalOutlook: o.directionalOutlook ?? 'BULLISH',
+      // Unknown direction must stay null, never fabricated as 'BULLISH'.
+      directionalOutlook: o.directionalOutlook ?? null,
       dataSource: o.dataSource,
       createdAt: o.createdAt,
     })),
