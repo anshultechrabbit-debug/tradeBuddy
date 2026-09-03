@@ -16767,17 +16767,17 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:34:51.433Z",
+    "lastCheckedAt": "2026-09-03T06:45:44.969Z",
     "latestObservation": {
-      "price": 419.95,
-      "predictedClose": 420.16,
+      "price": 419.25,
+      "predictedClose": 419.46,
       "expectedReturnPct": 0.05,
       "targetZone": [
-        415.36,
-        424.96
+        414.79,
+        424.13
       ],
       "confidence": 68,
-      "checkedAt": "2026-09-03T06:34:51.433Z"
+      "checkedAt": "2026-09-03T06:45:44.969Z"
     }
   },
   {
@@ -16827,17 +16827,17 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:33:55.927Z",
+    "lastCheckedAt": "2026-09-03T06:45:56.883Z",
     "latestObservation": {
-      "price": 162.33,
-      "predictedClose": 162.07,
-      "expectedReturnPct": -0.16,
+      "price": 162.4,
+      "predictedClose": 162.15,
+      "expectedReturnPct": -0.15,
       "targetZone": [
-        160.13,
-        164.01
+        160.27,
+        164.03
       ],
       "confidence": 68,
-      "checkedAt": "2026-09-03T06:33:55.927Z"
+      "checkedAt": "2026-09-03T06:45:56.883Z"
     }
   },
   {
@@ -16949,17 +16949,17 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:34:33.966Z",
+    "lastCheckedAt": "2026-09-03T06:44:48.689Z",
     "latestObservation": {
-      "price": 21485,
-      "predictedClose": 21527.17,
-      "expectedReturnPct": 0.2,
+      "price": 21495,
+      "predictedClose": 21536.82,
+      "expectedReturnPct": 0.19,
       "targetZone": [
-        21212.2,
-        21842.14
+        21229.59,
+        21844.05
       ],
       "confidence": 68,
-      "checkedAt": "2026-09-03T06:34:33.966Z"
+      "checkedAt": "2026-09-03T06:44:48.689Z"
     }
   },
   {
@@ -17009,7 +17009,7 @@
     "reasonForChange": [
       "Scheduled checkpoint check-in"
     ],
-    "status": "ACTIVE",
+    "status": "UPDATED",
     "lastCheckedAt": "2026-09-03T06:33:50.918Z",
     "latestObservation": {
       "price": 319.4,
@@ -17021,7 +17021,8 @@
       ],
       "confidence": 68,
       "checkedAt": "2026-09-03T06:33:50.918Z"
-    }
+    },
+    "replacedAt": "2026-09-03T06:35:28.542Z"
   },
   {
     "id": "INFY-1788415285022",
@@ -17069,17 +17070,17 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:33:55.855Z",
+    "lastCheckedAt": "2026-09-03T06:45:51.781Z",
     "latestObservation": {
-      "price": 1132.2,
-      "predictedClose": 1132.01,
+      "price": 1129.4,
+      "predictedClose": 1129.13,
       "expectedReturnPct": -0.02,
       "targetZone": [
-        1118.45,
-        1145.57
+        1115.97,
+        1142.29
       ],
       "confidence": 68,
-      "checkedAt": "2026-09-03T06:33:55.855Z"
+      "checkedAt": "2026-09-03T06:45:51.781Z"
     }
   },
   {
@@ -17130,17 +17131,17 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:33:34.831Z",
+    "lastCheckedAt": "2026-09-03T06:45:14.868Z",
     "latestObservation": {
-      "price": 2340.7,
-      "predictedClose": 2341.57,
-      "expectedReturnPct": 0.04,
+      "price": 2332.7,
+      "predictedClose": 2333.17,
+      "expectedReturnPct": 0.02,
       "targetZone": [
-        2314.77,
-        2368.37
+        2307.16,
+        2359.18
       ],
-      "confidence": 68,
-      "checkedAt": "2026-09-03T06:33:34.831Z"
+      "confidence": 63,
+      "checkedAt": "2026-09-03T06:45:14.868Z"
     }
   },
   {
@@ -17190,17 +17191,17 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:03:05.131Z",
+    "lastCheckedAt": "2026-09-03T06:45:48.304Z",
     "latestObservation": {
-      "price": 173.45,
-      "predictedClose": 173.39,
+      "price": 173.38,
+      "predictedClose": 173.33,
       "expectedReturnPct": -0.03,
       "targetZone": [
-        171.83,
-        174.95
+        171.91,
+        174.75
       ],
-      "confidence": 71,
-      "checkedAt": "2026-09-03T06:03:05.131Z"
+      "confidence": 66,
+      "checkedAt": "2026-09-03T06:45:48.304Z"
     }
   },
   {
@@ -17312,17 +17313,17 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:34:51.850Z",
+    "lastCheckedAt": "2026-09-03T06:45:53.631Z",
     "latestObservation": {
-      "price": 1318.8,
-      "predictedClose": 1318.98,
-      "expectedReturnPct": 0.01,
+      "price": 1317.5,
+      "predictedClose": 1317.53,
+      "expectedReturnPct": 0,
       "targetZone": [
-        1301.23,
-        1336.73
+        1300.26,
+        1334.8
       ],
       "confidence": 68,
-      "checkedAt": "2026-09-03T06:34:51.850Z"
+      "checkedAt": "2026-09-03T06:45:53.631Z"
     }
   },
   {
@@ -17486,17 +17487,17 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:30:47.002Z",
+    "lastCheckedAt": "2026-09-03T06:45:47.067Z",
     "latestObservation": {
-      "price": 709,
-      "predictedClose": 707.82,
-      "expectedReturnPct": -0.17,
+      "price": 708.55,
+      "predictedClose": 707.44,
+      "expectedReturnPct": -0.16,
       "targetZone": [
-        701.53,
-        714.11
+        701.38,
+        713.5
       ],
-      "confidence": 68,
-      "checkedAt": "2026-09-03T06:30:47.002Z"
+      "confidence": 63,
+      "checkedAt": "2026-09-03T06:45:47.067Z"
     }
   },
   {
@@ -17547,17 +17548,17 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:34:21.604Z",
+    "lastCheckedAt": "2026-09-03T06:44:35.781Z",
     "latestObservation": {
-      "price": 681.05,
-      "predictedClose": 681.75,
+      "price": 680.95,
+      "predictedClose": 681.65,
       "expectedReturnPct": 0.1,
       "targetZone": [
-        672.96,
-        690.54
+        673.07,
+        690.23
       ],
       "confidence": 71,
-      "checkedAt": "2026-09-03T06:34:21.604Z"
+      "checkedAt": "2026-09-03T06:44:35.781Z"
     }
   },
   {
@@ -17608,17 +17609,17 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:34:21.488Z",
+    "lastCheckedAt": "2026-09-03T06:44:45.842Z",
     "latestObservation": {
-      "price": 1440,
-      "predictedClose": 1440.9,
+      "price": 1440.2,
+      "predictedClose": 1441.13,
       "expectedReturnPct": 0.06,
       "targetZone": [
-        1430.18,
-        1451.62
+        1430.67,
+        1451.59
       ],
-      "confidence": 68,
-      "checkedAt": "2026-09-03T06:34:21.488Z"
+      "confidence": 63,
+      "checkedAt": "2026-09-03T06:44:45.842Z"
     }
   },
   {
@@ -17669,17 +17670,17 @@
       "technicalMomentum changed materially"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:34:30.944Z",
+    "lastCheckedAt": "2026-09-03T06:44:37.770Z",
     "latestObservation": {
-      "price": 423.15,
-      "predictedClose": 424.29,
-      "expectedReturnPct": 0.27,
+      "price": 423.2,
+      "predictedClose": 424.3,
+      "expectedReturnPct": 0.26,
       "targetZone": [
-        419.99,
-        428.59
+        420.09,
+        428.51
       ],
       "confidence": 68,
-      "checkedAt": "2026-09-03T06:34:30.944Z"
+      "checkedAt": "2026-09-03T06:44:37.770Z"
     }
   },
   {
@@ -17729,19 +17730,20 @@
     "reasonForChange": [
       "Scheduled checkpoint check-in"
     ],
-    "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:33:29.761Z",
+    "status": "UPDATED",
+    "lastCheckedAt": "2026-09-03T06:35:21.886Z",
     "latestObservation": {
-      "price": 12047,
-      "predictedClose": 12067.7,
+      "price": 12041,
+      "predictedClose": 12061.65,
       "expectedReturnPct": 0.17,
       "targetZone": [
-        11943.43,
-        12191.97
+        11937.61,
+        12185.69
       ],
       "confidence": 68,
-      "checkedAt": "2026-09-03T06:33:29.761Z"
-    }
+      "checkedAt": "2026-09-03T06:35:21.886Z"
+    },
+    "replacedAt": "2026-09-03T06:36:51.278Z"
   },
   {
     "id": "SIEMENS-1788415334526",
@@ -17790,19 +17792,20 @@
     "reasonForChange": [
       "Scheduled checkpoint check-in"
     ],
-    "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:34:23.137Z",
+    "status": "UPDATED",
+    "lastCheckedAt": "2026-09-03T06:35:57.189Z",
     "latestObservation": {
       "price": 4063.2,
-      "predictedClose": 4073.99,
-      "expectedReturnPct": 0.27,
+      "predictedClose": 4073.95,
+      "expectedReturnPct": 0.26,
       "targetZone": [
-        4023.65,
-        4124.33
+        4023.73,
+        4124.17
       ],
       "confidence": 71,
-      "checkedAt": "2026-09-03T06:34:23.137Z"
-    }
+      "checkedAt": "2026-09-03T06:35:57.189Z"
+    },
+    "replacedAt": "2026-09-03T06:37:25.126Z"
   },
   {
     "id": "SBIN-1788415335036",
@@ -17847,8 +17850,18 @@
       "First prediction of the trading session"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:02:15.036Z",
-    "latestObservation": null
+    "lastCheckedAt": "2026-09-03T06:44:55.952Z",
+    "latestObservation": {
+      "price": 1031.1,
+      "predictedClose": 1029.87,
+      "expectedReturnPct": -0.12,
+      "targetZone": [
+        1021.89,
+        1037.85
+      ],
+      "confidence": 63,
+      "checkedAt": "2026-09-03T06:44:55.952Z"
+    }
   },
   {
     "id": "BHARTIARTL-1788415340771",
@@ -17949,8 +17962,18 @@
       "First prediction of the trading session"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:02:24.829Z",
-    "latestObservation": null
+    "lastCheckedAt": "2026-09-03T06:45:16.200Z",
+    "latestObservation": {
+      "price": 264.75,
+      "predictedClose": 264.32,
+      "expectedReturnPct": -0.16,
+      "targetZone": [
+        261.72,
+        266.92
+      ],
+      "confidence": 66,
+      "checkedAt": "2026-09-03T06:45:16.200Z"
+    }
   },
   {
     "id": "LT-1788415345120",
@@ -18049,19 +18072,20 @@
     "reasonForChange": [
       "Scheduled checkpoint check-in"
     ],
-    "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:33:30.140Z",
+    "status": "UPDATED",
+    "lastCheckedAt": "2026-09-03T06:38:22.100Z",
     "latestObservation": {
-      "price": 9197.5,
-      "predictedClose": 9225.45,
+      "price": 9211.5,
+      "predictedClose": 9239.51,
       "expectedReturnPct": 0.3,
       "targetZone": [
-        9139.84,
-        9311.06
+        9154.94,
+        9324.08
       ],
       "confidence": 68,
-      "checkedAt": "2026-09-03T06:33:30.140Z"
-    }
+      "checkedAt": "2026-09-03T06:38:22.100Z"
+    },
+    "replacedAt": "2026-09-03T06:39:50.484Z"
   },
   {
     "id": "ETERNAL-1788415349131",
@@ -18170,17 +18194,17 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:25:01.091Z",
+    "lastCheckedAt": "2026-09-03T06:44:57.639Z",
     "latestObservation": {
-      "price": 12891,
-      "predictedClose": 12853.88,
-      "expectedReturnPct": -0.29,
+      "price": 12865,
+      "predictedClose": 12829.22,
+      "expectedReturnPct": -0.28,
       "targetZone": [
-        12725.12,
-        12982.64
+        12706.28,
+        12952.16
       ],
-      "confidence": 51,
-      "checkedAt": "2026-09-03T06:25:01.091Z"
+      "confidence": 63,
+      "checkedAt": "2026-09-03T06:44:57.639Z"
     }
   },
   {
@@ -18293,17 +18317,17 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:34:55.322Z",
+    "lastCheckedAt": "2026-09-03T06:45:39.502Z",
     "latestObservation": {
-      "price": 117.89,
-      "predictedClose": 117.93,
+      "price": 117.8,
+      "predictedClose": 117.84,
       "expectedReturnPct": 0.03,
       "targetZone": [
-        116.84,
-        119.02
+        116.78,
+        118.9
       ],
       "confidence": 68,
-      "checkedAt": "2026-09-03T06:34:55.322Z"
+      "checkedAt": "2026-09-03T06:45:39.502Z"
     }
   },
   {
@@ -18351,8 +18375,18 @@
       "First prediction of the trading session"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:02:32.943Z",
-    "latestObservation": null
+    "lastCheckedAt": "2026-09-03T06:45:36.092Z",
+    "latestObservation": {
+      "price": 1048.4,
+      "predictedClose": 1047,
+      "expectedReturnPct": -0.13,
+      "targetZone": [
+        1036.25,
+        1057.75
+      ],
+      "confidence": 66,
+      "checkedAt": "2026-09-03T06:45:36.092Z"
+    }
   },
   {
     "id": "M&M-1788415353103",
@@ -18450,17 +18484,17 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:34:34.283Z",
+    "lastCheckedAt": "2026-09-03T06:45:34.310Z",
     "latestObservation": {
-      "price": 3295,
-      "predictedClose": 3295.51,
-      "expectedReturnPct": 0.02,
+      "price": 3294.5,
+      "predictedClose": 3294.91,
+      "expectedReturnPct": 0.01,
       "targetZone": [
-        3263.73,
-        3327.29
+        3263.99,
+        3325.83
       ],
       "confidence": 68,
-      "checkedAt": "2026-09-03T06:34:34.283Z"
+      "checkedAt": "2026-09-03T06:45:34.310Z"
     }
   },
   {
@@ -18511,17 +18545,17 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:34:34.893Z",
+    "lastCheckedAt": "2026-09-03T06:45:07.742Z",
     "latestObservation": {
-      "price": 189.35,
-      "predictedClose": 189.51,
+      "price": 189.41,
+      "predictedClose": 189.57,
       "expectedReturnPct": 0.08,
       "targetZone": [
-        187.08,
+        187.2,
         191.94
       ],
       "confidence": 68,
-      "checkedAt": "2026-09-03T06:34:34.893Z"
+      "checkedAt": "2026-09-03T06:45:07.742Z"
     }
   },
   {
@@ -18633,17 +18667,17 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:34:36.323Z",
+    "lastCheckedAt": "2026-09-03T06:45:08.125Z",
     "latestObservation": {
-      "price": 1918.1,
-      "predictedClose": 1918.18,
+      "price": 1918.5,
+      "predictedClose": 1918.54,
       "expectedReturnPct": 0,
       "targetZone": [
-        1900.72,
-        1935.64
+        1901.56,
+        1935.52
       ],
       "confidence": 71,
-      "checkedAt": "2026-09-03T06:34:36.323Z"
+      "checkedAt": "2026-09-03T06:45:08.125Z"
     }
   },
   {
@@ -18841,17 +18875,17 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:34:49.141Z",
+    "lastCheckedAt": "2026-09-03T06:45:34.066Z",
     "latestObservation": {
-      "price": 1300.9,
-      "predictedClose": 1301.13,
+      "price": 1299.9,
+      "predictedClose": 1300.17,
       "expectedReturnPct": 0.02,
       "targetZone": [
-        1287.01,
-        1315.25
+        1286.43,
+        1313.91
       ],
       "confidence": 71,
-      "checkedAt": "2026-09-03T06:34:49.141Z"
+      "checkedAt": "2026-09-03T06:45:34.066Z"
     }
   },
   {
@@ -18901,9 +18935,20 @@
     "reasonForChange": [
       "First prediction of the trading session"
     ],
-    "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:02:45.087Z",
-    "latestObservation": null
+    "status": "UPDATED",
+    "lastCheckedAt": "2026-09-03T06:45:49.069Z",
+    "latestObservation": {
+      "price": 268.35,
+      "predictedClose": 268.27,
+      "expectedReturnPct": -0.03,
+      "targetZone": [
+        265.51,
+        271.03
+      ],
+      "confidence": 63,
+      "checkedAt": "2026-09-03T06:45:49.069Z"
+    },
+    "replacedAt": "2026-09-03T06:45:59.416Z"
   },
   {
     "id": "RELIANCE-1788415371189",
@@ -18950,17 +18995,17 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:34:50.711Z",
+    "lastCheckedAt": "2026-09-03T06:45:08.718Z",
     "latestObservation": {
-      "price": 1309.2,
-      "predictedClose": 1308.62,
+      "price": 1309.4,
+      "predictedClose": 1308.87,
       "expectedReturnPct": -0.04,
       "targetZone": [
-        1299.68,
+        1300.18,
         1317.56
       ],
-      "confidence": 68,
-      "checkedAt": "2026-09-03T06:34:50.711Z"
+      "confidence": 63,
+      "checkedAt": "2026-09-03T06:45:08.718Z"
     }
   },
   {
@@ -19010,17 +19055,17 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:34:50.661Z",
+    "lastCheckedAt": "2026-09-03T06:45:30.414Z",
     "latestObservation": {
-      "price": 410.2,
-      "predictedClose": 410.15,
+      "price": 409.85,
+      "predictedClose": 409.79,
       "expectedReturnPct": -0.01,
       "targetZone": [
-        406.5,
-        413.8
+        406.24,
+        413.34
       ],
       "confidence": 68,
-      "checkedAt": "2026-09-03T06:34:50.661Z"
+      "checkedAt": "2026-09-03T06:45:30.414Z"
     }
   },
   {
@@ -19121,17 +19166,17 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:24:02.941Z",
+    "lastCheckedAt": "2026-09-03T06:45:30.497Z",
     "latestObservation": {
-      "price": 1595.9,
-      "predictedClose": 1596.12,
-      "expectedReturnPct": 0.01,
+      "price": 1598.2,
+      "predictedClose": 1598.27,
+      "expectedReturnPct": 0,
       "targetZone": [
-        1576.7,
-        1615.54
+        1579.82,
+        1616.72
       ],
       "confidence": 68,
-      "checkedAt": "2026-09-03T06:24:02.941Z"
+      "checkedAt": "2026-09-03T06:45:30.497Z"
     }
   },
   {
@@ -19180,17 +19225,17 @@
       "Scheduled checkpoint check-in"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:28:35.155Z",
+    "lastCheckedAt": "2026-09-03T06:46:04.313Z",
     "latestObservation": {
-      "price": 177.16,
-      "predictedClose": 176.92,
-      "expectedReturnPct": -0.14,
+      "price": 176.91,
+      "predictedClose": 176.65,
+      "expectedReturnPct": -0.15,
       "targetZone": [
-        175.1,
-        178.74
+        174.91,
+        178.39
       ],
-      "confidence": 68,
-      "checkedAt": "2026-09-03T06:28:35.155Z"
+      "confidence": 63,
+      "checkedAt": "2026-09-03T06:46:04.313Z"
     }
   },
   {
@@ -19345,17 +19390,17 @@
       "First prediction of the trading session"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:33:51.935Z",
+    "lastCheckedAt": "2026-09-03T06:45:52.178Z",
     "latestObservation": {
-      "price": 1703.3,
-      "predictedClose": 1702.97,
-      "expectedReturnPct": -0.02,
+      "price": 1705.2,
+      "predictedClose": 1704.97,
+      "expectedReturnPct": -0.01,
       "targetZone": [
-        1685.94,
-        1720
+        1688.44,
+        1721.5
       ],
       "confidence": 68,
-      "checkedAt": "2026-09-03T06:33:51.935Z"
+      "checkedAt": "2026-09-03T06:45:52.178Z"
     }
   },
   {
@@ -19614,9 +19659,10 @@
     "reasonForChange": [
       "First prediction of the trading session"
     ],
-    "status": "ACTIVE",
+    "status": "UPDATED",
     "lastCheckedAt": "2026-09-03T06:03:51.059Z",
-    "latestObservation": null
+    "latestObservation": null,
+    "replacedAt": "2026-09-03T06:46:03.906Z"
   },
   {
     "id": "HINDUNILVR-1788415432080",
@@ -20436,17 +20482,17 @@
       "Price moved -0.52%"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:34:28.445Z",
+    "lastCheckedAt": "2026-09-03T06:44:47.025Z",
     "latestObservation": {
-      "price": 1144.4,
-      "predictedClose": 1147.43,
+      "price": 1143.4,
+      "predictedClose": 1146.33,
       "expectedReturnPct": 0.26,
       "targetZone": [
-        1132.1,
-        1162.76
+        1131.38,
+        1161.28
       ],
       "confidence": 54,
-      "checkedAt": "2026-09-03T06:34:28.445Z"
+      "checkedAt": "2026-09-03T06:44:47.025Z"
     }
   },
   {
@@ -20496,19 +20542,20 @@
     "reasonForChange": [
       "news changed materially"
     ],
-    "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:34:51.411Z",
+    "status": "UPDATED",
+    "lastCheckedAt": "2026-09-03T06:45:30.384Z",
     "latestObservation": {
-      "price": 587.35,
-      "predictedClose": 587.58,
+      "price": 587.1,
+      "predictedClose": 587.33,
       "expectedReturnPct": 0.04,
       "targetZone": [
-        574.83,
-        600.33
+        574.92,
+        599.74
       ],
       "confidence": 71,
-      "checkedAt": "2026-09-03T06:34:51.411Z"
-    }
+      "checkedAt": "2026-09-03T06:45:30.384Z"
+    },
+    "replacedAt": "2026-09-03T06:45:31.326Z"
   },
   {
     "id": "AXISBANK-1788416973673",
@@ -20558,17 +20605,17 @@
       "Predicted close changed 0.35%"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:34:29.790Z",
+    "lastCheckedAt": "2026-09-03T06:44:48.311Z",
     "latestObservation": {
       "price": 1273,
-      "predictedClose": 1274.03,
+      "predictedClose": 1274.02,
       "expectedReturnPct": 0.08,
       "targetZone": [
-        1263.2,
-        1284.86
+        1263.46,
+        1284.58
       ],
       "confidence": 68,
-      "checkedAt": "2026-09-03T06:34:29.790Z"
+      "checkedAt": "2026-09-03T06:44:48.311Z"
     }
   },
   {
@@ -20619,17 +20666,17 @@
       "Predicted close changed -0.36%"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:34:32.898Z",
+    "lastCheckedAt": "2026-09-03T06:44:39.299Z",
     "latestObservation": {
-      "price": 328.25,
-      "predictedClose": 328.52,
+      "price": 328.2,
+      "predictedClose": 328.46,
       "expectedReturnPct": 0.08,
       "targetZone": [
-        324.67,
-        332.37
+        324.7,
+        332.22
       ],
       "confidence": 71,
-      "checkedAt": "2026-09-03T06:34:32.898Z"
+      "checkedAt": "2026-09-03T06:44:39.299Z"
     }
   },
   {
@@ -20681,7 +20728,906 @@
       "technicalMomentum changed materially"
     ],
     "status": "ACTIVE",
-    "lastCheckedAt": "2026-09-03T06:34:50.639Z",
+    "lastCheckedAt": "2026-09-03T06:45:19.401Z",
+    "latestObservation": {
+      "price": 888.4,
+      "predictedClose": 889.54,
+      "expectedReturnPct": 0.13,
+      "targetZone": [
+        878.79,
+        900.29
+      ],
+      "confidence": 68,
+      "checkedAt": "2026-09-03T06:45:19.401Z"
+    }
+  },
+  {
+    "id": "BPCL-1788417328542",
+    "symbol": "BPCL",
+    "tradeDate": "2026-09-03",
+    "timeframe": "INTRADAY",
+    "generatedAt": "2026-09-03T06:35:28.542Z",
+    "dataTimestamp": "2026-09-03T06:35:28.532Z",
+    "checkpoint": null,
+    "eventType": "MATERIAL",
+    "signal": "WATCH",
+    "score": 71,
+    "confidence": 68,
+    "price": 319.5,
+    "expectedDirection": "NEUTRAL",
+    "predictedClose": 319.97,
+    "targetZone": [
+      316.39,
+      323.55
+    ],
+    "expectedReturnPct": 0.15,
+    "riskReward": 0.86,
+    "stopLoss": 311.55,
+    "riskProfile": 1.9,
+    "majorFactors": [
+      {
+        "name": "technicalMomentum",
+        "score": 100
+      },
+      {
+        "name": "volumeConfirmation",
+        "score": 81
+      },
+      {
+        "name": "marketSector",
+        "score": 25
+      }
+    ],
+    "confirmationConditions": [
+      "Above its 200-day average — long-term trend is up",
+      "Buying pressure is healthy (55.53/100) — not overheated",
+      "Price moved up 0.79% over the last month",
+      "Short-term momentum is turning up"
+    ],
+    "invalidationCondition": "Market mood is weak (Nifty is in a downtrend) — this drags on the whole market, so be extra careful",
+    "reasonForChange": [
+      "Predicted close changed 0.37%"
+    ],
+    "status": "ACTIVE",
+    "lastCheckedAt": "2026-09-03T06:45:41.591Z",
+    "latestObservation": {
+      "price": 319.5,
+      "predictedClose": 319.96,
+      "expectedReturnPct": 0.14,
+      "targetZone": [
+        316.46,
+        323.46
+      ],
+      "confidence": 68,
+      "checkedAt": "2026-09-03T06:45:41.591Z"
+    }
+  },
+  {
+    "id": "BAJAJ-AUTO-1788417411278",
+    "symbol": "BAJAJ-AUTO",
+    "tradeDate": "2026-09-03",
+    "timeframe": "INTRADAY",
+    "generatedAt": "2026-09-03T06:36:51.278Z",
+    "dataTimestamp": "2026-09-03T06:36:51.276Z",
+    "checkpoint": null,
+    "eventType": "MATERIAL",
+    "signal": "WATCH",
+    "score": 71,
+    "confidence": 68,
+    "price": 12036,
+    "expectedDirection": "NEUTRAL",
+    "predictedClose": 12056.66,
+    "targetZone": [
+      11932.92,
+      12180.4
+    ],
+    "expectedReturnPct": 0.17,
+    "riskReward": 2.94,
+    "stopLoss": 11437.61,
+    "riskProfile": 1.74,
+    "majorFactors": [
+      {
+        "name": "technicalMomentum",
+        "score": 100
+      },
+      {
+        "name": "trend",
+        "score": 100
+      },
+      {
+        "name": "news",
+        "score": 76
+      }
+    ],
+    "confirmationConditions": [
+      "Price is in an uptrend, trading above its 50-day average",
+      "Above its 200-day average — long-term trend is up",
+      "Buying pressure is healthy (62.78/100) — not overheated",
+      "Price moved up 3.22% over the last month"
+    ],
+    "invalidationCondition": "Market mood is weak (Nifty is in a downtrend) — this drags on the whole market, so be extra careful",
+    "reasonForChange": [
+      "Predicted close changed -0.38%"
+    ],
+    "status": "ACTIVE",
+    "lastCheckedAt": "2026-09-03T06:44:39.060Z",
+    "latestObservation": {
+      "price": 12040,
+      "predictedClose": 12059.97,
+      "expectedReturnPct": 0.17,
+      "targetZone": [
+        11938.47,
+        12181.47
+      ],
+      "confidence": 68,
+      "checkedAt": "2026-09-03T06:44:39.060Z"
+    }
+  },
+  {
+    "id": "SIEMENS-1788417445126",
+    "symbol": "SIEMENS",
+    "tradeDate": "2026-09-03",
+    "timeframe": "INTRADAY",
+    "generatedAt": "2026-09-03T06:37:25.126Z",
+    "dataTimestamp": "2026-09-03T06:37:25.125Z",
+    "checkpoint": null,
+    "eventType": "MATERIAL",
+    "signal": "WATCH",
+    "score": 70,
+    "confidence": 71,
+    "price": 4059,
+    "expectedDirection": "NEUTRAL",
+    "predictedClose": 4069.5,
+    "targetZone": [
+      4019.53,
+      4119.47
+    ],
+    "expectedReturnPct": 0.26,
+    "riskReward": 2.27,
+    "stopLoss": 3802.42,
+    "riskProfile": 2.09,
+    "majorFactors": [
+      {
+        "name": "trend",
+        "score": 100
+      },
+      {
+        "name": "technicalMomentum",
+        "score": 99
+      },
+      {
+        "name": "marketSector",
+        "score": 25
+      }
+    ],
+    "confirmationConditions": [
+      "Price is in an uptrend, trading above its 50-day average",
+      "Above its 200-day average — long-term trend is up",
+      "Buying pressure is healthy (58.48/100) — not overheated",
+      "Price moved up 0.27% over the last month"
+    ],
+    "invalidationCondition": "Market mood is weak (Nifty is in a downtrend) — this drags on the whole market, so be extra careful",
+    "reasonForChange": [
+      "Predicted close changed -0.36%"
+    ],
+    "status": "ACTIVE",
+    "lastCheckedAt": "2026-09-03T06:44:48.890Z",
+    "latestObservation": {
+      "price": 4060.9,
+      "predictedClose": 4071.43,
+      "expectedReturnPct": 0.26,
+      "targetZone": [
+        4022.33,
+        4120.53
+      ],
+      "confidence": 71,
+      "checkedAt": "2026-09-03T06:44:48.890Z"
+    }
+  },
+  {
+    "id": "ABB-1788417460690",
+    "symbol": "ABB",
+    "tradeDate": "2026-09-03",
+    "timeframe": "INTRADAY",
+    "generatedAt": "2026-09-03T06:37:40.690Z",
+    "dataTimestamp": "2026-09-03T06:37:40.637Z",
+    "checkpoint": null,
+    "eventType": "MATERIAL",
+    "signal": "AVOID",
+    "score": 41,
+    "confidence": 71,
+    "price": 7416,
+    "expectedDirection": "NEUTRAL",
+    "predictedClose": 7411.07,
+    "targetZone": [
+      7319.12,
+      7503.02
+    ],
+    "expectedReturnPct": -0.07,
+    "riskReward": null,
+    "stopLoss": 7101.79,
+    "riskProfile": 2.11,
+    "majorFactors": [
+      {
+        "name": "technicalMomentum",
+        "score": 8
+      },
+      {
+        "name": "news",
+        "score": 75
+      },
+      {
+        "name": "marketSector",
+        "score": 25
+      }
+    ],
+    "confirmationConditions": [
+      "Above its 200-day average — long-term trend is up",
+      "News is positive (75/100)"
+    ],
+    "invalidationCondition": "Invalidated if price closes below ₹7101.79",
+    "reasonForChange": [
+      "First prediction of the trading session"
+    ],
+    "status": "ACTIVE",
+    "lastCheckedAt": "2026-09-03T06:37:40.690Z",
+    "latestObservation": null
+  },
+  {
+    "id": "HDFCLIFE-1788417467089",
+    "symbol": "HDFCLIFE",
+    "tradeDate": "2026-09-03",
+    "timeframe": "INTRADAY",
+    "generatedAt": "2026-09-03T06:37:47.089Z",
+    "dataTimestamp": "2026-09-03T06:37:47.085Z",
+    "checkpoint": null,
+    "eventType": "MATERIAL",
+    "signal": "AVOID",
+    "score": 31,
+    "confidence": 71,
+    "price": 535.4,
+    "expectedDirection": "NEUTRAL",
+    "predictedClose": 534.51,
+    "targetZone": [
+      528.58,
+      540.44
+    ],
+    "expectedReturnPct": -0.17,
+    "riskReward": null,
+    "stopLoss": 521.97,
+    "riskProfile": 1.88,
+    "majorFactors": [
+      {
+        "name": "technicalMomentum",
+        "score": 0
+      },
+      {
+        "name": "trend",
+        "score": 8
+      },
+      {
+        "name": "news",
+        "score": 82
+      }
+    ],
+    "confirmationConditions": [
+      "News is positive (82/100)"
+    ],
+    "invalidationCondition": "Invalidated if price closes below ₹521.97",
+    "reasonForChange": [
+      "First prediction of the trading session"
+    ],
+    "status": "ACTIVE",
+    "lastCheckedAt": "2026-09-03T06:37:47.089Z",
+    "latestObservation": null
+  },
+  {
+    "id": "DMART-1788417473706",
+    "symbol": "DMART",
+    "tradeDate": "2026-09-03",
+    "timeframe": "INTRADAY",
+    "generatedAt": "2026-09-03T06:37:53.706Z",
+    "dataTimestamp": "2026-09-03T06:37:53.702Z",
+    "checkpoint": null,
+    "eventType": "MATERIAL",
+    "signal": "AVOID",
+    "score": 28,
+    "confidence": 71,
+    "price": 3781.8,
+    "expectedDirection": "NEUTRAL",
+    "predictedClose": 3772.25,
+    "targetZone": [
+      3725.09,
+      3819.41
+    ],
+    "expectedReturnPct": -0.25,
+    "riskReward": null,
+    "stopLoss": 3657.08,
+    "riskProfile": 2.12,
+    "majorFactors": [
+      {
+        "name": "technicalMomentum",
+        "score": 0
+      },
+      {
+        "name": "trend",
+        "score": 8
+      },
+      {
+        "name": "marketSector",
+        "score": 25
+      }
+    ],
+    "confirmationConditions": [
+      "News is positive (70/100)"
+    ],
+    "invalidationCondition": "Invalidated if price closes below ₹3657.08",
+    "reasonForChange": [
+      "First prediction of the trading session"
+    ],
+    "status": "ACTIVE",
+    "lastCheckedAt": "2026-09-03T06:37:53.706Z",
+    "latestObservation": null
+  },
+  {
+    "id": "JIOFIN-1788417481078",
+    "symbol": "JIOFIN",
+    "tradeDate": "2026-09-03",
+    "timeframe": "INTRADAY",
+    "generatedAt": "2026-09-03T06:38:01.078Z",
+    "dataTimestamp": "2026-09-03T06:38:01.075Z",
+    "checkpoint": null,
+    "eventType": "MATERIAL",
+    "signal": "AVOID",
+    "score": 24,
+    "confidence": 54,
+    "price": 238.39,
+    "expectedDirection": "NEUTRAL",
+    "predictedClose": 237.89,
+    "targetZone": [
+      235.64,
+      240.14
+    ],
+    "expectedReturnPct": -0.21,
+    "riskReward": null,
+    "stopLoss": 228.46,
+    "riskProfile": 1.61,
+    "majorFactors": [
+      {
+        "name": "technicalMomentum",
+        "score": 0
+      },
+      {
+        "name": "trend",
+        "score": 0
+      },
+      {
+        "name": "news",
+        "score": 0
+      }
+    ],
+    "confirmationConditions": [],
+    "invalidationCondition": "Invalidated if price closes below ₹228.46",
+    "reasonForChange": [
+      "First prediction of the trading session"
+    ],
+    "status": "ACTIVE",
+    "lastCheckedAt": "2026-09-03T06:38:01.078Z",
+    "latestObservation": null
+  },
+  {
+    "id": "DIVISLAB-1788417590484",
+    "symbol": "DIVISLAB",
+    "tradeDate": "2026-09-03",
+    "timeframe": "INTRADAY",
+    "generatedAt": "2026-09-03T06:39:50.484Z",
+    "dataTimestamp": "2026-09-03T06:39:50.482Z",
+    "checkpoint": null,
+    "eventType": "MATERIAL",
+    "signal": "WATCH",
+    "score": 72,
+    "confidence": 68,
+    "price": 9242.5,
+    "expectedDirection": "NEUTRAL",
+    "predictedClose": 9270.45,
+    "targetZone": [
+      9186.09,
+      9354.81
+    ],
+    "expectedReturnPct": 0.3,
+    "riskReward": 2.35,
+    "stopLoss": 8269.96,
+    "riskProfile": 1.56,
+    "majorFactors": [
+      {
+        "name": "trend",
+        "score": 100
+      },
+      {
+        "name": "technicalMomentum",
+        "score": 91
+      },
+      {
+        "name": "news",
+        "score": 75
+      }
+    ],
+    "confirmationConditions": [
+      "Price is in an uptrend, trading above its 50-day average",
+      "Above its 200-day average — long-term trend is up",
+      "Price moved up 7.47% over the last month",
+      "Short-term momentum is turning up"
+    ],
+    "invalidationCondition": "Market mood is weak (Nifty is in a downtrend) — this drags on the whole market, so be extra careful",
+    "reasonForChange": [
+      "Predicted close changed 0.41%",
+      "technicalMomentum changed materially"
+    ],
+    "status": "ACTIVE",
+    "lastCheckedAt": "2026-09-03T06:44:37.497Z",
+    "latestObservation": {
+      "price": 9230.5,
+      "predictedClose": 9258.14,
+      "expectedReturnPct": 0.3,
+      "targetZone": [
+        9174.83,
+        9341.45
+      ],
+      "confidence": 68,
+      "checkedAt": "2026-09-03T06:44:37.497Z"
+    }
+  },
+  {
+    "id": "HAL-1788417892708",
+    "symbol": "HAL",
+    "tradeDate": "2026-09-03",
+    "timeframe": "INTRADAY",
+    "generatedAt": "2026-09-03T06:44:52.708Z",
+    "dataTimestamp": "2026-09-03T06:44:52.704Z",
+    "checkpoint": null,
+    "eventType": "MATERIAL",
+    "signal": "AVOID",
+    "score": 37,
+    "confidence": 63,
+    "price": 4789.2,
+    "expectedDirection": "NEUTRAL",
+    "predictedClose": 4780.3,
+    "targetZone": [
+      4731.53,
+      4829.07
+    ],
+    "expectedReturnPct": -0.19,
+    "riskReward": null,
+    "stopLoss": 4673.48,
+    "riskProfile": 1.76,
+    "majorFactors": [
+      {
+        "name": "technicalMomentum",
+        "score": 0
+      },
+      {
+        "name": "news",
+        "score": 0
+      },
+      {
+        "name": "marketSector",
+        "score": 25
+      }
+    ],
+    "confirmationConditions": [
+      "Above its 200-day average — long-term trend is up"
+    ],
+    "invalidationCondition": "Invalidated if price closes below ₹4673.48",
+    "reasonForChange": [
+      "First prediction of the trading session"
+    ],
+    "status": "ACTIVE",
+    "lastCheckedAt": "2026-09-03T06:45:00.455Z",
+    "latestObservation": {
+      "price": 4789.2,
+      "predictedClose": 4780.33,
+      "expectedReturnPct": -0.19,
+      "targetZone": [
+        4731.69,
+        4828.97
+      ],
+      "confidence": 63,
+      "checkedAt": "2026-09-03T06:45:00.455Z"
+    }
+  },
+  {
+    "id": "BHEL-1788417897255",
+    "symbol": "BHEL",
+    "tradeDate": "2026-09-03",
+    "timeframe": "INTRADAY",
+    "generatedAt": "2026-09-03T06:44:57.255Z",
+    "dataTimestamp": "2026-09-03T06:44:57.252Z",
+    "checkpoint": null,
+    "eventType": "MATERIAL",
+    "signal": "WATCH",
+    "score": 65,
+    "confidence": 66,
+    "price": 428.95,
+    "expectedDirection": "NEUTRAL",
+    "predictedClose": 429.6,
+    "targetZone": [
+      423.21,
+      435.99
+    ],
+    "expectedReturnPct": 0.15,
+    "riskReward": null,
+    "stopLoss": 403.48,
+    "riskProfile": 2.57,
+    "majorFactors": [
+      {
+        "name": "trend",
+        "score": 100
+      },
+      {
+        "name": "news",
+        "score": 0
+      },
+      {
+        "name": "marketSector",
+        "score": 25
+      }
+    ],
+    "confirmationConditions": [
+      "Price is in an uptrend, trading above its 50-day average",
+      "Above its 200-day average — long-term trend is up",
+      "Price moved up 1.56% over the last month",
+      "Short-term momentum is turning up"
+    ],
+    "invalidationCondition": "Invalidated if price closes below ₹403.48",
+    "reasonForChange": [
+      "First prediction of the trading session"
+    ],
+    "status": "ACTIVE",
+    "lastCheckedAt": "2026-09-03T06:45:02.042Z",
+    "latestObservation": {
+      "price": 428.95,
+      "predictedClose": 429.6,
+      "expectedReturnPct": 0.15,
+      "targetZone": [
+        423.23,
+        435.97
+      ],
+      "confidence": 66,
+      "checkedAt": "2026-09-03T06:45:02.042Z"
+    }
+  },
+  {
+    "id": "GODREJPROP-1788417914694",
+    "symbol": "GODREJPROP",
+    "tradeDate": "2026-09-03",
+    "timeframe": "INTRADAY",
+    "generatedAt": "2026-09-03T06:45:14.694Z",
+    "dataTimestamp": "2026-09-03T06:45:14.689Z",
+    "checkpoint": null,
+    "eventType": "MATERIAL",
+    "signal": "NO TRADE",
+    "score": 45,
+    "confidence": 63,
+    "price": 2012.3,
+    "expectedDirection": "NEUTRAL",
+    "predictedClose": 2010.61,
+    "targetZone": [
+      1983.38,
+      2037.84
+    ],
+    "expectedReturnPct": -0.08,
+    "riskReward": null,
+    "stopLoss": 1912.79,
+    "riskProfile": 2.35,
+    "majorFactors": [
+      {
+        "name": "news",
+        "score": 0
+      },
+      {
+        "name": "trend",
+        "score": 4
+      },
+      {
+        "name": "volumeConfirmation",
+        "score": 91
+      }
+    ],
+    "confirmationConditions": [
+      "Above its 200-day average — long-term trend is up",
+      "Buying pressure is healthy (53.1/100) — not overheated"
+    ],
+    "invalidationCondition": "Invalidated if price closes below ₹1912.79",
+    "reasonForChange": [
+      "First prediction of the trading session"
+    ],
+    "status": "ACTIVE",
+    "lastCheckedAt": "2026-09-03T06:45:19.152Z",
+    "latestObservation": {
+      "price": 2011.9,
+      "predictedClose": 2010.21,
+      "expectedReturnPct": -0.08,
+      "targetZone": [
+        1982.98,
+        2037.44
+      ],
+      "confidence": 63,
+      "checkedAt": "2026-09-03T06:45:19.152Z"
+    }
+  },
+  {
+    "id": "HINDZINC-1788417931326",
+    "symbol": "HINDZINC",
+    "tradeDate": "2026-09-03",
+    "timeframe": "INTRADAY",
+    "generatedAt": "2026-09-03T06:45:31.326Z",
+    "dataTimestamp": "2026-09-03T06:45:31.324Z",
+    "checkpoint": null,
+    "eventType": "MATERIAL",
+    "signal": "WATCH",
+    "score": 62,
+    "confidence": 66,
+    "price": 587.1,
+    "expectedDirection": "NEUTRAL",
+    "predictedClose": 587.33,
+    "targetZone": [
+      574.92,
+      599.74
+    ],
+    "expectedReturnPct": 0.04,
+    "riskReward": null,
+    "stopLoss": 557.64,
+    "riskProfile": 3.66,
+    "majorFactors": [
+      {
+        "name": "trend",
+        "score": 100
+      },
+      {
+        "name": "news",
+        "score": 0
+      },
+      {
+        "name": "volumeConfirmation",
+        "score": 86
+      }
+    ],
+    "confirmationConditions": [
+      "Price is in an uptrend, trading above its 50-day average",
+      "Above its 200-day average — long-term trend is up",
+      "Buying pressure is healthy (47.28/100) — not overheated",
+      "Price moved up 5.45% over the last month"
+    ],
+    "invalidationCondition": "Invalidated if price closes below ₹557.64",
+    "reasonForChange": [
+      "news changed materially"
+    ],
+    "status": "UPDATED",
+    "lastCheckedAt": "2026-09-03T06:45:36.795Z",
+    "latestObservation": {
+      "price": 587.1,
+      "predictedClose": 587.33,
+      "expectedReturnPct": 0.04,
+      "targetZone": [
+        574.92,
+        599.74
+      ],
+      "confidence": 66,
+      "checkedAt": "2026-09-03T06:45:36.795Z"
+    },
+    "replacedAt": "2026-09-03T06:45:39.203Z"
+  },
+  {
+    "id": "HINDZINC-1788417939203",
+    "symbol": "HINDZINC",
+    "tradeDate": "2026-09-03",
+    "timeframe": "INTRADAY",
+    "generatedAt": "2026-09-03T06:45:39.203Z",
+    "dataTimestamp": "2026-09-03T06:45:39.200Z",
+    "checkpoint": null,
+    "eventType": "MATERIAL",
+    "signal": "WATCH",
+    "score": 65,
+    "confidence": 71,
+    "price": 587.1,
+    "expectedDirection": "NEUTRAL",
+    "predictedClose": 587.33,
+    "targetZone": [
+      574.92,
+      599.74
+    ],
+    "expectedReturnPct": 0.04,
+    "riskReward": null,
+    "stopLoss": 557.64,
+    "riskProfile": 3.66,
+    "majorFactors": [
+      {
+        "name": "trend",
+        "score": 100
+      },
+      {
+        "name": "news",
+        "score": 100
+      },
+      {
+        "name": "volumeConfirmation",
+        "score": 86
+      }
+    ],
+    "confirmationConditions": [
+      "Price is in an uptrend, trading above its 50-day average",
+      "Above its 200-day average — long-term trend is up",
+      "Buying pressure is healthy (47.28/100) — not overheated",
+      "Price moved up 5.45% over the last month"
+    ],
+    "invalidationCondition": "Invalidated if price closes below ₹557.64",
+    "reasonForChange": [
+      "news changed materially"
+    ],
+    "status": "ACTIVE",
+    "lastCheckedAt": "2026-09-03T06:45:39.203Z",
+    "latestObservation": null
+  },
+  {
+    "id": "IOC-1788417954352",
+    "symbol": "IOC",
+    "tradeDate": "2026-09-03",
+    "timeframe": "INTRADAY",
+    "generatedAt": "2026-09-03T06:45:54.352Z",
+    "dataTimestamp": "2026-09-03T06:45:54.349Z",
+    "checkpoint": null,
+    "eventType": "MATERIAL",
+    "signal": "AVOID",
+    "score": 35,
+    "confidence": 63,
+    "price": 136.76,
+    "expectedDirection": "NEUTRAL",
+    "predictedClose": 136.66,
+    "targetZone": [
+      135.58,
+      137.74
+    ],
+    "expectedReturnPct": -0.07,
+    "riskReward": null,
+    "stopLoss": 133.27,
+    "riskProfile": 1.37,
+    "majorFactors": [
+      {
+        "name": "trend",
+        "score": 0
+      },
+      {
+        "name": "news",
+        "score": 0
+      },
+      {
+        "name": "volatility",
+        "score": 79
+      }
+    ],
+    "confirmationConditions": [
+      "Short-term momentum is turning up"
+    ],
+    "invalidationCondition": "Invalidated if price closes below ₹133.27",
+    "reasonForChange": [
+      "First prediction of the trading session"
+    ],
+    "status": "ACTIVE",
+    "lastCheckedAt": "2026-09-03T06:46:00.467Z",
+    "latestObservation": {
+      "price": 136.7,
+      "predictedClose": 136.6,
+      "expectedReturnPct": -0.07,
+      "targetZone": [
+        135.52,
+        137.68
+      ],
+      "confidence": 63,
+      "checkedAt": "2026-09-03T06:46:00.467Z"
+    }
+  },
+  {
+    "id": "POWERGRID-1788417959416",
+    "symbol": "POWERGRID",
+    "tradeDate": "2026-09-03",
+    "timeframe": "INTRADAY",
+    "generatedAt": "2026-09-03T06:45:59.416Z",
+    "dataTimestamp": "2026-09-03T06:45:59.414Z",
+    "checkpoint": null,
+    "eventType": "MATERIAL",
+    "signal": "NO TRADE",
+    "score": 58,
+    "confidence": 63,
+    "price": 268.2,
+    "expectedDirection": "NEUTRAL",
+    "predictedClose": 268.12,
+    "targetZone": [
+      265.36,
+      270.88
+    ],
+    "expectedReturnPct": -0.03,
+    "riskReward": null,
+    "stopLoss": 256.91,
+    "riskProfile": 1.78,
+    "majorFactors": [
+      {
+        "name": "technicalMomentum",
+        "score": 100
+      },
+      {
+        "name": "trend",
+        "score": 0
+      },
+      {
+        "name": "news",
+        "score": 0
+      }
+    ],
+    "confirmationConditions": [
+      "Buying pressure is healthy (50.37/100) — not overheated",
+      "Price moved up 0.6% over the last month",
+      "Short-term momentum is turning up",
+      "Doing better than the Nifty by +0.2% over a month"
+    ],
+    "invalidationCondition": "Invalidated if price closes below ₹256.91",
+    "reasonForChange": [
+      "Predicted close changed -0.38%"
+    ],
+    "status": "ACTIVE",
+    "lastCheckedAt": "2026-09-03T06:45:59.416Z",
+    "latestObservation": null
+  },
+  {
+    "id": "VEDL-1788417963906",
+    "symbol": "VEDL",
+    "tradeDate": "2026-09-03",
+    "timeframe": "INTRADAY",
+    "generatedAt": "2026-09-03T06:46:03.906Z",
+    "dataTimestamp": "2026-09-03T06:46:03.903Z",
+    "checkpoint": null,
+    "eventType": "MATERIAL",
+    "signal": "AVOID",
+    "score": 43,
+    "confidence": 66,
+    "price": 269,
+    "expectedDirection": "NEUTRAL",
+    "predictedClose": 268.58,
+    "targetZone": [
+      263.23,
+      273.93
+    ],
+    "expectedReturnPct": -0.16,
+    "riskReward": null,
+    "stopLoss": 252.05,
+    "riskProfile": 3.46,
+    "majorFactors": [
+      {
+        "name": "news",
+        "score": 0
+      },
+      {
+        "name": "marketSector",
+        "score": 25
+      },
+      {
+        "name": "technicalMomentum",
+        "score": 26
+      }
+    ],
+    "confirmationConditions": [
+      "Price moved up 2.54% over the last month",
+      "Doing better than the Nifty by +2.14% over a month"
+    ],
+    "invalidationCondition": "Invalidated if price closes below ₹252.05",
+    "reasonForChange": [
+      "Signal changed from NO TRADE to AVOID",
+      "Price moved -0.55%",
+      "Predicted close changed -0.59%",
+      "Target zone changed -0.78%",
+      "news changed materially"
+    ],
+    "status": "ACTIVE",
+    "lastCheckedAt": "2026-09-03T06:46:03.906Z",
     "latestObservation": null
   }
 ]

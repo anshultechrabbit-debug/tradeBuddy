@@ -279,8 +279,14 @@ export function AiPicksPage() {
   return (
     <div className="space-y-4">
       {/* ── HEADER BANNER ── */}
-      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950 p-5 sm:p-6 text-white border border-slate-200/20 dark:border-[#1c2541] shadow-xl">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-electric-600/15 rounded-full blur-3xl pointer-events-none" />
+      {/* overflow-hidden lives on this inner decorative layer, not the
+          section itself — the search suggestions dropdown below renders
+          past the section's bottom edge, and clipping it there was exactly
+          why it never actually became visible even though it was rendering. */}
+      <section className="relative rounded-3xl bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950 p-5 sm:p-6 text-white border border-slate-200/20 dark:border-[#1c2541] shadow-xl">
+        <div className="absolute inset-0 overflow-hidden rounded-3xl pointer-events-none">
+          <div className="absolute top-0 right-0 w-96 h-96 bg-electric-600/15 rounded-full blur-3xl" />
+        </div>
         <div className="relative z-10 flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-white/10">
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-electric-950/80 border border-electric-500/30 text-electric-300 text-[10.5px] font-mono font-bold tracking-wider mb-1.5">

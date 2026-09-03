@@ -195,19 +195,39 @@ export async function deleteScanUniverseEntry(entryId) {
 }
 
 export async function searchInstruments({ q, limit = 20 } = {}) {
-  const where = q
-    ? {
-        OR: [
-          { symbol: { contains: q.toUpperCase(), mode: 'insensitive' } },
-          { name: { contains: q, mode: 'insensitive' } },
-        ],
-      }
-    : {};
-  return prisma.instrument.findMany({
-    where,
+  if (!q) {
+    return prisma.instrument.findMany({ orderBy: { symbol: 'asc' }, take: limit });
+  }
+  const upperQ = q.toUpperCase();
+  // Widen the DB fetch beyond `limit` and rank in-app instead of trusting
+  // alphabetical order — a plain `contains` + `orderBy: symbol asc` matched
+  // any symbol/name with the query letters ANYWHERE (e.g. "REL" also hits
+  // ABREL, RAYMONDREL, RELCHEMQ, RELIABLE...), and alphabetical sort then
+  // pushed the actually-obvious match (RELIANCE) out of the top results
+  // entirely — "RELIABLE" < "RELIANCE" alphabetically. A user typing a
+  // ticker prefix wants the symbol that STARTS with what they typed first.
+  const candidates = await prisma.instrument.findMany({
+    where: {
+      OR: [
+        { symbol: { contains: upperQ, mode: 'insensitive' } },
+        { name: { contains: q, mode: 'insensitive' } },
+      ],
+    },
     orderBy: { symbol: 'asc' },
-    take: limit,
+    take: Math.min(300, Math.max(limit * 10, 50)),
   });
+  const rank = (inst) => {
+    const sym = (inst.symbol ?? '').toUpperCase();
+    const name = (inst.name ?? '').toUpperCase();
+    if (sym === upperQ) return 0;
+    if (sym.startsWith(upperQ)) return 1;
+    if (name.startsWith(upperQ)) return 2;
+    if (sym.includes(upperQ)) return 3;
+    return 4;
+  };
+  return candidates
+    .sort((a, b) => rank(a) - rank(b) || a.symbol.localeCompare(b.symbol))
+    .slice(0, limit);
 }
 
 export async function syncScanUniverseExternal() {
